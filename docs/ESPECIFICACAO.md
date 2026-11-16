@@ -1,10 +1,10 @@
-# Game de Atividade Física — Especificação do MVP
+# Hive Break — Especificação do MVP
 
 Nov 14, 2026 · @Luan Tavares
 
 ## 1. Visão e escopo do MVP
 
-O MVP é um web app mobile first (PWA) que usa a câmera frontal do celular para validar desafios de exercício de até 5 minutos. Os desafios se agrupam em níveis de 8 a 12 (uma sessão completa de 40 a 60 minutos), e o usuário escolhe fazer só um desafio no dia ou o nível inteiro.
+O MVP do Hive Break é um web app mobile first (PWA) que usa a câmera frontal do celular para validar desafios de exercício de até 5 minutos. Os desafios se agrupam em níveis de 8 a 12 (uma sessão completa de 40 a 60 minutos), e o usuário escolhe fazer só um desafio no dia ou o nível inteiro.
 
 **Proposta em uma frase:** "Um desafio de 5 minutos por dia, ou o treino completo quando der, com um treinador na câmera que conta, corrige e pontua cada repetição."
 
@@ -54,7 +54,7 @@ As premissas abaixo são o padrão adotado nesta especificação. As marcadas co
 | Câmera | Somente a frontal (a pessoa precisa ver a tela). Exercícios de vista lateral pedem que a pessoa fique de lado para o celular | Decidido |
 | Custo para o usuário | Início sem custo e sem equipamento; equipamento entra aos poucos, com aviso antecipado | Decidido |
 | Música | Faixas livres de direitos autorais (royalty-free ou CC0) ou sem música, à escolha do usuário | Decidido |
-| Nome do produto | Provisório: "MoveQuest" | Aberto |
+| Nome do produto | Hive Break | Decidido |
 | Modelo de negócio | Gratuito no MVP, teste fechado com alunos e contatos do TTC e quem eles convidarem | Aberto |
 | Plataforma | PWA no navegador do celular, instalável na tela inicial | Aberto |
 | Idioma | Português do Brasil | Aberto |
@@ -66,7 +66,7 @@ As premissas abaixo são o padrão adotado nesta especificação. As marcadas co
 
 **Perguntas para o Luan responder antes do build:**
 
-- [ ] O nome provisório serve ou já existe um nome?
+- [ ] Nome definido: Hive Break (15/11/2026).
 - [ ] O MVP leva a marca TTC ou é uma marca própria?
 - [ ] Quem revisa tecnicamente os critérios de cada exercício (amplitude mínima, erros)?
 - [ ] Quantos testadores no grupo inicial e por quanto tempo (sugestão: 30 pessoas, 4 semanas, cada uma com convites liberados)?
@@ -117,7 +117,7 @@ A jornada tem três partes: o primeiro acesso, que precisa levar o usuário ao p
 ### 3.4 Ciclo de convite
 
 1. **Momentos de convite:** depois do 1º desafio, ao concluir um nível, ao subir de divisão na liga, ao bater um recorde pessoal e na aba Amigos.
-2. **Envio:** link pessoal com código, compartilhado pelo menu nativo do celular (WhatsApp, Instagram, SMS). A mensagem padrão é editável: "Estou treinando 5 minutos por dia no MoveQuest. Bora junto? \[link\]"
+2. **Envio:** link pessoal com código, compartilhado pelo menu nativo do celular (WhatsApp, Instagram, SMS). A mensagem padrão é editável: "Estou treinando 5 minutos por dia no Hive Break. Bora junto? \[link\]"
 3. **Chegada do convidado:** landing com o nome de quem convidou, depois o mesmo primeiro acesso.
 4. **Ativação:** quando o convidado conclui o 1º desafio, os dois ganham 1 protetor de ofensiva e viram amigos automaticamente. Quem convidou recebe notificação.
 5. **Ranking entre amigos:** a aba Amigos mostra a semana dos amigos (XP, ofensiva, nível), além da liga pública.
@@ -731,7 +731,7 @@ A construção vai em 7 fases e começa pelo motor de detecção, porque ele é 
 4. Peça uma fase por vez e teste no celular antes de seguir.
 
 ```markdown
-Você vai construir o MVP de um jogo de atividade física no navegador, mobile first, descrito em docs/ESPECIFICACAO.md. Leia o documento inteiro antes de começar.
+Você vai construir o MVP do Hive Break, um jogo de atividade física no navegador, mobile first, descrito em docs/ESPECIFICACAO.md. Leia o documento inteiro antes de começar.
 
 Contexto: sou Diretor Técnico de um centro de performance esportiva. O produto é um "Duolingo do exercício": desafios de até 5 minutos, agrupados em níveis de 8 a 12 desafios (sessão completa de 40 a 60 min, do aquecimento à respiração). O usuário faz só um desafio ou o nível inteiro. A câmera frontal do celular valida os movimentos com detecção de pose (MediaPipe Pose Landmarker), conta repetições, mede KPIs e gera score, XP, ofensiva, liga semanal e ranking entre amigos. Convites e retenção (ofensiva + régua de avisos por push e e-mail) fazem parte do MVP porque queremos validar hábito e crescimento por indicação.
 
