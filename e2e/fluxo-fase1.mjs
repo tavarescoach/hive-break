@@ -1,0 +1,264 @@
+/**
+ * Teste de ponta a ponta da Fase 1 (cadastro, onboarding, convite), no Chromium.
+ *
+ * Antes de rodar (ver e2e/README.md):
+ *   1. npx tsx e2e/supabase-falso.ts
+ *   2. build e start do app com NEXT_PUBLIC_SUPABASE_URL=http://localhost:54329
+ *   3. node e2e/fluxo-fase1.mjs
+ *
+ * Variáveis: APP (endereço do app), SUPABASE (servidor falso), CAMERA_FALSA
+ * (arquivo .mjpeg usado como câmera) e CAPTURAS (pasta para as telas).
+ */
+import { createRequire } from "node:module";
+import assert from "node:assert/strict";
+
+const require = createRequire(import.meta.url);
+const { chromium } = require("playwright");
+
+const APP = process.env.APP ?? "http://localhost:3111";
+const SUPABASE = process.env.SUPABASE ?? "http://localhost:54329";
+const CAPTURAS = process.env.CAPTURAS;
+const argumentos = ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--enable-unsafe-swiftshader"];
+if (process.env.CAMERA_FALSA) argumentos.push(`--use-file-for-fake-video-capture=${process.env.CAMERA_FALSA}`);
+
+const controle = (rota, corpo) =>
+  fetch(`${SUPABASE}/__controle/${rota}`, { method: "POST", body: JSON.stringify(corpo) }).then((r) => r.json());
+const sql = (texto, params) => controle("sql", { sql: texto, params });
+
+let passo = 0;
+async function captura(pagina, nome) {
+  if (CAPTURAS) await pagina.screenshot({ path: `${CAPTURAS}/${String(++passo).padStart(2, "0")}-${nome}.png`, fullPage: true });
+}
+const continuar = (pagina, nome = "Continuar") => pagina.getByRole("button", { name: nome }).click();
+
+async function novaPessoa(navegador, identidade) {
+  await controle("proximo-usuario", identidade);
+  const contexto = await navegador.newContext({ viewport: { width: 390, height: 844 }, permissions: ["camera"], locale: "pt-BR", timezoneId: "America/Sao_Paulo" });
+  const pagina = await contexto.newPage();
+  const externas = [];
+  pagina.on("request", (r) => {
+    const host = new URL(r.url()).host;
+    if (host !== new URL(APP).host && host !== new URL(SUPABASE).host) externas.push(r.url());
+  });
+  pagina.on("pageerror", (e) => console.log("  [erro na página]", e.message));
+  return { pagina, externas };
+}
+
+/** Faz o cadastro inteiro. `triagemSim` marca "sim" numa pergunta. */
+async function cadastro(pagina, { apelido, nascimento, triagemSim = false, prefixo }) {
+  await pagina.getByRole("button", { name: "Entrar com Google" }).click();
+  await pagina.waitForURL("**/onboarding/termos");
+  await captura(pagina, `${prefixo}-termos`);
+
+  // Sem marcar os aceites, não passa.
+  await continuar(pagina, "Aceitar e continuar");
+  await pagina.getByRole("alert").filter({ hasText: "três aceites" }).waitFor();
+  for (const caixa of await pagina.getByRole("checkbox").all()) await caixa.check();
+  await continuar(pagina, "Aceitar e continuar");
+
+  await pagina.waitForURL("**/onboarding/perfil/apelido");
+  await pagina.getByRole("textbox").fill("ab");
+  await pagina.getByRole("textbox").press("Enter");
+  // O navegador barra apelido curto (minlength); o servidor também valida.
+  await pagina.getByRole("textbox").fill(apelido);
+  await captura(pagina, `${prefixo}-apelido`);
+  await continuar(pagina);
+
+  await pagina.waitForURL("**/perfil/nascimento");
+  await pagina.locator('input[type="date"]').fill(nascimento);
+  await continuar(pagina);
+  await pagina.waitForURL("**/perfil/sexo");
+  await pagina.getByText("Feminino").click();
+  await continuar(pagina);
+  await pagina.waitForURL("**/perfil/altura");
+  await pagina.getByRole("textbox").fill("300");
+  await continuar(pagina);
+  await pagina.getByRole("alert").filter({ hasText: "entre 120 e 230" }).waitFor();
+  await pagina.getByRole("textbox").fill("1,68");
+  await continuar(pagina);
+  await pagina.waitForURL("**/perfil/peso");
+  await pagina.getByRole("textbox").fill("64,5");
+  await captura(pagina, `${prefixo}-peso`);
+  await continuar(pagina);
+  await pagina.waitForURL("**/perfil/objetivo");
+  await pagina.getByText("Ganhar força").click();
+  await captura(pagina, `${prefixo}-objetivo`);
+  await continuar(pagina);
+  await pagina.waitForURL("**/perfil/atividade");
+  await pagina.getByText("Pouco ativo").click();
+  await continuar(pagina);
+  await pagina.waitForURL("**/perfil/dias");
+  await pagina.getByText("4", { exact: true }).click();
+  await captura(pagina, `${prefixo}-dias`);
+  await continuar(pagina);
+  await pagina.waitForURL("**/perfil/equipamento");
+  await continuar(pagina);
+  await pagina.getByRole("alert").filter({ hasText: "Nenhum" }).waitFor();
+  await pagina.getByText("Tapete").click();
+  await captura(pagina, `${prefixo}-equipamento`);
+  await continuar(pagina);
+
+  await pagina.waitForURL("**/onboarding/triagem");
+  const grupos = await pagina.getByRole("group").all();
+  assert.equal(grupos.length, 7, "a triagem tem 7 perguntas");
+  for (const [i, grupo] of grupos.entries()) {
+    await grupo.getByText(triagemSim && i === 5 ? "Sim" : "Não", { exact: true }).click();
+  }
+  await captura(pagina, `${prefixo}-triagem`);
+  await continuar(pagina);
+  if (triagemSim) {
+    await pagina.getByText("Converse com um médico").waitFor();
+    await captura(pagina, `${prefixo}-triagem-recomendacao`);
+    await pagina.getByRole("link", { name: "Entendi, continuar" }).click();
+  }
+
+  await pagina.waitForURL("**/onboarding/meta");
+  await pagina.getByText("2 desafios").click();
+  await pagina.getByText("14 dias").click();
+  await captura(pagina, `${prefixo}-meta`);
+  await continuar(pagina, "Assumir meu compromisso");
+
+  await pagina.waitForURL("**/camera");
+  await captura(pagina, `${prefixo}-camera-guia`);
+  await pagina.getByRole("button", { name: "Permitir a câmera" }).click();
+  await pagina.getByRole("link", { name: "Estou pronto" }).waitFor();
+  if (process.env.CAMERA_FALSA) {
+    await pagina.getByText("Estou te vendo").waitFor({ timeout: 60000 });
+  } else {
+    await pagina.getByText("Afaste-se").waitFor({ timeout: 60000 });
+  }
+  await captura(pagina, `${prefixo}-camera-ao-vivo`);
+  await pagina.getByRole("link", { name: "Estou pronto" }).click();
+
+  await pagina.waitForURL("**/onboarding/musica");
+  await pagina.getByText("Lo-fi").click();
+  await captura(pagina, `${prefixo}-musica`);
+  await continuar(pagina, "Ver minha trilha");
+  await pagina.waitForURL("**/trilha");
+  await pagina.getByRole("heading", { name: `Oi, ${apelido}!` }).waitFor();
+  await captura(pagina, `${prefixo}-trilha`);
+}
+
+const navegador = await chromium.launch({ args: argumentos });
+try {
+  // ---------------------------------------------------------------- visitante
+  console.log("1. Visitante sem login é mandado para /entrar");
+  const visitante = await novaPessoa(navegador, { nome: "Ninguém", email: "ninguem@exemplo.com" });
+  for (const rota of ["/trilha", "/perfil", "/amigos", "/onboarding", "/camera", "/onboarding/triagem"]) {
+    await visitante.pagina.goto(APP + rota);
+    assert.match(visitante.pagina.url(), /\/entrar$/, `${rota} sem login`);
+  }
+  await visitante.pagina.goto(APP + "/c/ZZZZZZ");
+  await visitante.pagina.getByText("Este convite não vale mais").waitFor();
+
+  // ---------------------------------------------------------------------- Ana
+  console.log("2. Ana chega pela landing, entra com Google e faz o cadastro");
+  const ana = await novaPessoa(navegador, { nome: "Ana Souza", email: "ana@exemplo.com" });
+  await ana.pagina.goto(APP);
+  await captura(ana.pagina, "landing");
+  await ana.pagina.getByRole("link", { name: "Começar" }).click();
+  await ana.pagina.waitForURL("**/entrar");
+  await captura(ana.pagina, "entrar");
+  await cadastro(ana.pagina, { apelido: "Ana", nascimento: "1962-03-10", prefixo: "ana" });
+
+  let [perfilAna] = await sql("select * from public.profiles where apelido = 'Ana'");
+  assert.equal(perfilAna.altura_cm, 168);
+  assert.equal(Number(perfilAna.peso_kg), 64.5);
+  assert.deepEqual(perfilAna.equipamentos, ["tapete"]);
+  assert.equal(perfilAna.fuso_horario, "America/Sao_Paulo");
+  assert.equal(perfilAna.liberado_alta_intensidade, true);
+  assert.equal(perfilAna.dificuldade_atual, 3, "pouco ativo começa na dificuldade 3");
+  assert.equal(perfilAna.convidado_por, null);
+  assert.ok(perfilAna.onboarding_concluido_em);
+  const aceites = await sql("select tipo, versao from public.consents where user_id = $1 order by tipo", [perfilAna.id]);
+  assert.deepEqual(aceites.map((a) => a.tipo), ["dados_saude", "privacidade", "termos"]);
+  const [ofensivaAna] = await sql("select meta_compromisso from public.streaks where user_id = $1", [perfilAna.id]);
+  assert.equal(ofensivaAna.meta_compromisso, 14);
+
+  console.log("3. Ana, já cadastrada, não volta ao onboarding; vê perfil e link de convite");
+  await ana.pagina.goto(APP + "/onboarding/termos");
+  await ana.pagina.waitForURL("**/trilha");
+  await ana.pagina.goto(APP);
+  await ana.pagina.waitForURL("**/trilha");
+  await ana.pagina.getByRole("link", { name: "Perfil" }).click();
+  await ana.pagina.getByText("64 anos (faixa 60+)").waitFor();
+  await captura(ana.pagina, "ana-perfil");
+  await ana.pagina.getByRole("link", { name: "Editar dados e configurações" }).click();
+  await ana.pagina.getByLabel("Peso (kg)").fill("63");
+  await ana.pagina.getByText("Joelho").click();
+  await captura(ana.pagina, "ana-config");
+  await ana.pagina.getByRole("button", { name: "Salvar" }).click();
+  await ana.pagina.waitForURL("**/perfil");
+  await ana.pagina.getByText("63 kg").waitFor();
+  await ana.pagina.getByRole("link", { name: "Amigos" }).click();
+  await ana.pagina.getByText(perfilAna.codigo_convite, { exact: true }).waitFor();
+  await captura(ana.pagina, "ana-amigos-vazio");
+  await ana.pagina.getByRole("link", { name: "Liga" }).click();
+  await ana.pagina.getByRole("heading", { name: "Divisão Bronze" }).waitFor();
+
+  // -------------------------------------------------------------------- Bruno
+  console.log("4. Bruno chega pelo link da Ana, responde 'sim' na triagem e fica limitado");
+  const bruno = await novaPessoa(navegador, { nome: "Bruno Lima", email: "bruno@exemplo.com" });
+  await bruno.pagina.goto(`${APP}/c/${perfilAna.codigo_convite.toLowerCase()}`);
+  await bruno.pagina.getByRole("heading", { name: "Ana te convidou" }).waitFor();
+  await captura(bruno.pagina, "bruno-landing-convite");
+  await bruno.pagina.getByRole("button", { name: "Aceitar convite" }).click();
+  await bruno.pagina.waitForURL("**/entrar");
+  await cadastro(bruno.pagina, { apelido: "Bruno", nascimento: "1995-07-22", triagemSim: true, prefixo: "bruno" });
+
+  let [perfilBruno] = await sql("select * from public.profiles where apelido = 'Bruno'");
+  assert.equal(perfilBruno.convidado_por, perfilAna.id, "o convite registrou quem convidou");
+  assert.equal(perfilBruno.liberado_alta_intensidade, false);
+  const convites = await sql("select inviter_id, invitee_id, ativado_em, recompensado from public.invites");
+  assert.deepEqual(convites, [{ inviter_id: perfilAna.id, invitee_id: perfilBruno.id, ativado_em: null, recompensado: false }]);
+
+  console.log("5. Bruno declara liberação médica no perfil");
+  await bruno.pagina.getByRole("link", { name: "Perfil" }).click();
+  await bruno.pagina.getByText("Treinos intensos travados").waitFor();
+  await captura(bruno.pagina, "bruno-perfil-travado");
+  await bruno.pagina.getByRole("button", { name: "Confirmar liberação" }).click();
+  await bruno.pagina.getByRole("alert").filter({ hasText: "Marque a confirmação" }).waitFor();
+  await bruno.pagina.getByRole("checkbox").check();
+  await bruno.pagina.getByRole("button", { name: "Confirmar liberação" }).click();
+  await bruno.pagina.getByText("Você declarou liberação médica").waitFor();
+  [perfilBruno] = await sql("select * from public.profiles where id = $1", [perfilBruno.id]);
+  assert.equal(perfilBruno.liberado_alta_intensidade, true);
+  assert.ok(perfilBruno.liberacao_declarada_em);
+
+  console.log("6. Ana vê o Bruno na lista de convites, sem dados de saúde dele");
+  await ana.pagina.goto(APP + "/amigos");
+  await ana.pagina.getByText("Bruno", { exact: true }).waitFor();
+  await ana.pagina.getByText("1 pessoa entrou pelo seu link").waitFor();
+  await captura(ana.pagina, "ana-amigos-com-bruno");
+
+  console.log("7. Menor de 18 anos é barrado; sair e entrar de novo volta para onde parou");
+  const caio = await novaPessoa(navegador, { nome: "Caio Nunes", email: "caio@exemplo.com" });
+  await caio.pagina.goto(APP + "/entrar");
+  await caio.pagina.getByRole("button", { name: "Entrar com Google" }).click();
+  await caio.pagina.waitForURL("**/onboarding/termos");
+  for (const caixa of await caio.pagina.getByRole("checkbox").all()) await caixa.check();
+  await continuar(caio.pagina, "Aceitar e continuar");
+  await caio.pagina.waitForURL("**/perfil/apelido");
+  await continuar(caio.pagina);
+  await caio.pagina.waitForURL("**/perfil/nascimento");
+  // Tira o limite do campo para testar a validação do servidor.
+  await caio.pagina.locator('input[type="date"]').evaluate((campo) => campo.removeAttribute("max"));
+  await caio.pagina.locator('input[type="date"]').fill(`${new Date().getFullYear() - 16}-01-15`);
+  await continuar(caio.pagina);
+  await caio.pagina.getByRole("alert").filter({ hasText: "maiores de 18" }).waitFor();
+  await captura(caio.pagina, "caio-menor-de-idade");
+  await caio.pagina.goto(APP + "/trilha");
+  await caio.pagina.waitForURL("**/perfil/nascimento");
+
+  await ana.pagina.goto(APP + "/perfil");
+  await ana.pagina.getByRole("button", { name: "Sair da conta" }).click();
+  await ana.pagina.waitForURL(APP + "/");
+  await ana.pagina.goto(APP + "/trilha");
+  await ana.pagina.waitForURL("**/entrar");
+
+  const externas = [...visitante.externas, ...ana.externas, ...bruno.externas, ...caio.externas];
+  assert.deepEqual(externas, [], "nenhuma requisição para fora do app e do Supabase");
+  console.log("\nFase 1: fluxo completo OK");
+} finally {
+  await navegador.close();
+}

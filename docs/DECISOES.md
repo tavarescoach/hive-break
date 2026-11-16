@@ -91,3 +91,71 @@ com pessoas reais.
   para 100 ms só nesse exercício. Mantive 150 ms por enquanto.
 - Os limiares das decisões 7, 12 e 13 precisam de revisão técnica (pergunta já listada
   na seção 2 da spec: quem revisa os critérios de cada exercício?).
+
+## Fase 0 — resultado
+
+- **Aprovada pelo Luan em 16/11/2026**: testou e pediu para outras pessoas testarem; a
+  contagem ficou com "uma razão muito boa". Os limiares das decisões 7, 12 e 13 ficam
+  como estão até aparecer um caso real de erro. Nenhuma gravação real foi adicionada a
+  `fixtures/reais/` ainda.
+
+## Fase 1 — fundação (16/11/2026)
+
+### Respondidas pelo Luan
+
+20. **Cadastro aberto.** Qualquer pessoa com o endereço entra com Google. O convite só
+    registra quem indicou.
+21. **Maiores de 60 anos são aceitos.** Só menores de 18 são barrados. As faixas etárias
+    passam a ser 18-29, 30-39, 40-49, 50-59 e 60+.
+22. **Liberação médica por autodeclaração.** Quem respondeu "sim" na triagem marca no
+    perfil "Meu médico me liberou para exercício intenso"; o app guarda a data.
+23. **Marca:** Hive Break com a assinatura "por Luan Tavares · Treinador".
+
+### Banco e segurança
+
+24. **As 30 tabelas da seção 11 são criadas já na Fase 1**, todas com RLS. O seed de
+    exercícios, desafios e blocos fica para a Fase 3 (depende das definições da Fase 2) e
+    o de textos de aviso para a Fase 5. Agora entram os 8 níveis e as conquistas.
+25. **Privilégios começam do zero.** As migrações retiram tudo de `anon` e
+    `authenticated` e concedem tabela por tabela, coluna por coluna. O dono do perfil só
+    edita os dados que ele mesmo informa; dificuldade, liberação, divisão, nível, código
+    de convite, "convidado por" e conclusão do cadastro só mudam por funções do servidor.
+    As tabelas de jogo (tentativas, XP, ofensiva, liga, convites) são só leitura para o
+    cliente.
+26. **Dados públicos por view.** Outros usuários enxergam apenas `perfis_publicos`
+    (apelido, foto, divisão, nível). A landing de convite usa a função `convite_publico`,
+    que devolve só apelido, foto e ofensiva.
+27. **E-mail fica só no Auth do Supabase**, não é copiado para `profiles`.
+28. **Colunas a mais em `profiles`:** `nome`, `avatar_url`, `nivel_atual`,
+    `liberacao_declarada_em`, `onboarding_concluido_em`, `atualizado_em`. Em
+    `music_tracks`: data de registro da licença e comprovante (seção 12.6).
+29. **Convite:** o código fica num cookie (14 dias) entre a landing `/c/[codigo]` e o
+    login. `registrar_convite` vale uma vez, só para conta nova (até 7 dias, cadastro não
+    concluído), nunca para o próprio código. Recompensa e antifraude entram na Fase 4.
+30. **Código de convite sem I, O, 0 e 1**, para não confundir quem digita.
+31. **Dificuldade inicial sem nivelamento (revisar):** sedentário 2, pouco ativo 3,
+    ativo 5; sem liberação, no máximo 3 (seção 6.5).
+32. **Testes de RLS em Postgres embutido (PGlite)** com as migrações reais, e teste de
+    ponta a ponta contra um servidor Supabase falso (`e2e/`), porque não há projeto
+    Supabase nem Docker neste ambiente. O login real com Google só pode ser conferido
+    no projeto do Luan.
+
+### Telas
+
+33. **Compromisso de ofensiva junto da meta diária** (`/onboarding/meta`), com o botão
+    "Assumir meu compromisso" (seção 10.2). O mapa de telas não tinha tela própria.
+34. **Ordem do primeiro acesso:** termos → 9 perguntas de perfil → triagem → meta e
+    compromisso → câmera → música → trilha. O nivelamento entra depois da música na
+    Fase 3; a prévia de 10 s das músicas, na Fase 2 (ainda não há faixas escolhidas).
+35. **Fuso horário lido do aparelho** durante o cadastro e validado no servidor.
+36. **Altura aceita metros ou centímetros** ("1,72" vira 172).
+37. **Câmera negada não trava o cadastro:** a pessoa segue e usará o modo manual.
+38. **Textos da triagem** seguem as 7 perguntas gerais do PAR-Q+ (revisar), e os
+    **termos e a política** são um rascunho com versão `2026-11-rascunho-1` (revisão
+    jurídica pendente).
+
+### Perguntas em aberto para o Luan
+
+- A seção 11.3 fala em 12 conquistas, mas a seção 9.6 lista 13. Cadastrei as 13.
+- Vídeo curto da landing (seção 3.1): ainda não existe. A landing está só com texto.
+- Apelido não é único (duas pessoas podem se chamar "Ana"). Mantenho assim?

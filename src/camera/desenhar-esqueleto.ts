@@ -7,6 +7,8 @@ export interface EstiloEsqueleto {
   /** Há erro de execução agora: os pontos ficam vermelhos. */
   erro: boolean;
   visibilidadeMinima?: number;
+  /** Cor do esqueleto quando válido (padrão: amarelo da marca). */
+  cor?: string;
 }
 
 const COR_OK = "#FFC42E";
@@ -27,7 +29,7 @@ export function desenharEsqueleto(ctx: CanvasRenderingContext2D, pontos: Ponto[]
   ctx.lineWidth = base * 1.6;
   for (const [a, b] of LIGACOES) {
     const ok = visivel(a) && visivel(b);
-    ctx.strokeStyle = ok && estilo.valido ? COR_OK : COR_APAGADO;
+    ctx.strokeStyle = ok && estilo.valido ? (estilo.cor ?? COR_OK) : COR_APAGADO;
     ctx.beginPath();
     ctx.moveTo(pontos[a].x * largura, pontos[a].y * altura);
     ctx.lineTo(pontos[b].x * largura, pontos[b].y * altura);

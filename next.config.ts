@@ -7,9 +7,10 @@ const dev = process.env.NODE_ENV !== "production";
  * `connect-src 'self'` faz o próprio navegador recusar qualquer envio de dados
  * para fora do nosso domínio. Isso também bloqueia a telemetria de uso que a
  * biblioteca do MediaPipe tenta mandar para odml.pa.googleapis.com.
- * Quando o Supabase entrar (Fase 1), o domínio dele é adicionado aqui.
+ * A única exceção é o projeto Supabase (login e dados numéricos).
  */
-const csp = `connect-src 'self'${dev ? " ws: wss:" : ""}`;
+const supabase = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin : "";
+const csp = ["connect-src 'self'", supabase, dev ? "ws: wss:" : ""].filter(Boolean).join(" ");
 
 const config: NextConfig = {
   reactStrictMode: true,
