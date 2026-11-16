@@ -1,0 +1,55 @@
+{
+  "id": "polichinelo",
+  "nome": "Polichinelo",
+  "modalidade": "cardio",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "pontos_obrigatorios": ["ombro_e", "ombro_d", "quadril_e", "quadril_d", "tornozelo_e", "tornozelo_d"],
+  "medida_principal": {
+    "tipo": "distancia",
+    "pontos": ["tornozelo_e", "tornozelo_d"],
+    "normalizar_por": ["ombro_e", "ombro_d"]
+  },
+  "medidas": {
+    "maos_cabeca": {
+      "tipo": "altura",
+      "pontos": ["nariz", "punho"],
+      "lado": "min",
+      "normalizar_por": ["ombro_e", "ombro_d"]
+    },
+    "maos_ombro": {
+      "tipo": "altura",
+      "pontos": ["ombro", "punho"],
+      "lado": "max",
+      "normalizar_por": ["ombro_e", "ombro_d"]
+    }
+  },
+  "histerese": 0.1,
+  "fases": [
+    { "nome": "fechado", "condicao": "medida < 1.0 e maos_ombro < 0" },
+    { "nome": "aberto", "condicao": "medida > 1.5" }
+  ],
+  "repeticao": ["fechado", "aberto", "fechado"],
+  "parcial_se": "max_medida > 1.15",
+  "parcial_feedback": "Abra mais as pernas",
+  "amplitude": { "extremo": "max", "minimo_aceito": 1.5, "ideal": 2.0 },
+  "duracao_minima_ms": 400,
+  "fase_minima_ms": 150,
+  "erros": [
+    {
+      "id": "bracos_baixos",
+      "quando": "fim_rep",
+      "condicao": "max_maos_cabeca < 0",
+      "invalida": true,
+      "feedback": "Braços acima da cabeça"
+    }
+  ],
+  "kpis": ["reps_validas", "reps_parciais", "cadencia", "regularidade"],
+  "variacao_facil": "polichinelo_sem_salto",
+  "alternativas": { "joelho": "marcha_estacionaria" },
+  "instrucoes": [
+    "Fique de frente para o celular, com o corpo inteiro na tela, inclusive as mãos no alto.",
+    "Comece com os pés juntos e os braços ao lado do corpo.",
+    "Abra as pernas além da largura dos ombros e leve as mãos acima da cabeça."
+  ]
+}

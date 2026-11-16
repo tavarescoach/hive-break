@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --color-fundo: #0d0e11;
+  --color-superficie: #17191e;
+  --color-superficie-2: #20232a;
+  --color-borda: #2e323b;
+  --color-texto: #f5f2ea;
+  --color-apagado: #a3a6ae;
+  --color-mel: #ffc42e;
+  --color-mel-forte: #f5a800;
+  --color-bom: #4ade80;
+  --color-atencao: #fbbf24;
+  --color-ruim: #ff5c5c;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html {
+  background: var(--color-fundo);
+  color: var(--color-texto);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-mel);
+  outline-offset: 2px;
+}
+
+/* Números lidos a 2 ou 3 metros: contorno escuro para destacar sobre a câmera. */
+.numero-camera {
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 2px 0 rgb(0 0 0 / 0.55),
+    0 0 24px rgb(0 0 0 / 0.65);
+}
+
+@keyframes pulso-rep {
+  0% {
+    transform: scale(1.18);
+    color: var(--color-mel);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.pulso-rep {
+  animation: pulso-rep 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulso-rep {
+    animation: none;
+  }
+}

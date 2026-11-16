@@ -1,0 +1,44 @@
+{
+  "id": "agachamento_livre",
+  "nome": "Agachamento livre",
+  "modalidade": "forca",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "pontos_obrigatorios": ["quadril_e", "quadril_d", "joelho_e", "joelho_d", "tornozelo_e", "tornozelo_d"],
+  "medida_principal": { "tipo": "angulo", "pontos": ["quadril", "joelho", "tornozelo"], "lado": "media", "espaco": "3d" },
+  "medidas": {
+    "joelho_2d": { "tipo": "angulo", "pontos": ["quadril", "joelho", "tornozelo"], "lado": "media", "espaco": "2d" },
+    "joelhos_tornozelos": {
+      "tipo": "distancia",
+      "pontos": ["joelho_e", "joelho_d"],
+      "normalizar_por": ["tornozelo_e", "tornozelo_d"]
+    }
+  },
+  "histerese": 5,
+  "fases": [
+    { "nome": "topo", "condicao": "medida > 160" },
+    { "nome": "fundo", "condicao": "medida < 100" }
+  ],
+  "repeticao": ["topo", "fundo", "topo"],
+  "parcial_se": "min_medida < 120",
+  "parcial_feedback": "Desça um pouco mais",
+  "amplitude": { "extremo": "min", "minimo_aceito": 100, "ideal": 80 },
+  "duracao_minima_ms": 500,
+  "fase_minima_ms": 150,
+  "erros": [
+    {
+      "id": "valgo",
+      "condicao": "dist(joelhos) < 0.8 * dist(tornozelos)",
+      "fase": "fundo",
+      "feedback": "Joelhos para fora"
+    }
+  ],
+  "kpis": ["reps_validas", "reps_parciais", "amplitude_media", "tempo_excentrico", "tempo_concentrico", "cadencia"],
+  "variacao_facil": "agachamento_parcial_cadeira",
+  "alternativas": { "joelho": "ponte_gluteo" },
+  "instrucoes": [
+    "Fique de frente para o celular, com o corpo inteiro na tela.",
+    "Pés na largura dos ombros.",
+    "Desça até as coxas ficarem paralelas ao chão e suba até estender os joelhos."
+  ]
+}
