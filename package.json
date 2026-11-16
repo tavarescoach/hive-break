@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "fixtures": "tsx scripts/gerar-fixtures.ts",
     "postinstall": "node scripts/preparar-mediapipe.mjs",
-    "prebuild": "node scripts/preparar-mediapipe.mjs"
+    "prebuild": "node scripts/preparar-mediapipe.mjs --obrigatorio"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.2.3",

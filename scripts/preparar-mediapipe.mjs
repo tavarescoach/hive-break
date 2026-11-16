@@ -1,7 +1,7 @@
 // Copia o WASM do MediaPipe de node_modules e baixa os modelos de pose para
 // public/mediapipe, para que tudo seja servido do nosso próprio domínio.
-// Nunca derruba a instalação: se o download falhar, o app usa a URL oficial
-// do Google como reserva (ver src/camera/pose.ts).
+// No postinstall uma falha só gera aviso; no build (--obrigatorio) ela derruba
+// o build, porque o app não tem reserva em servidor externo.
 import { cp, mkdir, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -20,6 +20,7 @@ const MODELOS = {
 async function copiarWasm() {
   if (!existsSync(origemWasm)) {
     console.warn("[mediapipe] pacote @mediapipe/tasks-vision ainda não instalado; pulei o WASM.");
+    faltou = true;
     return;
   }
   await mkdir(path.join(destino, "wasm"), { recursive: true });
@@ -40,14 +41,23 @@ async function baixarModelos() {
       await writeFile(arquivo, dados);
       console.log(`[mediapipe] ${nome} baixado (${(dados.length / 1e6).toFixed(1)} MB)`);
     } catch (erro) {
-      console.warn(`[mediapipe] não consegui baixar ${nome}: ${erro.message}. O app vai usar a URL oficial.`);
+      console.warn(`[mediapipe] não consegui baixar ${nome}: ${erro.message}`);
+      faltou = true;
     }
   }
 }
 
+const obrigatorio = process.argv.includes("--obrigatorio");
+let faltou = false;
 try {
   await copiarWasm();
   await baixarModelos();
 } catch (erro) {
   console.warn("[mediapipe] preparação incompleta:", erro.message);
+  faltou = true;
+}
+if (!existsSync(path.join(destino, "wasm", "vision_wasm_internal.wasm"))) faltou = true;
+if (faltou && obrigatorio) {
+  console.error("[mediapipe] WASM ou modelos ausentes em public/mediapipe. O build foi interrompido.");
+  process.exit(1);
 }
