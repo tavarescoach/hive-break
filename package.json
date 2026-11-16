@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "fixtures": "tsx scripts/gerar-fixtures.ts",
     "postinstall": "node scripts/preparar-mediapipe.mjs",
-    "prebuild": "node scripts/preparar-mediapipe.mjs --obrigatorio"
+    "prebuild": "node scripts/preparar-mediapipe.mjs --obrigatorio",
+    "sql": "node scripts/juntar-sql.mjs",
+    "e2e": "bash e2e/rodar.sh"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.2.3",
@@ -20,7 +22,8 @@
     "@supabase/supabase-js": "^2.119.0",
     "next": "^16.4.6",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

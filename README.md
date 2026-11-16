@@ -4,8 +4,10 @@ Jogo de atividade física no navegador, estilo Duolingo, com validação de movi
 câmera frontal do celular. Especificação em [`docs/ESPECIFICACAO.md`](docs/ESPECIFICACAO.md)
 e decisões em [`docs/DECISOES.md`](docs/DECISOES.md).
 
-**Estado atual: Fase 0 (teste técnico).** Página `/teste-tecnico` com câmera frontal,
-esqueleto e contagem de agachamento livre, polichinelo e apoio em uma perna.
+**Estado atual: Fase 1 (fundação).** Login com Google, banco com RLS, primeiro acesso
+completo, perfil e convite. A Fase 0 (teste técnico da câmera) continua em `/teste-tecnico`.
+
+Para ligar o Supabase, o Google e a Vercel, siga [`docs/CONFIGURACAO.md`](docs/CONFIGURACAO.md).
 
 ## Rodar
 
@@ -26,7 +28,9 @@ preview da Vercel.
 | --- | --- |
 | `npm run dev` | Servidor de desenvolvimento |
 | `npm run build` | Build de produção (baixa os modelos de pose se faltarem) |
-| `npm test` | Testes unitários do motor (Vitest) |
+| `npm test` | Testes unitários: motor, regras do perfil e RLS do banco (Vitest) |
+| `npm run e2e` | Fluxo completo no navegador contra um Supabase falso (ver `e2e/README.md`) |
+| `npm run sql` | Regera `supabase/instalar.sql` a partir das migrações |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | Checagem de tipos |
 | `npm run fixtures` | Regera as fixtures sintéticas em `fixtures/sinteticas` |
@@ -37,10 +41,16 @@ preview da Vercel.
 - `src/exercicios/`: definições dos exercícios em JSON, lidas pelo motor.
 - `src/camera/`: câmera frontal, MediaPipe Pose Landmarker, esqueleto e sons.
 - `src/app/teste-tecnico/`: página do teste técnico.
+- `src/dominio/`: regras do perfil, da triagem e da ordem do primeiro acesso.
+- `src/app/`: telas (landing, login, onboarding, trilha, liga, amigos, perfil).
+- `supabase/`: migrações SQL (30 tabelas, RLS, funções) e seed.
+- `src/banco/`: banco de teste embutido e testes de RLS.
+- `e2e/`: teste de ponta a ponta e servidor Supabase falso (só para teste).
 - `fixtures/`: sequências de landmarks usadas nos testes (ver `fixtures/README.md`).
 
 ## Privacidade
 
 A imagem da câmera é processada no aparelho e nunca é gravada nem enviada. O site usa
 `Content-Security-Policy: connect-src 'self'`, então o próprio navegador recusa
-conexões para fora do domínio.
+conexões para fora do domínio, com exceção do projeto Supabase, que recebe só dados
+numéricos e de cadastro. Dados de saúde são protegidos por RLS: só o dono lê.
