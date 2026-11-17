@@ -51,6 +51,14 @@ Nada obrigatório: o app usa as regras dos exercícios direto do código. Rodar 
 [`supabase/seed_trilha.sql`](../supabase/seed_trilha.sql) só atualiza a cópia das regras
 guardada no banco.
 
+### Liga semanal (17/11/2026)
+
+Rode [`supabase/migrations/20261118001000_liga.sql`](../supabase/migrations/20261118001000_liga.sql).
+Ele cria a contagem de pontos, a entrada nos grupos e o fechamento de domingo. Se o
+Supabase tiver o pg_cron (vem em todos os projetos), ele agenda o fechamento para toda
+segunda às 00h01; senão, a semana fecha sozinha na primeira visita à Liga. Sem esse
+arquivo, a aba Liga mostra "Não consegui carregar a liga".
+
 Quem ainda não instalou nada usa só o `instalar.sql`, que já inclui tudo.
 
 Nas próximas fases eu aviso quais arquivos novos de `supabase/migrations/` precisam ser

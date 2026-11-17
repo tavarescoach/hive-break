@@ -387,3 +387,32 @@ positivo).
      não aparece ("Não vejo seus pés: afaste-se um pouco ou incline o celular para baixo")
      e avisam "Vire de lado" / "Fique de frente". Aparecem ao vivo no pop-up (verde quando
      está tudo certo) e durante a série.
+
+## Liga semanal (17/11/2026)
+
+Regras completas na seção 9.3 da especificação. Código em
+`supabase/migrations/20261118001000_liga.sql`, `src/dominio/liga.ts` e `src/app/(app)/liga/page.tsx`.
+
+### Respondidas pelo Luan
+
+108. **Grupo menor que 30:** sobe e desce proporcional (7 e 5 em cada 30); com menos de 5
+     pessoas só o 1º sobe e ninguém desce.
+109. **Entrada:** no 1º desafio válido da semana, não só na segunda.
+110. **Ninguém é exposto:** a tela mostra o pódio, a pessoa e quem está logo acima; a zona
+     de descida só aparece para a própria pessoa, com quanto falta para ficar.
+111. **Pontos:** XP da semana, só de desafios com câmera (sem modo manual, respiração,
+     convites e nivelamento). Agrupar por dificuldade parecida saiu do MVP.
+
+### Decididas na implementação (revisar)
+
+112. **Semana no horário de Brasília para todos**, de segunda 00h00 a domingo 23h59, mesmo
+     para quem tem outro fuso no perfil.
+113. **Empate:** fica na frente quem chegou primeiro àqueles pontos.
+114. **Quem sobe ganha 1 protetor de ofensiva** (seção 10.2), respeitando o limite de 2 (4
+     com ofensiva de 100 dias ou mais), e a conquista "Primeira subida de divisão".
+115. **Fechamento:** pg_cron toda segunda às 00h01. Sem pg_cron, a semana fecha sozinha na
+     primeira vez que alguém abre a Liga ou pontua na semana seguinte.
+116. **Fora do quadro:** a média de `fora_quadro_pct` dos exercícios do desafio acima de 30%
+     tira o desafio da liga (o XP continua valendo para a trilha).
+117. **Nível concluído** vale para a liga quando o desafio que fechou o nível foi feito com
+     a câmera.
