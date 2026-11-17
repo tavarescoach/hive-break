@@ -26,8 +26,18 @@ const controle = (rota, corpo) =>
 const sql = (texto, params) => controle("sql", { sql: texto, params });
 
 let passo = 0;
-async function captura(pagina, nome) {
-  if (CAPTURAS) await pagina.screenshot({ path: `${CAPTURAS}/${String(++passo).padStart(2, "0")}-${nome}.png`, fullPage: true });
+async function captura(pagina, nome, paginaInteira = true) {
+  if (CAPTURAS) await pagina.screenshot({ path: `${CAPTURAS}/${String(++passo).padStart(2, "0")}-${nome}.png`, fullPage: paginaInteira });
+}
+
+/** Faz um desafio pelo modo provisório: Começar → Concluí → Continuar. */
+async function fazerDesafio(pagina, id) {
+  await pagina.goto(`${APP}/desafio/${id}`);
+  await pagina.getByRole("button", { name: "Começar" }).click();
+  await pagina.getByRole("button", { name: "Concluí" }).click();
+  await pagina.getByText("Ofensiva:").waitFor();
+  await pagina.getByRole("link", { name: "Continuar" }).click();
+  await pagina.waitForURL("**/trilha");
 }
 const continuar = (pagina, nome = "Continuar") => pagina.getByRole("button", { name: nome }).click();
 
@@ -135,8 +145,10 @@ async function cadastro(pagina, { apelido, nascimento, triagemSim = false, prefi
   await captura(pagina, `${prefixo}-musica`);
   await continuar(pagina, "Ver minha trilha");
   await pagina.waitForURL("**/trilha");
-  await pagina.getByRole("heading", { name: `Oi, ${apelido}!` }).waitFor();
-  await captura(pagina, `${prefixo}-trilha`);
+  await pagina.getByText("Seção 1 · Unidade 1").waitFor();
+  await pagina.getByText("COMEÇAR").waitFor();
+  await pagina.waitForTimeout(400);
+  await captura(pagina, `${prefixo}-trilha`, false);
 }
 
 const navegador = await chromium.launch({ args: argumentos });
@@ -175,6 +187,70 @@ try {
   const [ofensivaAna] = await sql("select meta_compromisso from public.streaks where user_id = $1", [perfilAna.id]);
   assert.equal(ofensivaAna.meta_compromisso, 14);
 
+  console.log("2b. Ana percorre a trilha: card do hexágono, timer, XP, baú e pular de seção");
+  const trilha = ana.pagina;
+  // Hexágono bloqueado explica o que falta.
+  await trilha.getByRole("button", { name: "Mobilidade articular, bloqueado" }).first().click();
+  await trilha.getByText("Complete os anteriores para liberar.").waitFor();
+  await captura(trilha, "ana-trilha-bloqueado", false);
+  // Hexágono atual abre o card com Começar.
+  await trilha.getByRole("button", { name: "Aquecimento, disponível" }).click();
+  await trilha.getByText("3 min 30 s · +10 XP").waitFor();
+  await captura(trilha, "ana-trilha-card", false);
+  await trilha.getByRole("link", { name: "Começar" }).click();
+  await trilha.waitForURL("**/desafio/n1u1d01");
+  await trilha.getByText("Marcha estacionária com braços").waitFor();
+  await captura(trilha, "ana-desafio-pronto", false);
+  await trilha.getByRole("button", { name: "Começar" }).click();
+  await trilha.getByRole("timer").waitFor();
+  await trilha.waitForTimeout(1300);
+  await captura(trilha, "ana-desafio-timer", false);
+  await trilha.getByRole("button", { name: "Pausar" }).click();
+  await trilha.getByRole("button", { name: "Continuar o timer" }).click();
+  await trilha.getByRole("button", { name: "Concluí" }).click();
+  await trilha.getByText("+15").waitFor();
+  await trilha.getByText("primeiro desafio do dia").waitFor();
+  await captura(trilha, "ana-desafio-resultado", false);
+  await trilha.getByRole("link", { name: "Continuar" }).click();
+  await trilha.waitForURL("**/trilha");
+  await trilha.getByLabel("15 de 20 XP hoje").waitFor();
+  await trilha.getByLabel("Ofensiva de 1 dia").waitFor();
+  await trilha.getByRole("button", { name: "Aquecimento, concluído" }).first().waitFor();
+  await trilha.getByRole("button", { name: "Mobilidade articular, disponível" }).waitFor();
+
+  // Refazer no mesmo dia não dá XP de novo; desafio bloqueado não abre.
+  await trilha.goto(`${APP}/desafio/n1u1d01`);
+  await trilha.getByRole("button", { name: "Começar" }).click();
+  await trilha.getByRole("button", { name: "Concluí" }).click();
+  await trilha.getByText("não soma XP de novo").waitFor();
+  await trilha.goto(`${APP}/desafio/n1u1d05`);
+  await trilha.waitForURL("**/trilha");
+
+  for (const id of ["n1u1d02", "n1u1d03", "n1u1d04"]) await fazerDesafio(trilha, id);
+  await trilha.getByRole("button", { name: "Baú de XP, pronto para abrir" }).click();
+  await trilha.getByRole("button", { name: "Abrir baú" }).click();
+  await trilha.getByText("+10 XP para você!").waitFor();
+  await captura(trilha, "ana-trilha-bau", false);
+  await trilha.getByLabel("55 de 20 XP hoje").waitFor();
+  let xp = await sql("select tipo, sum(valor)::int as total from public.xp_events where user_id = $1 group by tipo order by tipo", [perfilAna.id]);
+  assert.deepEqual(xp, [{ tipo: "bau", total: 10 }, { tipo: "desafio", total: 40 }, { tipo: "primeiro_do_dia", total: 5 }]);
+
+  // Lista de seções e "Pular para cá".
+  await trilha.getByRole("button", { name: "Ver todas as seções" }).click();
+  await trilha.getByRole("dialog", { name: "Seções" }).waitFor();
+  await captura(trilha, "ana-secoes", false);
+  const secao5 = trilha.getByRole("listitem").filter({ hasText: "Chão firme" });
+  await secao5.getByRole("button", { name: "Pular para cá" }).click();
+  await secao5.getByText("Esta seção pede: tapete.").waitFor();
+  await captura(trilha, "ana-secoes-confirmar", false);
+  await secao5.getByRole("button", { name: "Pular", exact: true }).click();
+  await trilha.getByLabel("Nível atual: 5").waitFor();
+  await trilha.getByText("Seção 5 · Unidade 1").waitFor();
+  await trilha.waitForTimeout(600);
+  await captura(trilha, "ana-trilha-secao5", false);
+  [perfilAna] = await sql("select * from public.profiles where id = $1", [perfilAna.id]);
+  assert.equal(perfilAna.nivel_atual, 5);
+
   console.log("3. Ana, já cadastrada, não volta ao onboarding; vê perfil e link de convite");
   await ana.pagina.goto(APP + "/onboarding/termos");
   await ana.pagina.waitForURL("**/trilha");
@@ -211,6 +287,13 @@ try {
   assert.equal(perfilBruno.liberado_alta_intensidade, false);
   const convites = await sql("select inviter_id, invitee_id, ativado_em, recompensado from public.invites");
   assert.deepEqual(convites, [{ inviter_id: perfilAna.id, invitee_id: perfilBruno.id, ativado_em: null, recompensado: false }]);
+
+  // Limitado pela triagem: desafio intenso aparece travado, com o caminho para liberar.
+  await bruno.pagina.getByRole("button", { name: "Força de pernas, bloqueado" }).first().click();
+  await bruno.pagina.getByText("Travado por segurança").waitFor();
+  await captura(bruno.pagina, "bruno-trilha-travado", false);
+  await bruno.pagina.keyboard.press("Escape");
+  await bruno.pagina.getByText("Travado por segurança").waitFor({ state: "detached" });
 
   console.log("5. Bruno declara liberação médica no perfil");
   await bruno.pagina.getByRole("link", { name: "Perfil" }).click();

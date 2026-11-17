@@ -7,8 +7,16 @@ export NEXT_PUBLIC_SUPABASE_URL=http://localhost:54329
 export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=chave-publica-de-teste
 LOGS="${LOGS:-$(mktemp -d)}"
 
-encerrar() { kill "${FALSO:-}" "${APP_PID:-}" 2>/dev/null || true; }
+# Derruba também os processos filhos do npx, pelas portas.
+encerrar() {
+  kill "${FALSO:-}" "${APP_PID:-}" 2>/dev/null || true
+  for porta in 54329 3111; do
+    (command -v fuser >/dev/null && fuser -k "$porta/tcp" >/dev/null 2>&1) || true
+  done
+}
 trap encerrar EXIT
+encerrar
+sleep 1
 
 npx tsx e2e/supabase-falso.ts >"$LOGS/supabase-falso.log" 2>&1 &
 FALSO=$!

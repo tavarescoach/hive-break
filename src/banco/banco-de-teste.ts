@@ -43,7 +43,9 @@ export async function criarBanco(): Promise<PGlite> {
       throw new Error(`Migração ${arquivo} falhou: ${(erro as Error).message}`);
     }
   }
-  await db.exec(readFileSync(path.join(PASTA_SUPABASE, "seed.sql"), "utf8"));
+  for (const seed of ["seed.sql", "seed_trilha.sql"]) {
+    await db.exec(readFileSync(path.join(PASTA_SUPABASE, seed), "utf8"));
+  }
   return db;
 }
 
