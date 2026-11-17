@@ -10,7 +10,9 @@ const dev = process.env.NODE_ENV !== "production";
  * A única exceção é o projeto Supabase (login e dados numéricos).
  */
 const supabase = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin : "";
-const csp = ["connect-src 'self'", supabase, dev ? "ws: wss:" : ""].filter(Boolean).join(" ");
+// O tempo real da hive (Supabase Realtime) usa WebSocket no mesmo projeto: só números.
+const supabaseWs = supabase.replace(/^http/, "ws");
+const csp = ["connect-src 'self'", supabase, supabaseWs, dev ? "ws: wss:" : ""].filter(Boolean).join(" ");
 
 const config: NextConfig = {
   reactStrictMode: true,
