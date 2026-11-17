@@ -215,6 +215,8 @@ export interface Perfil {
   volume_voz: number;
   horario_lembrete: string | null;
   fuso_horario: string;
+  /** Segundos da contagem do pop-up "PREPARE-SE" (migração 0009; ausente antes dela). */
+  contagem_preparo_s?: number;
   limitacoes: string[];
   dificuldade_atual: number;
   liberado_alta_intensidade: boolean;

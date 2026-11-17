@@ -306,3 +306,43 @@ Detalhes em `docs/METODOS.md`.
     "Feito".
 82. **O XP não muda com o método** (10 por desafio, 20 no da unidade). Tabela de XP por
     método segue em aberto (item 2 das decisões do documento de referências).
+
+## Desafios em blocos com variáveis metodológicas (18/11/2026)
+
+### Respondidas pelo Luan
+
+83. **Todos os métodos continuam.** O importante é que cada exercício tenha as variáveis
+    (método, séries, esforço ou reps-alvo, pausa, score, PSE, cadência, ADM, ação) e que
+    elas fiquem claras rápido para o usuário.
+84. **Pop-up "PREPARE-SE"** antes de cada exercício, com instruções rápidas, contagem de 5 a
+    10 s configurável e o botão "Ok, let's hive" para pular.
+85. **Card** no formato "AMRAP · 5 × 40 s · pausa 20 s · de frente para o celular" +
+    "Score: …", com a duração calculada no cabeçalho.
+86. **No fim:** resumo por série e PSE.
+87. **n6u1d07** como pedido: prancha isometria 3 × 30 s + mountain climber AMRAP 3 × 30 s,
+    pausas de 20 s (280 s).
+
+### Decididas na implementação (revisar)
+
+88. **n1u1d03 continua em 3 × 8 repetições** (o pedido citava AMRAP 5 × 40 s; para o
+    Nível 1, densidade alta no primeiro dia foi considerada pesada). Trocar é uma linha no
+    gerador.
+89. **Organização em sequência ou alternada** no desafio, para não perder circuito, Tabata
+    alternado e escada. Escada = bloco de repetições com uma meta por série.
+90. **Câmera (frente ou lado) vem do exercício**, não do bloco: as regras de detecção de cada
+    exercício já são de um ângulo só.
+91. **O pop-up absorve a pausa anterior** (fica com a maior das duas) para não alongar o
+    desafio. Antes, a contagem esperava o corpo aparecer; agora é por tempo, e o relógio
+    do esforço para se a pessoa não aparecer.
+92. **Variáveis por posição da unidade:** PSE 2 (volta à calma) a 8 (HIIT); cadência 3-0-3-0
+    na mobilidade e 2-0-1-0 (seções 1 a 4) ou 3-0-1-0 (5 a 8) na força; ADM completa;
+    ação isométrica nas sustentações e mista no resto. A cadência e a ADM são informativas
+    por enquanto: a câmera ainda não reprova uma repetição fora da cadência.
+93. **Exercícios rápidos** (skipping, mountain climber) passam a ser por tempo (AMRAP) em
+    vez de metas de 40 a 60 reps; metas por repetição limitadas a 40.
+94. **PSE** gravada em `challenge_attempts.esforco_percebido` pela função
+    `registrar_esforco` (tentativa mais recente do desafio, nas últimas 3 horas).
+95. **Contagem do "Prepare-se"** em `profiles.contagem_preparo_s` (5 a 10, padrão 10),
+    escolhida em Perfil > Configurações (5, 8 ou 10 s).
+96. A coluna `metodo` (formato da migração 0008) fica vazia; o app converte o formato
+    antigo se encontrar um desafio sem `estrutura`.

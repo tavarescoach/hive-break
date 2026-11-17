@@ -7,12 +7,13 @@ import { botaoPrimario, botaoSecundario, cartao, sobrelinha } from "@/componente
 import { Gabarito, dicaDoGabarito } from "@/componentes/Gabarito";
 import type { BlocoEnviado } from "@/dominio/agregar";
 import {
-  descreverMetodo, metodoLegado, montarLinhaDoTempo, NOME_METODO, formatarTempo,
-  type FaseTrabalho, type Metodo, type ResumoMetodo,
+  compilar, converterMetodoAntigo, descreverBloco, descreverScore, estruturaLegada, etiquetasDoBloco, explicarCadencia,
+  formatarTempo, GLOSSARIO,
+  type Estrutura, type ExercicioMetodo, type LinhaSerie, type MetodoAntigo, type ResumoMetodo,
 } from "@/dominio/metodos";
 import { ROTULO_EQUIPAMENTO, ROTULO_MODALIDADE } from "@/dominio/trilha";
 import { exercicioPorId, paraMetodo } from "@/exercicios";
-import { finalizarDesafio, type ResultadoDesafio } from "./acoes";
+import { finalizarDesafio, registrarEsforco, type ResultadoDesafio } from "./acoes";
 import { Execucao } from "./Execucao";
 
 export interface BlocoDesafio {
@@ -32,50 +33,59 @@ interface Props {
   equipamento: string | null;
   jaFeito: boolean;
   blocos: BlocoDesafio[];
-  /** Método do desafio; null quando o banco ainda não tem a migração 0008. */
-  metodo: Metodo | null;
+  /** Blocos com as variáveis metodológicas (migração 0009). */
+  estrutura: Estrutura | null;
+  /** Formato anterior (migração 0008), convertido para blocos quando não há estrutura. */
+  metodoAntigo: MetodoAntigo | null;
+  /** Segundos da contagem do pop-up "PREPARE-SE". */
+  preparoS: number;
 }
 
 type Etapa = "pronto" | "camera" | "manual";
 
-/** O que cada exercício faz no desafio, ex.: "3 × 10 reps" ou "4 × 30 s". */
-function resumoDoExercicio(fases: FaseTrabalho[], exercicio: number): string {
-  const minhas = fases.filter((f) => f.exercicio === exercicio);
-  if (minhas.length === 0) return "";
-  const f = minhas[0];
-  const vezes = minhas.length > 1 ? `${minhas.length} × ` : "";
-  if (f.emom) return `${vezes}${f.alvoReps} reps no minuto`;
-  if (f.alvoReps !== undefined) {
-    const iguais = minhas.every((m) => m.alvoReps === f.alvoReps);
-    return iguais ? `${vezes}${f.alvoReps} reps` : minhas.map((m) => m.alvoReps).join("-") + " reps";
-  }
-  const s = Math.round((f.duracaoMs ?? 0) / 1000);
-  const meta = f.sustentar ? "segurando" : f.faixa ? `${f.faixa.min} a ${f.faixa.max} reps` : "máximo de reps";
-  return `${vezes}${s} s · ${meta}`;
+export interface FimDoDesafio {
+  numeros: BlocoEnviado[];
+  resumo: ResumoMetodo;
+  porSerie: LinhaSerie[];
 }
 
 export function Desafio(props: Props) {
-  const { id, titulo, modalidade, contexto, xp, equipamento, jaFeito, blocos } = props;
-  const linha = useMemo(() => {
-    const ex = blocos.map((b) => {
+  const { id, titulo, modalidade, contexto, xp, equipamento, jaFeito, blocos, preparoS } = props;
+  const { linha, exercicios } = useMemo(() => {
+    const ex: ExercicioMetodo[] = blocos.map((b) => {
       const def = exercicioPorId(b.exercicioId);
-      return def ? paraMetodo(def) : { nome: b.exercicio, sustentacao: false, segPorRep: 3 };
+      return def ? paraMetodo(def) : { nome: b.exercicio, sustentacao: false, segPorRep: 3, lateral: b.lateral };
     });
-    return montarLinhaDoTempo(props.metodo ?? metodoLegado(blocos.map((b) => b.segundos), ex), ex);
-  }, [blocos, props.metodo]);
-  const trabalhos = linha.fases.filter((f): f is FaseTrabalho => f.tipo === "trabalho");
+    const ids = blocos.map((b) => b.exercicioId);
+    const estrutura =
+      props.estrutura ??
+      (props.metodoAntigo ? converterMetodoAntigo(props.metodoAntigo, ids, ex) : estruturaLegada(ids, blocos.map((b) => b.segundos), ex));
+    return { linha: compilar(estrutura, ex, { preparoS }), exercicios: ex };
+  }, [blocos, props.estrutura, props.metodoAntigo, preparoS]);
   const [etapa, setEtapa] = useState<Etapa>("pronto");
   const [avisoCamera, setAvisoCamera] = useState<string | null>(null);
+  const [glossario, setGlossario] = useState(false);
   const [resultado, setResultado] = useState<ResultadoDesafio | null>(null);
-  const [envio, setEnvio] = useState<{ modo: "camera" | "manual"; numeros: BlocoEnviado[]; resumo: ResumoMetodo } | null>(null);
+  const [envio, setEnvio] = useState<(FimDoDesafio & { modo: "camera" | "manual" }) | null>(null);
   const [enviando, iniciar] = useTransition();
 
-  const finalizar = (modo: "camera" | "manual", numeros: BlocoEnviado[], resumo: ResumoMetodo) => {
-    setEnvio({ modo, numeros, resumo });
-    iniciar(async () => setResultado(await finalizarDesafio(id, modo, numeros)));
+  const finalizar = (modo: "camera" | "manual", fim: FimDoDesafio) => {
+    setEnvio({ modo, ...fim });
+    iniciar(async () => setResultado(await finalizarDesafio(id, modo, fim.numeros)));
   };
 
-  if (resultado?.ok && envio) return <Resultado resultado={resultado} resumo={envio.resumo} />;
+  if (resultado?.ok && envio) {
+    const pseAlvo = linha.estrutura.blocos.map((b) => b.pse_alvo).filter((v): v is number => v !== undefined);
+    return (
+      <Resultado
+        id={id}
+        resultado={resultado}
+        fim={envio}
+        nomes={blocos.map((b) => b.exercicio)}
+        pseAlvo={pseAlvo.length ? Math.max(...pseAlvo) : null}
+      />
+    );
+  }
 
   // O desafio terminou mas o envio falhou: deixa tentar de novo sem refazer.
   if (envio && (enviando || resultado?.erro)) {
@@ -85,7 +95,7 @@ export function Desafio(props: Props) {
         {resultado?.erro && <p role="alert" className="text-base leading-relaxed text-apagado">{resultado.erro}</p>}
         {!enviando && (
           <>
-            <button onClick={() => finalizar(envio.modo, envio.numeros, envio.resumo)} className={botaoPrimario}>Tentar de novo</button>
+            <button onClick={() => finalizar(envio.modo, envio)} className={botaoPrimario}>Tentar de novo</button>
             <Link href="/trilha" className={botaoSecundario}>Voltar para a trilha</Link>
           </>
         )}
@@ -99,9 +109,10 @@ export function Desafio(props: Props) {
         key={etapa}
         id={id}
         blocos={blocos}
+        exercicios={exercicios}
         linha={linha}
         comCamera={etapa === "camera"}
-        aoFim={(numeros, resumo) => finalizar(etapa === "camera" ? "camera" : "manual", numeros, resumo)}
+        aoFim={(fim) => finalizar(etapa === "camera" ? "camera" : "manual", fim)}
         aoSemCamera={(mensagem) => {
           setAvisoCamera(mensagem);
           setEtapa("pronto");
@@ -112,10 +123,11 @@ export function Desafio(props: Props) {
 
   const detalhe = [
     ROTULO_MODALIDADE[modalidade] !== titulo ? ROTULO_MODALIDADE[modalidade] : null,
-    `cerca de ${formatarTempo(linha.duracaoEstimadaS)}`,
+    formatarTempo(linha.duracaoEstimadaS),
     `+${xp} XP`,
     equipamento ? ROTULO_EQUIPAMENTO[equipamento] : null,
   ].filter(Boolean).join(" · ");
+  const alternada = linha.estrutura.organizacao === "alternada" && blocos.length > 1;
 
   return (
     <main className="flex min-h-dvh flex-col px-5 pb-6 pt-[max(1rem,env(safe-area-inset-top))]">
@@ -132,28 +144,58 @@ export function Desafio(props: Props) {
         </div>
       </header>
 
-      <section className={`${cartao} mt-5 border-mel/50`}>
-        <p className={sobrelinha}>{NOME_METODO[linha.metodo.tipo]}</p>
-        <p className="mt-1 text-lg font-bold leading-snug">{descreverMetodo(linha.metodo)}</p>
+      <section className="mt-4">
         <PrevisaoFases linha={linha} />
+        <p className="mt-2 text-[13px] leading-snug text-apagado">
+          {alternada
+            ? `Os exercícios se alternam a cada série${linha.estrutura.pausa_entre_blocos_s ? `, com ${linha.estrutura.pausa_entre_blocos_s} s de pausa ao fim de cada rodada` : ""}.`
+            : blocos.length > 1
+              ? `Um exercício de cada vez${linha.estrutura.pausa_entre_blocos_s ? `, com ${linha.estrutura.pausa_entre_blocos_s} s de pausa entre eles` : ""}.`
+              : null}
+          {linha.estrutura.teto_s ? ` Teto de ${formatarTempo(linha.estrutura.teto_s)}.` : ""}
+        </p>
       </section>
 
-      <section className="mt-5 flex-1">
-        <h2 className="text-base font-bold">Exercícios</h2>
-        <ol className="mt-3 flex flex-col gap-2.5">
-          {blocos.map((b, i) => (
-            <li key={b.ordem} className={`${cartao} flex items-center gap-3 py-2.5`}>
-              <Gabarito exercicio={b.exercicioId} tamanho={76} className="shrink-0 rounded-xl bg-fundo" />
-              <div className="min-w-0 flex-1">
-                <p className="font-bold leading-tight">{b.exercicio}</p>
-                <p className="text-sm font-semibold text-mel">{resumoDoExercicio(trabalhos, i)}</p>
-                <p className="mt-0.5 text-[13px] leading-snug text-apagado">
-                  {b.lateral ? "De lado para o celular. " : "De frente para o celular. "}
-                  {dicaDoGabarito(b.exercicioId)}
-                </p>
+      <section className="mt-4 flex-1">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold">Exercícios</h2>
+          <button onClick={() => setGlossario((v) => !v)} aria-expanded={glossario} className="h-10 rounded-full px-3 text-sm font-bold text-mel underline underline-offset-4">
+            {glossario ? "Fechar" : "O que é isso?"}
+          </button>
+        </div>
+        {glossario && (
+          <dl className={`${cartao} mt-2 flex flex-col gap-1.5 text-[14px] leading-snug`}>
+            {GLOSSARIO.map((g) => (
+              <div key={g.termo}>
+                <dt className="inline font-bold">{g.termo}: </dt>
+                <dd className="inline text-apagado">{g.texto}</dd>
               </div>
-            </li>
-          ))}
+            ))}
+          </dl>
+        )}
+        <ol className="mt-3 flex flex-col gap-2.5">
+          {linha.estrutura.blocos.map((bloco, i) => {
+            const b = blocos[i];
+            return (
+              <li key={b.ordem} className={`${cartao} flex gap-3 py-3`}>
+                <Gabarito exercicio={b.exercicioId} tamanho={76} className="shrink-0 self-start rounded-xl bg-fundo" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-black leading-tight">{b.exercicio}</p>
+                  <p className="mt-0.5 text-[15px] font-bold leading-snug text-mel">{descreverBloco(bloco, exercicios[i])}</p>
+                  <p className="text-sm font-semibold text-texto">{descreverScore(bloco)}</p>
+                  <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                    {etiquetasDoBloco(bloco).map((e) => (
+                      <li key={e.rotulo} className="rounded-full border border-borda bg-fundo px-2 py-0.5 text-[12px] font-semibold">
+                        <span className="text-apagado">{e.rotulo}</span> {e.valor}
+                      </li>
+                    ))}
+                  </ul>
+                  {bloco.cadencia && <p className="mt-1 text-[13px] text-apagado">Cadência: {explicarCadencia(bloco.cadencia)}.</p>}
+                  <p className="mt-1 text-[13px] leading-snug text-apagado">{dicaDoGabarito(b.exercicioId)}</p>
+                </div>
+              </li>
+            );
+          })}
         </ol>
         {avisoCamera && (
           <p role="alert" className={`${cartao} mt-4 border-atencao/60 text-[15px] leading-relaxed`}>
@@ -191,32 +233,42 @@ export function Desafio(props: Props) {
   );
 }
 
-/** Faixa colorida com as fases do desafio: trabalho em amarelo, descanso em cinza. */
-function PrevisaoFases({ linha }: { linha: ReturnType<typeof montarLinhaDoTempo> }) {
-  const fases = linha.fases.filter((f) => f.tipo !== "preparo");
-  const peso = (f: (typeof fases)[number]) =>
-    f.tipo === "trabalho" ? (f.duracaoMs ?? 20_000) : f.duracaoMs;
+/** Faixa colorida com as fases do desafio: esforço em amarelo, pausa em cinza. */
+function PrevisaoFases({ linha }: { linha: ReturnType<typeof compilar> }) {
+  const fases = linha.fases.filter((f, i) => !(f.tipo === "preparo" && i === 0));
+  const peso = (f: (typeof fases)[number]) => (f.tipo === "trabalho" ? (f.duracaoMs ?? 20_000) : f.duracaoMs);
   const total = fases.reduce((s, f) => s + peso(f), 0) || 1;
   return (
-    <div className="mt-3" aria-hidden>
+    <div aria-hidden>
       <div className="flex h-4 w-full overflow-hidden rounded-full bg-superficie-2">
         {fases.map((f, i) => (
           <span
             key={i}
             className={f.tipo === "trabalho" ? "bg-mel" : f.tipo === "descanso" ? "bg-[#5A5E68]" : "bg-[#F5F2EA]/70"}
-            style={{ width: `${(100 * peso(f)) / total}%`, borderRight: "2px solid #17191e" }}
+            style={{ width: `${(100 * peso(f)) / total}%`, borderRight: "2px solid #0d0e11" }}
           />
         ))}
       </div>
       <p className="mt-1.5 flex gap-4 text-xs font-semibold text-apagado">
-        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-mel align-middle" />trabalho</span>
-        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-[#5A5E68] align-middle" />descanso</span>
+        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-mel align-middle" />esforço</span>
+        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-[#5A5E68] align-middle" />pausa</span>
+        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-[#F5F2EA]/70 align-middle" />prepare-se</span>
       </p>
     </div>
   );
 }
 
-function Resultado({ resultado, resumo }: { resultado: ResultadoDesafio; resumo: ResumoMetodo }) {
+function Resultado({
+  id, resultado, fim, nomes, pseAlvo,
+}: {
+  id: string;
+  resultado: ResultadoDesafio;
+  fim: FimDoDesafio;
+  nomes: string[];
+  pseAlvo: number | null;
+}) {
+  const [pse, setPse] = useState<number | null>(null);
+  const [salvandoPse, iniciar] = useTransition();
   const titulo = resultado.nivel_concluido ? "Seção concluída" : resultado.unidade_concluida ? "Unidade concluída" : "Desafio concluído";
   const notas: string[] = [];
   if (resultado.sem_movimento) notas.push("A câmera não viu movimento em pelo menos metade dos exercícios, então valeu como modo sem câmera (metade do XP).");
@@ -227,33 +279,82 @@ function Resultado({ resultado, resumo }: { resultado: ResultadoDesafio; resumo:
   if (resultado.unidade_sessao) notas.push("+50 XP por fechar a unidade numa única sessão.");
   if (resultado.nivel_concluido) notas.push(resultado.proximo_nivel ? `+30 XP pela seção. A Seção ${resultado.proximo_nivel} está liberada.` : "+30 XP: você fechou a última seção da trilha.");
 
+  const escolherPse = (valor: number) => {
+    setPse(valor);
+    iniciar(async () => {
+      await registrarEsforco(id, valor);
+    });
+  };
+
   return (
-    <main className="flex min-h-dvh flex-col px-5 pb-6 pt-[max(2rem,env(safe-area-inset-top))]">
-      <div role="status" className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+    <main className="flex min-h-dvh flex-col gap-4 px-5 pb-6 pt-[max(2rem,env(safe-area-inset-top))]">
+      <div role="status" className="flex flex-col items-center gap-2 text-center">
         <p className={sobrelinha}>{titulo}</p>
-        <p className="text-[5.5rem] font-black leading-none text-mel tabular-nums">+{resultado.xp}</p>
-        <p className="-mt-2 text-2xl font-black">XP</p>
-        <div className={`${cartao} w-full`}>
-          <p className="text-xl font-black leading-tight">{resumo.titulo}</p>
-          {resumo.detalhes.map((d) => (
-            <p key={d} className="mt-1 text-[15px] text-apagado">{d}</p>
+        <p className="text-[5rem] font-black leading-none text-mel tabular-nums">+{resultado.xp}</p>
+        <p className="-mt-1 text-2xl font-black">XP</p>
+      </div>
+
+      <section className={cartao}>
+        <p className="text-xl font-black leading-tight">{fim.resumo.titulo}</p>
+        {fim.resumo.detalhes.map((d) => (
+          <p key={d} className="mt-1 text-[15px] text-apagado">{d}</p>
+        ))}
+      </section>
+
+      <section className={cartao} aria-label="Esforço percebido">
+        <h2 className="text-lg font-black leading-tight">Quanto foi o esforço?</h2>
+        <p className="mt-0.5 text-sm text-apagado">
+          De 1 (muito leve) a 10 (máximo).{pseAlvo ? ` O esperado para este desafio era ${pseAlvo}.` : ""}
+        </p>
+        <div className="mt-3 grid grid-cols-5 gap-1.5">
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
+            <button
+              key={v}
+              onClick={() => escolherPse(v)}
+              aria-pressed={pse === v}
+              disabled={salvandoPse}
+              className={`h-12 rounded-xl border text-lg font-black tabular-nums ${pse === v ? "border-mel bg-mel text-black" : "border-borda bg-fundo active:bg-superficie-2"}`}
+            >
+              {v}
+            </button>
           ))}
         </div>
-        {notas.length > 0 && (
-          <ul className="flex max-w-[20rem] flex-col gap-1 text-[15px] leading-relaxed text-apagado">
-            {notas.map((nota) => <li key={nota}>{nota}</li>)}
-          </ul>
-        )}
-        <div className={`${cartao} w-full`}>
-          <p className="text-lg font-black">
-            Ofensiva: {resultado.ofensiva} {resultado.ofensiva === 1 ? "dia" : "dias"}
-          </p>
-          <p className="mt-1 text-[15px] leading-relaxed text-apagado">
-            {resultado.unidade_concluida ? "A próxima unidade já está liberada na trilha." : "O próximo desafio já está liberado na trilha."}
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-col gap-3">
+        {pse !== null && !salvandoPse && <p role="status" className="mt-2 text-sm font-semibold text-bom">Anotado: esforço {pse}.</p>}
+      </section>
+
+      {fim.porSerie.length > 0 && (
+        <section>
+          <h2 className="text-base font-bold">Série por série</h2>
+          <ol className="mt-2 divide-y divide-borda text-[15px]">
+            {fim.porSerie.map((s, i) => (
+              <li key={i} className="flex items-baseline justify-between gap-3 py-2">
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold">{nomes[s.exercicio]}</span>
+                  <span className="block text-[13px] text-apagado">{s.rotulo}{s.meta ? ` · meta ${s.meta}` : ""}</span>
+                </span>
+                <span className={`shrink-0 font-bold tabular-nums ${s.cumprida ? "text-bom" : "text-atencao"}`}>
+                  {s.valor} {s.cumprida ? "✓" : ""}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {notas.length > 0 && (
+        <ul className="flex flex-col gap-1 text-[15px] leading-relaxed text-apagado">
+          {notas.map((nota) => <li key={nota}>{nota}</li>)}
+        </ul>
+      )}
+      <section className={cartao}>
+        <p className="text-lg font-black">
+          Ofensiva: {resultado.ofensiva} {resultado.ofensiva === 1 ? "dia" : "dias"}
+        </p>
+        <p className="mt-1 text-[15px] leading-relaxed text-apagado">
+          {resultado.unidade_concluida ? "A próxima unidade já está liberada na trilha." : "O próximo desafio já está liberado na trilha."}
+        </p>
+      </section>
+      <div className="mt-auto flex flex-col gap-3">
         <Link href="/trilha" className={botaoPrimario}>
           Continuar
         </Link>

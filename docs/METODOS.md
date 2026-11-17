@@ -4,30 +4,47 @@ Definido em 17 e 18/11/2026, a partir das diretrizes do Luan. Objetivo: todo des
 descrito por **dados** (método + parâmetros), e um único motor de linha do tempo roda
 qualquer método. A câmera conta e mede dentro de cada fase.
 
-## 1. Modelo comum
+## 1. Modelo: desafio = blocos
 
-Um desafio é uma sequência de **blocos**. Cada bloco tem um exercício, um método e os
-parâmetros do método. O método vira uma **linha do tempo de fases**:
+Cada desafio é uma lista de **blocos**, um por exercício (18/11/2026). Cada bloco tem as
+variáveis metodológicas do treino:
 
-| Fase | Cor na tela | O que acontece |
+| Variável | Valores | Exemplo |
 | --- | --- | --- |
-| Preparação | branco | 5 s para posicionar, com o gabarito da posição |
-| Trabalho | amarelo-mel (ou verde) | câmera conta reps ou tempo na posição |
-| Descanso | cinza | contagem regressiva grande, prévia da próxima série, resumo da anterior |
-| Transição | branco | troca de exercício: nome, gabarito, "de frente" ou "de lado" |
+| Método | AMRAP, isometria, repetições, EMOM, Tabata, contra o relógio | AMRAP |
+| Séries | 1 a 12 | 5 |
+| Esforço (s) **ou** reps-alvo | segundos por série, ou reps por série (lista = escada) | 40 s / 8 reps / 2-4-6-8 |
+| Pausa (s) | entre as séries do bloco | 20 s |
+| Score | total de repetições, segundos em posição, tempo para completar, repetições por série | total de repetições |
+| PSE alvo | 1 a 10 | 6 |
+| Cadência | excêntrica-pausa-concêntrica-pausa | 2-0-1-0 |
+| ADM | completa ou parcial | completa |
+| Ação | concêntrica, excêntrica, isométrica ou mista | mista |
 
-Regras gerais:
+No desafio: **organização** (em sequência: A, A, A, depois B, B, B; ou alternada: A, B, A, B,
+para circuito e Tabata com mais de um exercício), **pausa entre blocos** (padrão 20 s) e
+**teto** (contra o relógio e escada).
 
-- **Até 5 minutos por desafio**, somando trabalho e descanso. O gerador de conteúdo
-  recusa combinações que passem disso.
-- Últimos 3 s de cada fase: bipe e número piscando. Troca de fase: som diferente e
-  vibração.
-- O botão do topo passa a ser **"Próximo"** (pula para o próximo exercício). Só no último
-  exercício ele vira "Concluir".
-- Toda fase de trabalho tem **meta** (o que é preciso para cumprir) e **medida** (o que
-  conta para o score).
+Calculados, nunca digitados:
 
-## 2. Métodos
+- **Duração** = Σ(séries × esforço + (séries − 1) × pausa) + pausas entre blocos. Nas séries
+  por repetição, o esforço é estimado pelo ritmo de referência do exercício (`seg_por_rep`).
+  As trocas de exercício sem pausa (3 s) entram; a contagem inicial não.
+- **Densidade** = esforço:pausa simplificado (40:20 → 2:1).
+
+### Fases e cores
+
+| Fase | Cor | O que acontece |
+| --- | --- | --- |
+| Prepare-se | branco | pop-up com as instruções do bloco e contagem de 5 a 10 s (configurável no perfil); "Ok, let's hive" pula a contagem |
+| Esforço | amarelo-mel | câmera conta reps ou segundos válidos |
+| Pausa | cinza | contagem enorme, próxima série e resultado da anterior |
+| Troca | branco | 3 s quando o exercício muda sem pausa |
+
+O pop-up aparece antes da primeira série de cada bloco e absorve a pausa que viria antes
+dele. No fim: score geral, resumo série por série e a pergunta de PSE (1 a 10).
+
+## 2. Métodos (referência)
 
 ### 2.1 Intervalado por tempo (proposto pelo Luan)
 - Trabalho de 10, 20, 30, 40 ou 45 s; descanso de 10, 20 ou 30 s; 2 a 5 séries.

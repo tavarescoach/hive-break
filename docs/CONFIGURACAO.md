@@ -35,6 +35,16 @@ Rode, nesta ordem:
 
 Sem os dois, os desafios continuam funcionando no formato antigo (um tempo por exercício).
 
+### Desafios em blocos (18/11/2026)
+
+Rode, nesta ordem:
+
+1. [`supabase/migrations/20261118000900_blocos.sql`](../supabase/migrations/20261118000900_blocos.sql) (blocos, contagem do "Prepare-se" e PSE)
+2. [`supabase/seed_trilha.sql`](../supabase/seed_trilha.sql) de novo
+
+Sem os dois, o app converte o formato anterior na hora e continua funcionando; a PSE e a
+escolha da contagem só funcionam depois da migração.
+
 Quem ainda não instalou nada usa só o `instalar.sql`, que já inclui tudo.
 
 Nas próximas fases eu aviso quais arquivos novos de `supabase/migrations/` precisam ser

@@ -36,24 +36,22 @@ async function encerrarDesafio(pagina) {
   await pagina.getByRole("button", { name: "Encerrar e registrar" }).click();
 }
 
-/** Faz um desafio sem câmera: começa, encerra e volta para a trilha. */
+/** Faz um desafio sem câmera: começa, encerra no pop-up "Prepare-se" e volta para a trilha. */
 async function fazerDesafio(pagina, id) {
   await pagina.goto(`${APP}/desafio/${id}`);
   await pagina.getByRole("button", { name: "Fazer sem câmera" }).click();
-  await pagina.getByRole("timer").waitFor();
+  await pagina.getByRole("button", { name: "Ok, let's hive" }).waitFor();
   await encerrarDesafio(pagina);
   await pagina.getByText("Ofensiva:").waitFor();
   await pagina.getByRole("link", { name: "Continuar" }).click();
   await pagina.waitForURL("**/trilha");
 }
 
-/** Abre o desafio com a câmera e espera a primeira fase de trabalho. */
+/** Abre o desafio com a câmera, espera o pop-up "Prepare-se" e pula a contagem. */
 async function abrirComCamera(pagina) {
   await pagina.getByRole("button", { name: "Começar com a câmera" }).click();
-  const botao = pagina.getByRole("button", { name: "Começar agora" });
-  await pagina.getByText("Posicione-se").or(pagina.getByText("Prepare-se")).first().waitFor({ timeout: 60000 });
-  await botao.click({ timeout: 3000 }).catch(() => {});
-  await pagina.locator("section[aria-live]").filter({ hasNotText: "Posicione-se" }).filter({ hasNotText: "Prepare-se" }).waitFor({ timeout: 15000 });
+  await pagina.getByRole("button", { name: "Ok, let's hive" }).click({ timeout: 60000 });
+  await pagina.getByRole("dialog", { name: /^Prepare-se/ }).waitFor({ state: "detached" });
 }
 
 const continuar = (pagina, nome = "Continuar") => pagina.getByRole("button", { name: nome }).click();
@@ -217,24 +215,37 @@ try {
   await trilha.getByRole("link", { name: "Começar" }).click();
   await trilha.waitForURL("**/desafio/n1u1d01");
   await trilha.getByText("Marcha estacionária com braços").waitFor();
-  await trilha.getByText("6 séries de 30 s · 10 s de pausa · reps na faixa").waitFor();
-  await trilha.getByText("de frente para o celular").first().waitFor();
+  // Card de cada bloco no formato "método · séries × esforço · pausa · de frente", com o score.
+  await trilha.getByText("AMRAP · 3 × 30 s · meta 20 a 30 reps · pausa 10 s · de frente para o celular").waitFor();
+  await trilha.getByText("Score: total de repetições").first().waitFor();
+  await trilha.getByRole("button", { name: "O que é isso?" }).click();
+  await trilha.getByText("Percepção subjetiva de esforço").waitFor();
   await trilha.waitForTimeout(600);
-  await captura(trilha, "ana-desafio-pronto", false);
+  await captura(trilha, "ana-desafio-pronto", true);
 
-  // Com a câmera: preparo, depois a fase de trabalho em amarelo com o timer grande.
-  await abrirComCamera(trilha);
+  // Com a câmera: pop-up "Prepare-se" com as instruções e a contagem.
+  await trilha.getByRole("button", { name: "Começar com a câmera" }).click();
+  const prepare = trilha.getByRole("dialog", { name: "Prepare-se: Marcha estacionária com braços" });
+  await prepare.waitFor({ timeout: 60000 });
+  await prepare.getByText("PSE").waitFor();
+  await trilha.waitForTimeout(600);
+  await captura(trilha, "ana-desafio-prepare", false);
+  await prepare.getByRole("button", { name: "Ok, let's hive" }).click();
+  // Esforço em amarelo com o timer grande.
   await trilha.getByText("Meta: 20 a 30 repetições").waitFor();
-  await trilha.getByText("1ª série de 6").waitFor();
+  await trilha.getByText("1ª série de 3").waitFor();
   await trilha.waitForTimeout(1200);
   await captura(trilha, "ana-desafio-trabalho", false);
-  // "Pular" fecha a série e abre o descanso, em cinza, com o gabarito do próximo exercício.
+  // "Pular" fecha a série; o próximo exercício (alternado) abre com o seu "Prepare-se".
   await trilha.getByRole("button", { name: "Pular ›" }).click();
-  await trilha.getByText("Descanso · a seguir: 2ª série · Skipping").waitFor();
+  await trilha.getByRole("dialog", { name: "Prepare-se: Skipping (elevação de joelhos)" }).getByRole("button", { name: "Ok, let's hive" }).click();
+  await trilha.getByRole("button", { name: "Pular ›" }).click();
+  // Pausa em cinza, com o gabarito do próximo.
+  await trilha.getByText("Descanso · a seguir: 2ª série · Marcha estacionária com braços").waitFor();
   await trilha.waitForTimeout(400);
   await captura(trilha, "ana-desafio-descanso", false);
   await trilha.getByRole("button", { name: "Pular ›" }).click();
-  await trilha.getByText("2ª série de 6").waitFor();
+  await trilha.getByText("2ª série de 3").waitFor();
   // "Senti dor" pausa e pergunta onde dói; dá para continuar.
   await trilha.getByRole("button", { name: "Senti dor" }).click();
   await trilha.getByRole("dialog", { name: "Senti dor" }).waitFor();
@@ -244,8 +255,16 @@ try {
   await encerrarDesafio(trilha);
   await trilha.getByText("+8").waitFor();
   await trilha.getByText("A câmera não viu movimento").waitFor();
-  await trilha.getByText("repetições em 2 séries").waitFor();
-  await captura(trilha, "ana-desafio-resultado", false);
+  await trilha.getByText("0 de 6 séries cumpridas").waitFor();
+  await trilha.getByText("Série por série").waitFor();
+  // PSE no fim do desafio.
+  await trilha.getByText("Quanto foi o esforço?").waitFor();
+  await trilha.getByText("O esperado para este desafio era 3.").waitFor();
+  await trilha.getByRole("button", { name: "7", exact: true }).click();
+  await trilha.getByText("Anotado: esforço 7.").waitFor();
+  await captura(trilha, "ana-desafio-resultado", true);
+  const [pse] = await sql("select esforco_percebido from public.challenge_attempts where user_id = $1 and challenge_id = 'n1u1d01'", [perfilAna.id]);
+  assert.equal(pse.esforco_percebido, 7);
   await trilha.getByRole("link", { name: "Continuar" }).click();
   await trilha.waitForURL("**/trilha");
   await trilha.getByLabel("8 de 20 XP hoje").waitFor();
@@ -257,8 +276,8 @@ try {
   await trilha.goto(`${APP}/desafio/n1u1d01`);
   await trilha.getByText("refazer vale 1/3 do XP").waitFor();
   await trilha.getByRole("button", { name: "Fazer sem câmera" }).click();
-  await trilha.getByRole("timer").waitFor();
-  await trilha.getByText("1ª série de 6").waitFor({ timeout: 10000 });
+  await trilha.getByRole("button", { name: "Ok, let's hive" }).click();
+  await trilha.getByText("1ª série de 3").waitFor({ timeout: 10000 });
   await captura(trilha, "ana-desafio-sem-camera", false);
   await encerrarDesafio(trilha);
   await trilha.getByText("+2").waitFor();

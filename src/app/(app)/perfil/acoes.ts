@@ -44,6 +44,13 @@ export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulari
   const volumeVoz = validarInteiro(String(formulario.get("volume_voz")), 0, 100);
   if (!meta || !estilo || volumeMusica === null || volumeVoz === null) return { erro: "Confira a meta, a música e os volumes." };
 
+  // Contagem do pop-up "PREPARE-SE" (só existe depois da migração 0009).
+  if (formulario.has("contagem_preparo_s")) {
+    const contagem = validarInteiro(String(formulario.get("contagem_preparo_s")), 5, 10);
+    if (contagem === null) return { erro: "Confira a contagem antes de cada exercício." };
+    dados.contagem_preparo_s = contagem;
+  }
+
   const horario = String(formulario.get("horario_lembrete") ?? "");
   if (horario !== "" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(horario)) return { erro: "Confira o horário do lembrete." };
   const limitacoes = formulario.getAll("limitacoes").map(String);

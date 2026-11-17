@@ -1,69 +1,102 @@
 /**
- * Métodos dos desafios (docs/METODOS.md): intervalado por tempo, Tabata,
- * séries e repetições, circuito, EMOM, escada e contra o relógio.
+ * Estrutura dos desafios (docs/METODOS.md).
  *
- * Um método é só dado. `montarLinhaDoTempo` transforma o método numa sequência
- * de fases (preparo, trabalho, descanso, transição) que a tela percorre com ou
- * sem câmera. Código puro, testado sem navegador.
+ * Um desafio é uma lista de BLOCOS, um por exercício, cada um com as variáveis
+ * metodológicas do treino: método, séries, esforço (s) ou reps-alvo, pausa,
+ * score, PSE alvo, cadência, ADM e ação muscular. Os blocos rodam em
+ * sequência (A, A, A, depois B, B, B) ou alternados (A, B, A, B: circuito e
+ * Tabata com mais de um exercício).
+ *
+ * `compilar` transforma a estrutura numa linha do tempo de fases (preparo,
+ * trabalho, descanso, transição) que a tela percorre com ou sem câmera.
+ * Código puro, testado sem navegador.
  */
 
-/** Meta de uma fase de trabalho com tempo fixo. */
-export type Meta =
-  /** O máximo de repetições válidas no tempo. */
-  | { tipo: "amrap" }
-  /** Faixa de repetições por exercício (controle de ritmo), na ordem dos exercícios. */
-  | { tipo: "faixa"; por_exercicio: { min: number; max: number }[] }
-  /** Manter a posição (isometria, postura, equilíbrio). */
-  | { tipo: "sustentar" };
+// ===================================================================== modelo
 
-/** Item de circuito ou de contra o relógio: repetições ou segundos, um por exercício. */
-export type Item = { reps: number } | { segundos: number };
+export type MetodoBloco = "amrap" | "isometria" | "reps" | "emom" | "tabata" | "for_time";
 
-export type Metodo =
-  /** Trabalho e descanso por tempo; os exercícios se alternam a cada série. */
-  | { tipo: "intervalado"; trabalho_s: number; descanso_s: number; series: number; meta: Meta }
-  /** Protocolo Tabata: 8 rounds de 20 s com 10 s de descanso; exercícios se alternam. */
-  | { tipo: "tabata"; rounds: number; trabalho_s: number; descanso_s: number }
-  /** Séries e repetições: cada exercício faz todas as suas séries antes do próximo. */
-  | { tipo: "series"; series: number; reps: number; descanso_s: number }
-  /** Exercícios em sequência sem pausa; descanso entre rodadas. */
-  | { tipo: "circuito"; rodadas: number; descanso_s: number; itens: Item[] }
-  /** A cada minuto, X repetições; o resto do minuto é descanso. Exercícios se alternam por minuto. */
-  | { tipo: "emom"; minutos: number; reps: number }
-  /** Degraus de repetições sem pausa (ex.: 2-4-6-8), até o teto de tempo. Um exercício. */
-  | { tipo: "escada"; degraus: number[]; teto_s: number }
-  /** Uma lista de tarefas no menor tempo, com teto. */
-  | { tipo: "contra_relogio"; itens: Item[]; teto_s: number };
+/** O que mede o resultado do bloco. */
+export type Score = "total_reps" | "tempo_valido" | "tempo_total" | "reps_por_serie";
 
-export type TipoMetodo = Metodo["tipo"];
+export type Adm = "completa" | "parcial";
+export type Acao = "concentrica" | "excentrica" | "isometrica" | "mista";
 
-/** O que o método precisa saber de cada exercício. */
+export interface Bloco {
+  /** Exercício (id do catálogo). O bloco de posição i corresponde ao challenge_block de ordem i + 1. */
+  exercicio_id: string;
+  metodo: MetodoBloco;
+  series: number;
+  /** Tempo de esforço de cada série (AMRAP, isometria, Tabata). */
+  esforco_s?: number;
+  /** Repetições de cada série (reps, EMOM, contra o relógio). Uma lista é uma escada (uma meta por série). */
+  reps_alvo?: number | number[];
+  /** Faixa de repetições no AMRAP (controle de ritmo). */
+  faixa?: { min: number; max: number };
+  /** Pausa entre as séries do bloco. */
+  pausa_s: number;
+  score: Score;
+  /** Percepção de esforço esperada, de 1 a 10. */
+  pse_alvo?: number;
+  /** Cadência em segundos: excêntrica-pausa embaixo-concêntrica-pausa em cima, ex.: "2-0-1-0". */
+  cadencia?: string;
+  /** Amplitude de movimento. */
+  adm?: Adm;
+  /** Ação muscular predominante. */
+  acao?: Acao;
+}
+
+export interface Estrutura {
+  versao: 2;
+  organizacao: "sequencia" | "alternada";
+  /** Sequência: pausa entre um bloco e o próximo. Alternada: pausa ao fim de cada rodada. */
+  pausa_entre_blocos_s: number;
+  /** Teto de tempo do desafio (contra o relógio, escada). */
+  teto_s?: number;
+  blocos: Bloco[];
+}
+
+/** Pausa entre blocos quando não informada (pedido do Luan). */
+export const PAUSA_ENTRE_BLOCOS_PADRAO = 20;
+/** Contagem do pop-up "PREPARE-SE" (configurável de 5 a 10 s no perfil). */
+export const PREPARO_PADRAO_S = 10;
+export const TRANSICAO_MS = 3000;
+/** Limite de um desafio (decisão do Luan: inclui os descansos). */
+export const DURACAO_MAXIMA_S = 300;
+
+/** O que a estrutura precisa saber de cada exercício. */
 export interface ExercicioMetodo {
   nome: string;
   /** Exercício de sustentação (isometria, postura, equilíbrio, respiração): mede tempo, não reps. */
   sustentacao: boolean;
   /** Ritmo de referência, em segundos por repetição (estimativa de duração). */
   segPorRep: number;
+  /** Exercício feito de lado para o celular. */
+  lateral?: boolean;
 }
 
+// ===================================================================== fases
+
 export type Fase =
-  /** Início do desafio: espera o corpo aparecer (com câmera) e conta 3, 2, 1. */
-  | { tipo: "preparo"; exercicio: number }
-  /** Troca de exercício sem descanso no meio (circuito, contra o relógio). */
+  /** Pop-up "PREPARE-SE" antes do primeiro esforço de cada bloco, com contagem regressiva. */
+  | { tipo: "preparo"; exercicio: number; duracaoMs: number }
+  /** Troca de exercício sem pausa no meio (circuito, contra o relógio). */
   | { tipo: "transicao"; exercicio: number; duracaoMs: number }
   | { tipo: "descanso"; duracaoMs: number; proximo: number; rotuloProximo: string }
   | FaseTrabalho;
 
 export interface FaseTrabalho {
   tipo: "trabalho";
+  /** Índice do bloco (= exercício) no desafio. */
   exercicio: number;
-  /** Ex.: "2ª série de 3", "Round 5 de 8", "Minuto 2 de 5". */
+  serie: number;
+  totalSeries: number;
+  metodo: MetodoBloco;
+  /** Ex.: "2ª série de 3", "Round 5 de 8", "Minuto 2 de 4". */
   rotulo: string;
   /** Tempo fixo da fase. Ausente: termina ao completar `alvoReps`. */
   duracaoMs?: number;
-  /** Repetições que fecham a fase (séries, escada, EMOM, circuito por reps). */
   alvoReps?: number;
-  /** Faixa de repetições (intervalado com meta de faixa). */
   faixa?: { min: number; max: number };
   /** Fase de sustentação: o que conta é o tempo na posição. */
   sustentar: boolean;
@@ -72,238 +105,266 @@ export interface FaseTrabalho {
 }
 
 export interface LinhaDoTempo {
-  metodo: Metodo;
+  estrutura: Estrutura;
   fases: Fase[];
-  /** Teto de tempo do desafio inteiro (escada, contra o relógio), contado a partir do primeiro trabalho. */
   tetoMs?: number;
-  /** Duração planejada, em segundos (trabalho + descanso + transições). */
+  /** Duração planejada (s): esforços + pausas, sem a contagem inicial; limitada pelo teto. */
   duracaoEstimadaS: number;
 }
 
-/** Duração das transições entre exercícios diferentes sem descanso no meio. */
-export const TRANSICAO_MS = 3000;
-/** Limite de um desafio (decisão do Luan: inclui os descansos). */
-export const DURACAO_MAXIMA_S = 300;
+// ===================================================================== textos
 
-const ordinal = (n: number) => `${n}ª`;
-
-export const NOME_METODO: Record<TipoMetodo, string> = {
-  intervalado: "Intervalado",
-  tabata: "Tabata",
-  series: "Séries e repetições",
-  circuito: "Circuito",
+export const NOME_METODO: Record<MetodoBloco, string> = {
+  amrap: "AMRAP",
+  isometria: "Isometria",
+  reps: "Repetições",
   emom: "EMOM",
-  escada: "Escada",
-  contra_relogio: "Contra o relógio",
+  tabata: "Tabata",
+  for_time: "Contra o relógio",
 };
 
-/** Descrição curta do método para o card e a tela de preparação. */
-export function descreverMetodo(m: Metodo): string {
-  switch (m.tipo) {
-    case "intervalado": {
-      const meta = m.meta.tipo === "amrap" ? "máximo de reps" : m.meta.tipo === "sustentar" ? "segure a posição" : "reps na faixa";
-      return `${m.series} séries de ${m.trabalho_s} s · ${m.descanso_s} s de pausa · ${meta}`;
-    }
-    case "tabata":
-      return `${m.rounds} rounds de ${m.trabalho_s} s · ${m.descanso_s} s de pausa`;
-    case "series":
-      return `${m.series} séries de ${m.reps} reps · ${m.descanso_s} s de intervalo`;
-    case "circuito":
-      return `${m.rodadas} ${m.rodadas === 1 ? "rodada" : "rodadas"} sem pausa entre exercícios${m.rodadas > 1 ? ` · ${m.descanso_s} s entre rodadas` : ""}`;
-    case "emom":
-      return `${m.reps} reps a cada minuto, por ${m.minutos} minutos`;
-    case "escada":
-      return `Degraus de ${m.degraus.join("-")} reps em até ${Math.round(m.teto_s / 60)} min`;
-    case "contra_relogio":
-      return `Complete tudo no menor tempo · teto de ${Math.round(m.teto_s / 60)} min`;
-  }
+export const ROTULO_SCORE: Record<Score, string> = {
+  total_reps: "total de repetições",
+  tempo_valido: "segundos em posição",
+  tempo_total: "tempo para completar",
+  reps_por_serie: "repetições por série",
+};
+
+export const ROTULO_ACAO: Record<Acao, string> = {
+  concentrica: "concêntrica",
+  excentrica: "excêntrica",
+  isometrica: "isométrica",
+  mista: "mista",
+};
+
+/** Explicações curtas das variáveis, para o "O que é isso?". */
+export const GLOSSARIO: { termo: string; texto: string }[] = [
+  { termo: "AMRAP", texto: "O máximo de repetições bem feitas no tempo da série." },
+  { termo: "Isometria", texto: "Segurar a posição. O tempo só conta com a postura certa." },
+  { termo: "Repetições", texto: "Uma meta de repetições por série; a série termina quando você completa." },
+  { termo: "EMOM", texto: "A cada minuto, faça as repetições pedidas; o que sobrar do minuto é descanso." },
+  { termo: "Tabata", texto: "Rounds curtos e intensos: 20 s de esforço e 10 s de pausa." },
+  { termo: "Contra o relógio", texto: "Complete tudo no menor tempo, dentro do teto." },
+  { termo: "Escada", texto: "A meta de repetições muda a cada série (ex.: 2-4-6-8)." },
+  { termo: "PSE", texto: "Percepção subjetiva de esforço, de 1 (muito leve) a 10 (máximo). Indica o quanto o desafio deve cansar." },
+  { termo: "Cadência", texto: "Segundos de cada fase: descida, pausa embaixo, subida, pausa em cima. 2-0-1-0 = desça em 2 s e suba em 1 s." },
+  { termo: "ADM", texto: "Amplitude de movimento: completa (todo o movimento) ou parcial (só uma parte)." },
+  { termo: "Ação", texto: "Concêntrica (músculo encurta), excêntrica (alonga sob controle), isométrica (parado) ou mista." },
+  { termo: "Densidade", texto: "Esforço:pausa. 2:1 = o dobro de tempo trabalhando do que descansando." },
+];
+
+const ordinal = (n: number) => `${n}ª`;
+const ehEscada = (b: Bloco) => Array.isArray(b.reps_alvo);
+const repsDaSerie = (b: Bloco, s: number) => (Array.isArray(b.reps_alvo) ? b.reps_alvo[s] : (b.reps_alvo ?? 0));
+
+/** Nome do método do bloco, com "Escada" quando a meta muda a cada série. */
+export function nomeDoBloco(b: Bloco): string {
+  return ehEscada(b) ? "Escada" : NOME_METODO[b.metodo];
 }
 
-/** Confere um método. Devolve a lista de problemas (vazia quando está tudo certo). */
-export function validarMetodo(m: Metodo, exercicios: ExercicioMetodo[]): string[] {
+/** Esforço:pausa simplificado (ex.: 40:20 → "2:1"). Só para blocos por tempo com pausa. */
+export function densidade(b: Bloco): string | null {
+  if (!b.esforco_s || !b.pausa_s) return null;
+  const mdc = (a: number, c: number): number => (c === 0 ? a : mdc(c, a % c));
+  const d = mdc(b.esforco_s, b.pausa_s);
+  return `${b.esforco_s / d}:${b.pausa_s / d}`;
+}
+
+/**
+ * Linha do card do bloco, ex.: "AMRAP · 5 × 40 s · pausa 20 s · de frente para o celular".
+ */
+export function descreverBloco(b: Bloco, ex?: ExercicioMetodo): string {
+  const partes: string[] = [nomeDoBloco(b)];
+  if (ehEscada(b)) partes.push(`${(b.reps_alvo as number[]).join("-")} reps`);
+  else if (b.metodo === "emom") partes.push(`${b.series} × ${b.reps_alvo} reps por minuto`);
+  else if (b.reps_alvo !== undefined) partes.push(`${b.series > 1 ? `${b.series} × ` : ""}${b.reps_alvo} reps`);
+  else partes.push(`${b.series > 1 ? `${b.series} × ` : ""}${b.esforco_s} s`);
+  if (b.faixa) partes.push(`meta ${b.faixa.min} a ${b.faixa.max} reps`);
+  if (b.series > 1 && b.metodo !== "emom") partes.push(b.pausa_s > 0 ? `pausa ${b.pausa_s} s` : "sem pausa");
+  if (ex) partes.push(ex.lateral ? "de lado para o celular" : "de frente para o celular");
+  return partes.join(" · ");
+}
+
+export function descreverScore(b: Bloco): string {
+  return `Score: ${ROTULO_SCORE[b.score]}`;
+}
+
+/** Variáveis em etiquetas curtas (PSE, cadência, ADM, ação, densidade). */
+export function etiquetasDoBloco(b: Bloco): { rotulo: string; valor: string }[] {
+  const lista: { rotulo: string; valor: string }[] = [];
+  if (b.pse_alvo) lista.push({ rotulo: "PSE", valor: `${b.pse_alvo}/10` });
+  if (b.cadencia) lista.push({ rotulo: "Cadência", valor: b.cadencia });
+  if (b.adm) lista.push({ rotulo: "ADM", valor: b.adm });
+  if (b.acao) lista.push({ rotulo: "Ação", valor: ROTULO_ACAO[b.acao] });
+  const d = densidade(b);
+  if (d) lista.push({ rotulo: "Densidade", valor: d });
+  return lista;
+}
+
+/** Explica a cadência em palavras, ex.: "2-0-1-0" → "desça em 2 s e suba em 1 s". */
+export function explicarCadencia(cadencia: string): string {
+  const [exc, baixo, con, cima] = cadencia.split("-").map(Number);
+  const partes = [`desça em ${exc} s`];
+  if (baixo) partes.push(`pare ${baixo} s embaixo`);
+  partes.push(`suba em ${con} s`);
+  if (cima) partes.push(`pare ${cima} s em cima`);
+  return partes.join(", ");
+}
+
+// ===================================================================== validação
+
+const SCORES_POR_METODO: Record<MetodoBloco, Score[]> = {
+  amrap: ["total_reps", "reps_por_serie"],
+  isometria: ["tempo_valido"],
+  reps: ["reps_por_serie", "total_reps"],
+  emom: ["reps_por_serie"],
+  tabata: ["total_reps", "reps_por_serie"],
+  for_time: ["tempo_total"],
+};
+
+/** Confere a estrutura. Devolve a lista de problemas (vazia quando está tudo certo). */
+export function validarEstrutura(e: Estrutura, exercicios: ExercicioMetodo[]): string[] {
   const p: string[] = [];
-  const n = exercicios.length;
-  const entre = (v: number, a: number, b: number, nome: string) => {
-    if (!Number.isFinite(v) || v < a || v > b) p.push(`${nome} fora de ${a} a ${b}`);
+  const entre = (v: number | undefined, a: number, b: number, nome: string) => {
+    if (v === undefined || !Number.isFinite(v) || v < a || v > b) p.push(`${nome} fora de ${a} a ${b}`);
   };
-  if (n === 0) p.push("desafio sem exercícios");
-  const semSustentacao = (nome: string) => {
-    if (exercicios.some((e) => e.sustentacao)) p.push(`${nome} não aceita exercício de sustentação`);
-  };
-  switch (m.tipo) {
-    case "intervalado":
-      entre(m.trabalho_s, 10, 120, "trabalho_s");
-      entre(m.descanso_s, 0, 60, "descanso_s");
-      entre(m.series, 1, 12, "series");
-      if (m.meta.tipo === "faixa") {
-        if (m.meta.por_exercicio.length !== n) p.push("faixa precisa de um item por exercício");
-        if (m.meta.por_exercicio.some((f) => !(f.min >= 1 && f.max >= f.min))) p.push("faixa inválida");
-        semSustentacao("faixa de repetições");
-      }
-      if (m.meta.tipo === "sustentar" && exercicios.some((e) => !e.sustentacao)) p.push("sustentar só vale para exercícios de sustentação");
-      if (m.meta.tipo === "amrap" && exercicios.some((e) => e.sustentacao)) p.push("AMRAP não vale para exercícios de sustentação");
-      break;
-    case "tabata":
-      entre(m.rounds, 2, 12, "rounds");
-      entre(m.trabalho_s, 10, 60, "trabalho_s");
-      entre(m.descanso_s, 5, 60, "descanso_s");
-      semSustentacao("Tabata");
-      break;
-    case "series":
-      entre(m.series, 1, 5, "series");
-      entre(m.reps, 1, 30, "reps");
-      entre(m.descanso_s, 0, 120, "descanso_s");
-      semSustentacao("séries e repetições");
-      break;
-    case "circuito":
-    case "contra_relogio":
-      if (m.itens.length !== n) p.push("é preciso um item por exercício");
-      m.itens.forEach((item, i) => {
-        const e = exercicios[i];
-        if (!e) return;
-        if ("reps" in item) {
-          entre(item.reps, 1, 60, `itens[${i}].reps`);
-          if (e.sustentacao) p.push(`${e.nome} é de sustentação: use segundos`);
-        } else {
-          entre(item.segundos, 5, 300, `itens[${i}].segundos`);
-        }
-      });
-      if (m.tipo === "circuito") {
-        entre(m.rodadas, 1, 6, "rodadas");
-        entre(m.descanso_s, 0, 90, "descanso_s");
-      } else {
-        entre(m.teto_s, 30, 300, "teto_s");
-      }
-      break;
-    case "emom":
-      entre(m.minutos, 2, 5, "minutos");
-      entre(m.reps, 1, 40, "reps");
-      semSustentacao("EMOM");
-      break;
-    case "escada":
-      if (n !== 1) p.push("escada usa um exercício");
-      if (m.degraus.length < 2 || m.degraus.some((d) => !(d >= 1 && d <= 30))) p.push("degraus inválidos");
-      entre(m.teto_s, 30, 300, "teto_s");
-      semSustentacao("escada");
-      break;
-  }
+  if (e.versao !== 2) p.push("versão desconhecida");
+  if (e.blocos.length === 0) p.push("desafio sem blocos");
+  if (e.blocos.length !== exercicios.length) p.push("é preciso um exercício por bloco");
+  entre(e.pausa_entre_blocos_s, 0, 120, "pausa_entre_blocos_s");
+  if (e.teto_s !== undefined) entre(e.teto_s, 30, 300, "teto_s");
+  e.blocos.forEach((b, i) => {
+    const r = `bloco ${i + 1}`;
+    const ex = exercicios[i];
+    entre(b.series, 1, 12, `${r}: series`);
+    entre(b.pausa_s, 0, 120, `${r}: pausa_s`);
+    if (!SCORES_POR_METODO[b.metodo]?.includes(b.score)) p.push(`${r}: score ${b.score} não combina com ${b.metodo}`);
+    if (b.pse_alvo !== undefined) entre(b.pse_alvo, 1, 10, `${r}: pse_alvo`);
+    if (b.cadencia !== undefined && !/^\d-\d-\d-\d$/.test(b.cadencia)) p.push(`${r}: cadência deve ser no formato 2-0-1-0`);
+    const porTempo = b.metodo === "amrap" || b.metodo === "isometria" || b.metodo === "tabata";
+    if (porTempo) entre(b.esforco_s, 5, 300, `${r}: esforco_s`);
+    else {
+      const metas = Array.isArray(b.reps_alvo) ? b.reps_alvo : [b.reps_alvo];
+      if (metas.some((m) => m === undefined || !(m >= 1 && m <= 60))) p.push(`${r}: reps_alvo fora de 1 a 60`);
+      if (Array.isArray(b.reps_alvo) && b.reps_alvo.length !== b.series) p.push(`${r}: a escada precisa de uma meta por série`);
+    }
+    if (b.faixa && !(b.faixa.min >= 1 && b.faixa.max >= b.faixa.min)) p.push(`${r}: faixa inválida`);
+    if (b.faixa && b.metodo !== "amrap") p.push(`${r}: faixa só vale no AMRAP`);
+    if (b.metodo === "emom" && b.pausa_s !== 0) p.push(`${r}: EMOM não tem pausa (o descanso é o resto do minuto)`);
+    if (b.metodo === "for_time" && e.teto_s === undefined) p.push(`${r}: contra o relógio precisa de teto_s`);
+    if (ex) {
+      if (b.metodo === "isometria" && !ex.sustentacao) p.push(`${r}: ${ex.nome} não é de sustentação`);
+      if (b.metodo !== "isometria" && ex.sustentacao) p.push(`${r}: ${ex.nome} é de sustentação: use isometria`);
+    }
+  });
   return p;
 }
 
-/** Monta a sequência de fases do método. */
-export function montarLinhaDoTempo(metodo: Metodo, exercicios: ExercicioMetodo[]): LinhaDoTempo {
-  const fases: Fase[] = [];
-  const n = exercicios.length;
-  const sust = (i: number) => exercicios[i]?.sustentacao ?? false;
-  const nome = (i: number) => exercicios[i]?.nome ?? "";
+// ===================================================================== compilação
 
-  const trabalho = (f: Omit<FaseTrabalho, "tipo" | "sustentar"> & { sustentar?: boolean }) =>
-    fases.push({ tipo: "trabalho", sustentar: f.sustentar ?? sust(f.exercicio), ...f });
-  const descanso = (s: number, proximo: number, rotuloProximo: string) => {
-    if (s > 0) fases.push({ tipo: "descanso", duracaoMs: s * 1000, proximo, rotuloProximo });
-  };
-  /** Entre dois trabalhos sem descanso, com troca de exercício: 3 s de transição. */
-  const transicaoSePreciso = (proximo: number) => {
-    const ultima = fases[fases.length - 1];
-    if (ultima?.tipo === "trabalho" && ultima.exercicio !== proximo) {
-      fases.push({ tipo: "transicao", exercicio: proximo, duracaoMs: TRANSICAO_MS });
-    }
-  };
-  const itemRotulo = (item: Item) => ("reps" in item ? `${item.reps} reps` : `${item.segundos} s`);
-
-  let tetoMs: number | undefined;
-  fases.push({ tipo: "preparo", exercicio: 0 });
-
-  switch (metodo.tipo) {
-    case "intervalado":
-    case "tabata": {
-      const total = metodo.tipo === "tabata" ? metodo.rounds : metodo.series;
-      for (let i = 0; i < total; i++) {
-        const ex = i % n;
-        const rotulo = metodo.tipo === "tabata" ? `Round ${i + 1} de ${total}` : `${ordinal(i + 1)} série de ${total}`;
-        const faixa = metodo.tipo === "intervalado" && metodo.meta.tipo === "faixa" ? metodo.meta.por_exercicio[ex] : undefined;
-        trabalho({ exercicio: ex, rotulo, duracaoMs: metodo.trabalho_s * 1000, faixa });
-        if (i < total - 1) {
-          const prox = (i + 1) % n;
-          const rot = metodo.tipo === "tabata" ? `Round ${i + 2} · ${nome(prox)}` : `${ordinal(i + 2)} série · ${nome(prox)}`;
-          descanso(metodo.descanso_s, prox, rot);
-          if (metodo.descanso_s === 0) transicaoSePreciso(prox);
-        }
-      }
-      break;
-    }
-    case "series": {
-      for (let ex = 0; ex < n; ex++) {
-        for (let s = 0; s < metodo.series; s++) {
-          trabalho({ exercicio: ex, rotulo: `${ordinal(s + 1)} série de ${metodo.series}`, alvoReps: metodo.reps });
-          const ultima = ex === n - 1 && s === metodo.series - 1;
-          if (ultima) continue;
-          const prox = s < metodo.series - 1 ? ex : ex + 1;
-          const proxSerie = s < metodo.series - 1 ? s + 2 : 1;
-          descanso(metodo.descanso_s, prox, `${ordinal(proxSerie)} série · ${nome(prox)} · ${metodo.reps} reps`);
-          if (metodo.descanso_s === 0) transicaoSePreciso(prox);
-        }
-      }
-      break;
-    }
-    case "circuito": {
-      for (let r = 0; r < metodo.rodadas; r++) {
-        metodo.itens.forEach((item, ex) => {
-          if (ex > 0 || r > 0) transicaoSePreciso(ex);
-          const rotulo = `Rodada ${r + 1} de ${metodo.rodadas} · ${itemRotulo(item)}`;
-          if ("reps" in item) trabalho({ exercicio: ex, rotulo, alvoReps: item.reps });
-          else trabalho({ exercicio: ex, rotulo, duracaoMs: item.segundos * 1000 });
-        });
-        if (r < metodo.rodadas - 1) {
-          descanso(metodo.descanso_s, 0, `Rodada ${r + 2} · ${nome(0)}`);
-        }
-      }
-      break;
-    }
-    case "emom": {
-      for (let m = 0; m < metodo.minutos; m++) {
-        trabalho({ exercicio: m % n, rotulo: `Minuto ${m + 1} de ${metodo.minutos}`, alvoReps: metodo.reps, duracaoMs: 60_000, emom: true });
-      }
-      break;
-    }
-    case "escada": {
-      metodo.degraus.forEach((reps, d) => {
-        trabalho({ exercicio: 0, rotulo: `Degrau ${d + 1} de ${metodo.degraus.length} · ${reps} reps`, alvoReps: reps });
-      });
-      tetoMs = metodo.teto_s * 1000;
-      break;
-    }
-    case "contra_relogio": {
-      metodo.itens.forEach((item, ex) => {
-        if (ex > 0) transicaoSePreciso(ex);
-        const rotulo = `Tarefa ${ex + 1} de ${metodo.itens.length} · ${itemRotulo(item)}`;
-        if ("reps" in item) trabalho({ exercicio: ex, rotulo, alvoReps: item.reps });
-        else trabalho({ exercicio: ex, rotulo, duracaoMs: item.segundos * 1000 });
-      });
-      tetoMs = metodo.teto_s * 1000;
-      break;
-    }
-  }
-
-  return { metodo, fases, tetoMs, duracaoEstimadaS: estimar(fases, exercicios, tetoMs) };
+export interface OpcoesCompilar {
+  /** Segundos da contagem do pop-up "PREPARE-SE" (5 a 10). */
+  preparoS?: number;
 }
 
-/** Duração planejada: fases por tempo pelo relógio; fases por reps pelo ritmo de referência. */
+/** Monta a sequência de fases da estrutura. */
+export function compilar(e: Estrutura, exercicios: ExercicioMetodo[], opcoes: OpcoesCompilar = {}): LinhaDoTempo {
+  const preparoMs = Math.min(10, Math.max(5, opcoes.preparoS ?? PREPARO_PADRAO_S)) * 1000;
+  const nome = (i: number) => exercicios[i]?.nome ?? "";
+
+  // Ordem dos esforços: (bloco, série).
+  const ordem: { b: number; s: number; rodada: number }[] = [];
+  if (e.organizacao === "sequencia") {
+    e.blocos.forEach((bl, b) => {
+      for (let s = 0; s < bl.series; s++) ordem.push({ b, s, rodada: b });
+    });
+  } else {
+    const rodadas = Math.max(...e.blocos.map((bl) => bl.series));
+    for (let r = 0; r < rodadas; r++) e.blocos.forEach((bl, b) => r < bl.series && ordem.push({ b, s: r, rodada: r }));
+  }
+  const totalTabata = ordem.filter((o) => e.blocos[o.b].metodo === "tabata").length;
+  const totalEmom = ordem.filter((o) => e.blocos[o.b].metodo === "emom").length;
+  const totalForTime = ordem.filter((o) => e.blocos[o.b].metodo === "for_time" || (e.teto_s && e.blocos[o.b].metodo === "isometria")).length;
+
+  const fases: Fase[] = [];
+  const vistos = new Set<number>();
+  let contTabata = 0;
+  let contEmom = 0;
+  let contForTime = 0;
+
+  ordem.forEach((o, k) => {
+    const bl = e.blocos[o.b];
+    const primeira = !vistos.has(o.b);
+    vistos.add(o.b);
+
+    // Antes do esforço: pop-up de preparo na primeira série do bloco (absorve a pausa anterior),
+    // ou transição de 3 s quando o exercício muda sem pausa.
+    const anterior = fases[fases.length - 1];
+    if (primeira) {
+      let ms = preparoMs;
+      if (anterior?.tipo === "descanso") ms = Math.max(ms, (fases.pop() as { duracaoMs: number }).duracaoMs);
+      fases.push({ tipo: "preparo", exercicio: o.b, duracaoMs: ms });
+    } else if (anterior?.tipo === "trabalho" && anterior.exercicio !== o.b) {
+      fases.push({ tipo: "transicao", exercicio: o.b, duracaoMs: TRANSICAO_MS });
+    }
+
+    let rotulo: string;
+    if (bl.metodo === "tabata") rotulo = `Round ${++contTabata} de ${totalTabata}`;
+    else if (bl.metodo === "emom") rotulo = `Minuto ${++contEmom} de ${totalEmom}`;
+    else if (e.teto_s && (bl.metodo === "for_time" || bl.metodo === "isometria")) rotulo = `Tarefa ${++contForTime} de ${totalForTime}`;
+    else if (ehEscada(bl)) rotulo = `Degrau ${o.s + 1} de ${bl.series} · ${repsDaSerie(bl, o.s)} reps`;
+    else rotulo = `${ordinal(o.s + 1)} série de ${bl.series}${bl.reps_alvo !== undefined ? ` · ${repsDaSerie(bl, o.s)} reps` : ""}`;
+
+    const trabalho: FaseTrabalho = {
+      tipo: "trabalho",
+      exercicio: o.b,
+      serie: o.s + 1,
+      totalSeries: bl.series,
+      metodo: bl.metodo,
+      rotulo,
+      sustentar: bl.metodo === "isometria",
+    };
+    if (bl.metodo === "amrap" || bl.metodo === "isometria" || bl.metodo === "tabata") trabalho.duracaoMs = (bl.esforco_s ?? 30) * 1000;
+    else if (bl.metodo === "emom") Object.assign(trabalho, { duracaoMs: 60_000, alvoReps: repsDaSerie(bl, o.s), emom: true });
+    else trabalho.alvoReps = repsDaSerie(bl, o.s);
+    if (bl.faixa) trabalho.faixa = bl.faixa;
+    fases.push(trabalho);
+
+    // Depois do esforço: a pausa certa para o que vem a seguir.
+    const prox = ordem[k + 1];
+    if (!prox) return;
+    let pausa: number;
+    if (e.organizacao === "sequencia") pausa = prox.b === o.b ? bl.pausa_s : e.pausa_entre_blocos_s;
+    else pausa = prox.rodada !== o.rodada ? Math.max(bl.pausa_s, e.pausa_entre_blocos_s) : bl.pausa_s;
+    if (pausa > 0) {
+      const pb = e.blocos[prox.b];
+      const rot = pb.metodo === "tabata" ? `Round ${contTabata + 1} · ${nome(prox.b)}` : `${ordinal(prox.s + 1)} série · ${nome(prox.b)}${pb.reps_alvo !== undefined ? ` · ${repsDaSerie(pb, prox.s)} reps` : ""}`;
+      fases.push({ tipo: "descanso", duracaoMs: pausa * 1000, proximo: prox.b, rotuloProximo: rot });
+    }
+  });
+
+  const tetoMs = e.teto_s !== undefined ? e.teto_s * 1000 : undefined;
+  return { estrutura: e, fases, tetoMs, duracaoEstimadaS: estimar(fases, exercicios, tetoMs) };
+}
+
+/**
+ * Duração planejada: Σ(séries × esforço + pausas) + pausas entre blocos, com o
+ * esforço das séries por repetição estimado pelo ritmo de referência. A
+ * contagem inicial não entra; as trocas de exercício entram.
+ */
 function estimar(fases: Fase[], exercicios: ExercicioMetodo[], tetoMs?: number): number {
   let ms = 0;
-  for (const f of fases) {
-    if (f.tipo === "descanso" || f.tipo === "transicao") ms += f.duracaoMs;
-    else if (f.tipo === "trabalho") {
-      ms += f.duracaoMs ?? (f.alvoReps ?? 0) * (exercicios[f.exercicio]?.segPorRep ?? 3) * 1000;
-    }
-  }
+  fases.forEach((f, i) => {
+    if (f.tipo === "trabalho") ms += f.duracaoMs ?? (f.alvoReps ?? 0) * (exercicios[f.exercicio]?.segPorRep ?? 3) * 1000;
+    else if (!(f.tipo === "preparo" && i === 0)) ms += f.duracaoMs;
+  });
   if (tetoMs !== undefined) ms = Math.min(ms, tetoMs);
   return Math.round(ms / 1000);
 }
 
-/** Segundos de trabalho planejados por exercício (para a validação de números no servidor). */
-export function segundosPorExercicio(linha: LinhaDoTempo, exercicios: ExercicioMetodo[]): number[] {
-  const total = exercicios.map(() => 0);
+/** Segundos de esforço planejados por bloco (para a validação de números no servidor). */
+export function segundosPorBloco(linha: LinhaDoTempo, exercicios: ExercicioMetodo[]): number[] {
+  const total = linha.estrutura.blocos.map(() => 0);
   for (const f of linha.fases) {
     if (f.tipo !== "trabalho") continue;
     total[f.exercicio] += f.duracaoMs !== undefined ? f.duracaoMs / 1000 : (f.alvoReps ?? 0) * (exercicios[f.exercicio]?.segPorRep ?? 3);
@@ -311,9 +372,85 @@ export function segundosPorExercicio(linha: LinhaDoTempo, exercicios: ExercicioM
   return total.map((s) => Math.max(10, Math.ceil(s)));
 }
 
-// ---------------------------------------------------------------- sessão
+// ===================================================================== formato antigo
 
-/** Resultado de uma fase de trabalho. Só números. */
+/** Método do desafio inteiro, usado até a migração 0009 (coluna `metodo`). */
+export type Item = { reps: number } | { segundos: number };
+export type MetodoAntigo =
+  | { tipo: "intervalado"; trabalho_s: number; descanso_s: number; series: number; meta: { tipo: "amrap" } | { tipo: "sustentar" } | { tipo: "faixa"; por_exercicio: { min: number; max: number }[] } }
+  | { tipo: "tabata"; rounds: number; trabalho_s: number; descanso_s: number }
+  | { tipo: "series"; series: number; reps: number; descanso_s: number }
+  | { tipo: "circuito"; rodadas: number; descanso_s: number; itens: Item[] }
+  | { tipo: "emom"; minutos: number; reps: number }
+  | { tipo: "escada"; degraus: number[]; teto_s: number }
+  | { tipo: "contra_relogio"; itens: Item[]; teto_s: number };
+
+/** Quantas vezes o exercício i aparece quando `total` séries se alternam entre `n` exercícios. */
+const fatia = (total: number, n: number, i: number) => Math.floor(total / n) + (i < total % n ? 1 : 0);
+
+/** Converte o formato antigo (método do desafio inteiro) para blocos, sem mudar o treino. */
+export function converterMetodoAntigo(m: MetodoAntigo, ids: string[], ex: ExercicioMetodo[]): Estrutura {
+  const n = ids.length;
+  const base = (i: number) => ({ exercicio_id: ids[i], pausa_s: 0 });
+  const porTempo = (i: number, s: number, series: number, pausa: number): Bloco =>
+    ex[i]?.sustentacao
+      ? { ...base(i), metodo: "isometria", series, esforco_s: s, pausa_s: pausa, score: "tempo_valido" }
+      : { ...base(i), metodo: "amrap", series, esforco_s: s, pausa_s: pausa, score: "total_reps" };
+  switch (m.tipo) {
+    case "intervalado":
+      return {
+        versao: 2, organizacao: "alternada", pausa_entre_blocos_s: 0,
+        blocos: ids.map((_, i) => {
+          const b = porTempo(i, m.trabalho_s, fatia(m.series, n, i), m.descanso_s);
+          if (m.meta.tipo === "faixa" && b.metodo === "amrap") b.faixa = m.meta.por_exercicio[i];
+          return b;
+        }),
+      };
+    case "tabata":
+      return {
+        versao: 2, organizacao: "alternada", pausa_entre_blocos_s: 0,
+        blocos: ids.map((_, i) => ({ ...base(i), metodo: "tabata", series: fatia(m.rounds, n, i), esforco_s: m.trabalho_s, pausa_s: m.descanso_s, score: "total_reps" })),
+      };
+    case "series":
+      return {
+        versao: 2, organizacao: "sequencia", pausa_entre_blocos_s: m.descanso_s,
+        blocos: ids.map((_, i) => ({ ...base(i), metodo: "reps", series: m.series, reps_alvo: m.reps, pausa_s: m.descanso_s, score: "reps_por_serie" })),
+      };
+    case "circuito":
+      return {
+        versao: 2, organizacao: "alternada", pausa_entre_blocos_s: m.descanso_s,
+        blocos: m.itens.map((it, i) => ("reps" in it
+          ? { ...base(i), metodo: "reps", series: m.rodadas, reps_alvo: it.reps, score: "reps_por_serie" }
+          : porTempo(i, it.segundos, m.rodadas, 0))),
+      };
+    case "emom":
+      return {
+        versao: 2, organizacao: "alternada", pausa_entre_blocos_s: 0,
+        blocos: ids.map((_, i) => ({ ...base(i), metodo: "emom", series: fatia(m.minutos, n, i), reps_alvo: m.reps, score: "reps_por_serie" })),
+      };
+    case "escada":
+      return {
+        versao: 2, organizacao: "sequencia", pausa_entre_blocos_s: 0, teto_s: m.teto_s,
+        blocos: [{ ...base(0), metodo: "reps", series: m.degraus.length, reps_alvo: m.degraus, score: "total_reps" }],
+      };
+    case "contra_relogio":
+      return {
+        versao: 2, organizacao: "sequencia", pausa_entre_blocos_s: 0, teto_s: m.teto_s,
+        blocos: m.itens.map((it, i) => ("reps" in it
+          ? { ...base(i), metodo: "for_time", series: 1, reps_alvo: it.reps, score: "tempo_total" }
+          : { ...base(i), metodo: "isometria", series: 1, esforco_s: it.segundos, score: "tempo_valido" })),
+      };
+  }
+}
+
+/** Sem método nenhum no banco (antes da migração 0008): um bloco por exercício com o tempo dele. */
+export function estruturaLegada(ids: string[], segundos: number[], ex: ExercicioMetodo[]): Estrutura {
+  return converterMetodoAntigo({ tipo: "circuito", rodadas: 1, descanso_s: 0, itens: ids.map((_, i) => ({ segundos: segundos[i] ?? 60 })) }, ids, ex);
+}
+
+// ===================================================================== sessão
+
+/** Resultado de uma série (fase de trabalho). Só números. */
 export interface ResultadoFase {
   fase: number;
   exercicio: number;
@@ -321,22 +458,18 @@ export interface ResultadoFase {
   parciais: number;
   tempoValidoMs: number;
   duracaoMs: number;
-  /** Bateu a meta da fase (reps, faixa, EMOM no minuto, sustentou 80% do tempo). */
+  /** Bateu a meta da série (reps, faixa, EMOM no minuto, sustentou 80% do tempo). */
   cumprida: boolean;
-  /** A fase foi interrompida antes do fim (Pular, Encerrar ou teto). */
+  /** A série foi interrompida antes do fim (Pular, Encerrar ou teto). */
   interrompida: boolean;
 }
 
 /** O que a tela informa a cada quadro. */
 export interface EntradaSessao {
-  /** Repetições válidas na fase de trabalho atual. */
   reps: number;
   parciais: number;
-  /** Tempo na posição na fase atual (sustentação). */
   tempoValidoMs: number;
-  /** Corpo inteiro visível e estável (só importa no preparo). */
-  pronto: boolean;
-  /** Pessoa fora do quadro: o tempo de trabalho para. */
+  /** Pessoa fora do quadro: o tempo de esforço para. */
   foraDoQuadro: boolean;
   /** Pausa da tela (ex.: "Senti dor"): tudo para. */
   pausado: boolean;
@@ -349,8 +482,6 @@ export type EventoSessao =
   | { tipo: "contagem"; segundos: number }
   | { tipo: "fim"; motivo: "concluido" | "encerrado" | "teto" };
 
-const CONTAGEM_PREPARO_MS = 3000;
-
 /**
  * Percorre a linha do tempo. Recebe o relógio e os números da câmera (ou os
  * toques do modo sem câmera) e decide quando cada fase começa e termina.
@@ -359,15 +490,13 @@ export class SessaoTreino {
   indice = 0;
   /** Tempo decorrido na fase atual (sem as pausas). */
   decorridoMs = 0;
-  /** Preparo: momento em que a contagem 3-2-1 começou. */
-  contagemDesde: number | null = null;
   emomCumprido = false;
   terminou = false;
-  /** Tempo de trabalho desde o primeiro trabalho (para o teto). */
+  /** Tempo de esforço desde o primeiro esforço (para o teto). */
   totalMs = 0;
   readonly resultados: ResultadoFase[] = [];
   private tAnterior: number | null = null;
-  private ultimaEntrada: EntradaSessao = { reps: 0, parciais: 0, tempoValidoMs: 0, pronto: false, foraDoQuadro: false, pausado: false };
+  private ultimaEntrada: EntradaSessao = { reps: 0, parciais: 0, tempoValidoMs: 0, foraDoQuadro: false, pausado: false };
   private ultimoSegundo = -1;
 
   constructor(readonly linha: LinhaDoTempo) {}
@@ -379,25 +508,19 @@ export class SessaoTreino {
   /** Tempo que falta na fase atual (fases por tempo), em ms. */
   get restanteMs(): number | null {
     const f = this.fase;
-    if (f.tipo === "preparo") return this.contagemDesde === null ? null : CONTAGEM_PREPARO_MS - this.decorridoMs;
     if (f.tipo === "trabalho" && f.duracaoMs === undefined) return null;
-    return Math.max(0, (f.tipo === "trabalho" ? f.duracaoMs! : f.duracaoMs) - this.decorridoMs);
+    return Math.max(0, (f.duracaoMs ?? 0) - this.decorridoMs);
   }
 
-  /** Tempo que falta até o teto do desafio, quando houver. */
   get restanteTetoMs(): number | null {
     return this.linha.tetoMs === undefined ? null : Math.max(0, this.linha.tetoMs - this.totalMs);
   }
 
-  /** Fração da fase já feita (0 a 1), para o anel. */
+  /** Fração da fase já feita (0 a 1), para a barra. */
   get progresso(): number {
     const f = this.fase;
-    if (f.tipo === "trabalho" && f.duracaoMs === undefined) {
-      return f.alvoReps ? Math.min(1, this.ultimaEntrada.reps / f.alvoReps) : 0;
-    }
-    const total = f.tipo === "preparo" ? CONTAGEM_PREPARO_MS : f.duracaoMs!;
-    if (f.tipo === "preparo" && this.contagemDesde === null) return 0;
-    return Math.min(1, this.decorridoMs / total);
+    if (f.tipo === "trabalho" && f.duracaoMs === undefined) return f.alvoReps ? Math.min(1, this.ultimaEntrada.reps / f.alvoReps) : 0;
+    return Math.min(1, this.decorridoMs / (f.duracaoMs ?? 1));
   }
 
   tick(t: number, entrada: EntradaSessao): EventoSessao[] {
@@ -409,53 +532,36 @@ export class SessaoTreino {
     if (entrada.pausado) return eventos;
 
     const f = this.fase;
-    switch (f.tipo) {
-      case "preparo":
-        if (this.contagemDesde === null) {
-          if (entrada.pronto) {
-            this.contagemDesde = t;
-            this.decorridoMs = 0;
-          }
-          break;
-        }
-        this.decorridoMs += dt;
-        this.contar(eventos);
-        if (this.decorridoMs >= CONTAGEM_PREPARO_MS) this.avancar(eventos);
-        break;
-      case "descanso":
-      case "transicao":
-        this.decorridoMs += dt;
-        this.contar(eventos);
-        if (this.decorridoMs >= f.duracaoMs) this.avancar(eventos);
-        break;
-      case "trabalho": {
-        // Fora do quadro, o relógio da fase para (seção 3.5). Fases por reps não têm relógio.
-        if (!entrada.foraDoQuadro) {
-          this.decorridoMs += dt;
-          this.totalMs += dt;
-        }
-        if (f.emom && !this.emomCumprido && f.alvoReps !== undefined && entrada.reps >= f.alvoReps) {
-          this.emomCumprido = true;
-          eventos.push({ tipo: "emom_cumprido" });
-        }
-        if (this.linha.tetoMs !== undefined && this.totalMs >= this.linha.tetoMs) {
-          this.registrar(eventos, true);
-          this.fim(eventos, "teto");
-          break;
-        }
-        if (f.duracaoMs !== undefined) {
-          this.contar(eventos);
-          if (this.decorridoMs >= f.duracaoMs) this.avancar(eventos);
-        } else if (f.alvoReps !== undefined && entrada.reps >= f.alvoReps) {
-          this.avancar(eventos);
-        }
-        break;
-      }
+    if (f.tipo !== "trabalho") {
+      this.decorridoMs += dt;
+      this.contar(eventos);
+      if (this.decorridoMs >= f.duracaoMs) this.avancar(eventos);
+      return eventos;
+    }
+    // Fora do quadro, o relógio da série para (seção 3.5).
+    if (!entrada.foraDoQuadro) {
+      this.decorridoMs += dt;
+      this.totalMs += dt;
+    }
+    if (f.emom && !this.emomCumprido && f.alvoReps !== undefined && entrada.reps >= f.alvoReps) {
+      this.emomCumprido = true;
+      eventos.push({ tipo: "emom_cumprido" });
+    }
+    if (this.linha.tetoMs !== undefined && this.totalMs >= this.linha.tetoMs) {
+      this.registrar(eventos, true);
+      this.fim(eventos, "teto");
+      return eventos;
+    }
+    if (f.duracaoMs !== undefined) {
+      this.contar(eventos);
+      if (this.decorridoMs >= f.duracaoMs) this.avancar(eventos);
+    } else if (f.alvoReps !== undefined && entrada.reps >= f.alvoReps) {
+      this.avancar(eventos);
     }
     return eventos;
   }
 
-  /** Botão "Pular": fecha a fase atual (contando o que foi feito) e segue. */
+  /** "Pular" (ou "Ok, let's hive" no preparo): fecha a fase atual, contando o que foi feito, e segue. */
   pular(): EventoSessao[] {
     const eventos: EventoSessao[] = [];
     if (this.terminou) return eventos;
@@ -464,7 +570,7 @@ export class SessaoTreino {
     return eventos;
   }
 
-  /** Botão "Encerrar": fecha a fase atual e termina o desafio com o que foi feito. */
+  /** "Encerrar": fecha a fase atual e termina o desafio com o que foi feito. */
   encerrar(): EventoSessao[] {
     const eventos: EventoSessao[] = [];
     if (this.terminou) return eventos;
@@ -495,7 +601,6 @@ export class SessaoTreino {
     }
     this.indice = indice;
     this.decorridoMs = 0;
-    this.contagemDesde = null;
     this.emomCumprido = false;
     this.ultimoSegundo = -1;
     this.ultimaEntrada = { ...this.ultimaEntrada, reps: 0, parciais: 0, tempoValidoMs: 0 };
@@ -531,88 +636,21 @@ export class SessaoTreino {
   }
 }
 
-// ---------------------------------------------------------------- resumo
+// ===================================================================== resumo
 
 export interface ResumoMetodo {
-  /** Linha principal do resultado, ex.: "Tabata: 96 reps". */
+  /** Linha principal do resultado, ex.: "96 repetições · 60 s em posição". */
   titulo: string;
-  /** Detalhes, ex.: "Pior round: 9 reps". */
   detalhes: string[];
 }
 
-/** Resumo do desafio pelo método (tela de resultado e KPIs enviados ao servidor). */
-export function resumirMetodo(linha: LinhaDoTempo, resultados: ResultadoFase[]): { resumo: ResumoMetodo; numeros: Record<string, number> } {
-  const m = linha.metodo;
-  const trabalhos = linha.fases.filter((f): f is FaseTrabalho => f.tipo === "trabalho");
-  const reps = resultados.reduce((s, r) => s + r.reps, 0);
-  const cumpridas = resultados.filter((r) => r.cumprida).length;
-  const numeros: Record<string, number> = {
-    fases_total: trabalhos.length,
-    fases_feitas: resultados.length,
-    fases_cumpridas: cumpridas,
-    reps_total: reps,
-  };
-  const detalhes: string[] = [];
-  let titulo: string;
-
-  switch (m.tipo) {
-    case "tabata": {
-      const pior = resultados.length ? Math.min(...resultados.map((r) => r.reps)) : 0;
-      numeros.pior_round = pior;
-      titulo = `${reps} repetições em ${resultados.length} rounds`;
-      detalhes.push(`Pior round: ${pior} reps`);
-      break;
-    }
-    case "emom":
-      numeros.minutos_cumpridos = cumpridas;
-      titulo = `${cumpridas} de ${m.minutos} minutos cumpridos`;
-      detalhes.push(`${reps} repetições no total`);
-      break;
-    case "escada": {
-      numeros.degraus = cumpridas;
-      titulo = `${cumpridas} de ${m.degraus.length} degraus`;
-      detalhes.push(`${reps} repetições no total`);
-      break;
-    }
-    case "contra_relogio": {
-      const tempo = resultados.reduce((s, r) => s + r.duracaoMs, 0) / 1000;
-      const todas = cumpridas === trabalhos.length;
-      numeros.tempo_total_s = Math.round(tempo);
-      titulo = todas ? `Tudo feito em ${formatarTempo(tempo)}` : `${cumpridas} de ${trabalhos.length} tarefas no tempo`;
-      break;
-    }
-    case "series":
-      numeros.series_cumpridas = cumpridas;
-      titulo = `${cumpridas} de ${trabalhos.length} séries completas`;
-      detalhes.push(`${reps} repetições válidas`);
-      break;
-    case "circuito":
-      titulo = `${cumpridas} de ${trabalhos.length} tarefas cumpridas`;
-      if (reps > 0) detalhes.push(`${reps} repetições válidas`);
-      break;
-    case "intervalado": {
-      if (m.meta.tipo === "sustentar") {
-        const s = resultados.reduce((t, r) => t + r.tempoValidoMs, 0) / 1000;
-        titulo = `${Math.round(s)} s na posição`;
-        detalhes.push(`${cumpridas} de ${trabalhos.length} séries sustentadas`);
-      } else {
-        titulo = `${reps} repetições em ${resultados.length} séries`;
-        if (m.meta.tipo === "faixa") detalhes.push(`${cumpridas} de ${trabalhos.length} séries na faixa`);
-        if (resultados.length >= 2) {
-          // Fadiga: queda entre a primeira e a última série do mesmo exercício (seção 8.3).
-          const primeira = resultados[0];
-          const ultima = [...resultados].reverse().find((r) => r.exercicio === primeira.exercicio && r !== primeira);
-          if (ultima && primeira.reps > 0) {
-            const queda = Math.round((100 * (primeira.reps - ultima.reps)) / primeira.reps);
-            numeros.fadiga_pct = queda;
-            if (queda > 0) detalhes.push(`Queda de ${queda}% entre a primeira e a última série`);
-          }
-        }
-      }
-      break;
-    }
-  }
-  return { resumo: { titulo, detalhes }, numeros };
+/** Uma linha do resumo por série. */
+export interface LinhaSerie {
+  exercicio: number;
+  rotulo: string;
+  valor: string;
+  meta: string | null;
+  cumprida: boolean;
 }
 
 export function formatarTempo(segundos: number): string {
@@ -620,10 +658,67 @@ export function formatarTempo(segundos: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/**
- * Método usado quando o banco ainda não tem a coluna `metodo` (antes da
- * migração 0008): um circuito de 1 rodada com o tempo de cada exercício.
- */
-export function metodoLegado(segundos: number[], exercicios: ExercicioMetodo[]): Metodo {
-  return { tipo: "circuito", rodadas: 1, descanso_s: 0, itens: exercicios.map((_, i) => ({ segundos: segundos[i] ?? 60 })) };
+/** Resultado do desafio: resumo geral, uma linha por série e os números enviados ao servidor. */
+export function resumir(linha: LinhaDoTempo, resultados: ResultadoFase[]): { resumo: ResumoMetodo; porSerie: LinhaSerie[]; numeros: Record<string, number> } {
+  const e = linha.estrutura;
+  const trabalhos = linha.fases.filter((f): f is FaseTrabalho => f.tipo === "trabalho");
+  const reps = resultados.reduce((s, r) => s + r.reps, 0);
+  const tempoValido = Math.round(resultados.reduce((s, r) => s + r.tempoValidoMs, 0) / 1000);
+  const cumpridas = resultados.filter((r) => r.cumprida).length;
+  const numeros: Record<string, number> = { series_total: trabalhos.length, series_feitas: resultados.length, series_cumpridas: cumpridas, reps_total: reps };
+
+  const porSerie: LinhaSerie[] = resultados.map((r) => {
+    const f = linha.fases[r.fase] as FaseTrabalho;
+    let valor: string;
+    let meta: string | null = null;
+    if (f.sustentar) {
+      valor = `${Math.round(r.tempoValidoMs / 1000)} s em posição`;
+      meta = `${Math.round((f.duracaoMs ?? 0) / 1000)} s`;
+    } else if (f.metodo === "for_time") {
+      valor = `${r.reps} reps em ${formatarTempo(r.duracaoMs / 1000)}`;
+      meta = `${f.alvoReps} reps`;
+    } else {
+      valor = `${r.reps} ${r.reps === 1 ? "rep" : "reps"}`;
+      if (f.alvoReps !== undefined) meta = `${f.alvoReps} reps${f.emom ? " no minuto" : ""}`;
+      else if (f.faixa) meta = `${f.faixa.min} a ${f.faixa.max} reps`;
+    }
+    return { exercicio: r.exercicio, rotulo: f.rotulo, valor, meta, cumprida: r.cumprida };
+  });
+
+  const detalhes: string[] = [`${cumpridas} de ${trabalhos.length} séries cumpridas`];
+  let titulo: string;
+  const temTeto = e.teto_s !== undefined;
+  if (temTeto) {
+    const tempo = resultados.reduce((s, r) => s + r.duracaoMs, 0) / 1000;
+    numeros.tempo_total_s = Math.round(tempo);
+    titulo = cumpridas === trabalhos.length ? `Tudo feito em ${formatarTempo(tempo)}` : `${cumpridas} de ${trabalhos.length} etapas dentro do teto`;
+  } else {
+    const partes: string[] = [];
+    if (reps > 0 || e.blocos.some((b) => b.metodo !== "isometria")) partes.push(`${reps} repetições`);
+    if (e.blocos.some((b) => b.metodo === "isometria")) partes.push(`${tempoValido} s em posição`);
+    titulo = partes.join(" · ");
+  }
+  numeros.tempo_valido_s = tempoValido;
+
+  const tabata = resultados.filter((r) => (linha.fases[r.fase] as FaseTrabalho).metodo === "tabata");
+  if (tabata.length > 0) {
+    numeros.pior_round = Math.min(...tabata.map((r) => r.reps));
+    detalhes.push(`Pior round do Tabata: ${numeros.pior_round} reps`);
+  }
+  const emom = resultados.filter((r) => (linha.fases[r.fase] as FaseTrabalho).emom);
+  if (emom.length > 0) {
+    numeros.minutos_cumpridos = emom.filter((r) => r.cumprida).length;
+    detalhes.push(`EMOM: ${numeros.minutos_cumpridos} de ${trabalhos.filter((f) => f.emom).length} minutos cumpridos`);
+  }
+  // Fadiga no AMRAP: queda entre a primeira e a última série do mesmo bloco (seção 8.3).
+  e.blocos.forEach((b, i) => {
+    if (b.metodo !== "amrap" && b.metodo !== "tabata") return;
+    const series = resultados.filter((r) => r.exercicio === i);
+    if (series.length < 2 || series[0].reps === 0) return;
+    const queda = Math.round((100 * (series[0].reps - series[series.length - 1].reps)) / series[0].reps);
+    numeros[`fadiga_pct_${i + 1}`] = queda;
+    if (queda > 0) detalhes.push(`Queda de ${queda}% entre a primeira e a última série`);
+  });
+
+  return { resumo: { titulo, detalhes }, porSerie, numeros };
 }

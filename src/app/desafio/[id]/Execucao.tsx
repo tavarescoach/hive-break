@@ -9,17 +9,18 @@ import { som } from "@/camera/som";
 import { calarVoz, falar } from "@/camera/voz";
 import { Gabarito, dicaDoGabarito } from "@/componentes/Gabarito";
 import { agregarPorExercicio, type BlocoEnviado } from "@/dominio/agregar";
-import { formatarTempo, resumirMetodo, SessaoTreino, type EventoSessao, type Fase, type LinhaDoTempo, type ResumoMetodo } from "@/dominio/metodos";
+import {
+  descreverBloco, descreverScore, etiquetasDoBloco, explicarCadencia, formatarTempo, resumir, SessaoTreino,
+  type Bloco, type EventoSessao, type ExercicioMetodo, type Fase, type LinhaDoTempo,
+} from "@/dominio/metodos";
 import { ehSustentacao, exercicioPorId } from "@/exercicios";
 import { Motor } from "@/motor/motor";
 import { gruposObrigatorios } from "@/motor/pontos";
 import type { DefinicaoExercicio, EventoMotor, Frame, Kpis } from "@/motor/tipos";
 import { registrarDor } from "./acoes";
-import type { BlocoDesafio } from "./Desafio";
+import type { BlocoDesafio, FimDoDesafio } from "./Desafio";
 
 const VISIBILIDADE_MINIMA = 0.6;
-/** Corpo visível por este tempo libera a contagem do início. */
-const ENQUADRADO_MS = 1200;
 const REGIOES = [
   ["joelho", "Joelho"], ["ombro", "Ombro"], ["lombar", "Lombar"], ["punho", "Punho"],
   ["quadril", "Quadril"], ["tornozelo", "Tornozelo"], ["pescoco", "Pescoço"], ["outra", "Outro lugar"],
@@ -45,7 +46,6 @@ interface Hud {
   restanteMs: number | null;
   restanteTetoMs: number | null;
   progresso: number;
-  contagem: boolean;
   reps: number;
   parciais: number;
   tempoValidoMs: number;
@@ -60,7 +60,7 @@ interface Hud {
 }
 
 const HUD_INICIAL: Hud = {
-  carregando: true, indice: 0, restanteMs: null, restanteTetoMs: null, progresso: 0, contagem: false, reps: 0, parciais: 0,
+  carregando: true, indice: 0, restanteMs: null, restanteTetoMs: null, progresso: 0, reps: 0, parciais: 0,
   tempoValidoMs: 0, naPosicao: false, emomCumprido: false, feedback: null, fora: false, corpoVisivel: false,
   indicadores: [], ultimoResultado: null, lento: false,
 };
@@ -90,10 +90,11 @@ function indicadores(def: DefinicaoExercicio, k: Kpis): Indicador[] {
 interface Props {
   id: string;
   blocos: BlocoDesafio[];
+  exercicios: ExercicioMetodo[];
   linha: LinhaDoTempo;
   comCamera: boolean;
-  /** Fim do desafio: números por exercício (vazio no modo sem câmera) e resumo do método. */
-  aoFim: (numeros: BlocoEnviado[], resumo: ResumoMetodo) => void;
+  /** Fim do desafio: números por bloco (vazio no modo sem câmera), resumo geral e por série. */
+  aoFim: (fim: FimDoDesafio) => void;
   /** A câmera não abriu: a tela troca para o modo sem câmera. */
   aoSemCamera: (mensagem: string) => void;
 }
@@ -103,14 +104,14 @@ interface Props {
  * descanso, transição) com a câmera contando, ou com o timer e o botão "Feito"
  * no modo sem câmera. O vídeo é analisado no aparelho.
  */
-export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: Props) {
+export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSemCamera }: Props) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sessaoRef = useRef<SessaoTreino>(null);
   const pausadoRef = useRef(false);
   const manualRepsRef = useRef(0);
-  const acaoRef = useRef<(qual: "pular" | "encerrar" | "comecar" | "feito") => void>(() => {});
+  const acaoRef = useRef<(qual: "pular" | "encerrar" | "feito") => void>(() => {});
   const [hud, setHud] = useState<Hud>(HUD_INICIAL);
   const [modal, setModal] = useState<"dor" | "sair" | null>(null);
   const [enviandoDor, setEnviandoDor] = useState(false);
@@ -134,7 +135,6 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
     let motor: Motor | null = null;
     const kpisPorFase = new Map<number, Kpis>();
     let ultimoTempoVideo = -1;
-    let visivelDesde: number | null = null;
     let quadros = 0;
     let inicioJanela = 0;
     let fps = 30;
@@ -169,6 +169,10 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
         falar(`Descanse. A seguir: ${nomeEx(f.proximo)}.`, true);
       } else if (f.tipo === "transicao") {
         falar(`Próximo: ${nomeEx(f.exercicio)}.`, true);
+      } else if (f.tipo === "preparo") {
+        som.parcial();
+        const bl = linha.estrutura.blocos[f.exercicio];
+        falar(`Prepare-se. ${nomeEx(f.exercicio)}. ${bl ? descreverBloco(bl, exercicios[f.exercicio]).replace(/ · /g, ", ") : ""}.`, true);
       }
     };
 
@@ -207,12 +211,12 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
       encerrado = true;
       som.fim();
       calarVoz();
-      const { resumo, numeros } = resumirMetodo(linha, sessao.resultados);
-      const enviados = comCamera
+      const { resumo, porSerie, numeros } = resumir(linha, sessao.resultados);
+      const enviados: BlocoEnviado[] = comCamera
         ? agregarPorExercicio(blocos.map((b) => b.ordem), sessao.resultados, kpisPorFase, numeros)
         : [];
       window.setTimeout(() => {
-        if (!cancelado) entregar(enviados, resumo);
+        if (!cancelado) entregar({ numeros: enviados, resumo, porSerie });
       }, 600);
     };
 
@@ -220,7 +224,6 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
       if (encerrado) return;
       if (qual === "pular") tratarSessao(sessao.pular());
       else if (qual === "encerrar") tratarSessao(sessao.encerrar());
-      else if (qual === "comecar") visivelDesde = -Infinity;
       else if (qual === "feito") {
         const f = sessao.fase;
         if (f.tipo === "trabalho") manualRepsRef.current = f.alvoReps ?? manualRepsRef.current + 1;
@@ -299,12 +302,7 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
         naPosicao = f.sustentar;
       }
 
-      if (f.tipo === "preparo") {
-        if (corpoVisivel) visivelDesde ??= agora;
-        else if (visivelDesde !== -Infinity) visivelDesde = null;
-      }
-      const pronto = !comCamera || (visivelDesde !== null && agora - visivelDesde >= ENQUADRADO_MS);
-      tratarSessao(sessao.tick(agora, { reps, parciais, tempoValidoMs, pronto, foraDoQuadro: fora, pausado: pausadoRef.current }));
+      tratarSessao(sessao.tick(agora, { reps, parciais, tempoValidoMs, foraDoQuadro: fora, pausado: pausadoRef.current }));
 
       if (agora - ultimoHud >= 100) {
         ultimoHud = agora;
@@ -314,7 +312,6 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
           restanteMs: sessao.restanteMs,
           restanteTetoMs: sessao.restanteTetoMs,
           progresso: sessao.progresso,
-          contagem: sessao.fase.tipo === "preparo" && sessao.contagemDesde !== null,
           reps,
           parciais,
           tempoValidoMs,
@@ -349,7 +346,7 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
         // Sem Wake Lock: a tela pode apagar em desafios longos.
       }
       inicioJanela = performance.now();
-      falar(`${nomeEx(0)}. ${blocos[0]?.lateral ? "Fique de lado para o celular." : "Fique de frente para o celular."}`, true);
+      iniciarFase(sessao.fase);
       raf = requestAnimationFrame(quadro);
     };
 
@@ -370,7 +367,7 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
       }
       void trava?.release().catch(() => {});
     };
-  }, [blocos, linha, comCamera]);
+  }, [blocos, exercicios, linha, comCamera]);
 
   const fase = linha.fases[hud.indice] ?? linha.fases[0];
   const exIndice = fase.tipo === "descanso" ? fase.proximo : fase.exercicio;
@@ -404,13 +401,8 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
   if (hud.carregando) {
     principal = <p className="text-3xl font-black">{comCamera ? "Abrindo a câmera…" : "Preparando…"}</p>;
   } else if (fase.tipo === "preparo") {
-    if (hud.contagem && hud.restanteMs !== null) {
-      principal = <p key={Math.ceil(hud.restanteMs / 1000)} className={`${grande} pulso-rep text-[clamp(7rem,40vw,12rem)]`}>{Math.ceil(hud.restanteMs / 1000)}</p>;
-      secundario = "Prepare-se";
-    } else {
-      principal = <p className="text-[clamp(2rem,9vw,3rem)] font-black leading-tight">Posicione-se</p>;
-      secundario = hud.corpoVisivel ? "Boa! Fique parado, já vai começar." : bloco.lateral ? "De lado para o celular, corpo inteiro na tela" : "De frente para o celular, corpo inteiro na tela";
-    }
+    principal = <p className={`${grande} text-[clamp(7rem,40vw,12rem)]`}>{Math.ceil((hud.restanteMs ?? 0) / 1000)}</p>;
+    secundario = "Prepare-se";
   } else if (fase.tipo === "descanso") {
     principal = <p className={`${grande} text-[clamp(7rem,36vw,11rem)]`}>{regressivo(hud.restanteMs ?? 0)}</p>;
     secundario = `Descanso · a seguir: ${fase.rotuloProximo}`;
@@ -453,12 +445,14 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
   }
   const corPainel = fase.tipo === "trabalho" && fase.emom && hud.emomCumprido ? COR_FASE.descanso : COR_FASE[fase.tipo];
   const descansando = fase.tipo === "descanso";
+  const popupAberto = fase.tipo === "preparo" && !hud.carregando;
+  const cobertoPorPopup = popupAberto || modal !== null;
   const mostrarGabarito = fase.tipo !== "trabalho" || sustentar || !comCamera;
 
   return (
     <main className="fixed inset-0 z-10 mx-auto flex max-w-[430px] flex-col overflow-hidden bg-black text-white">
       {/* Topo: sair, exercício e posição no desafio, pular */}
-      <header className="flex items-center gap-2 bg-black px-2 pb-1.5 pt-[max(0.5rem,env(safe-area-inset-top))]">
+      <header inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined} className="flex items-center gap-2 bg-black px-2 pb-1.5 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <button onClick={() => pausar("sair")} aria-label="Encerrar o desafio" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white/80 active:bg-white/10">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
             <path d="M6 6l12 12M18 6L6 18" />
@@ -478,6 +472,7 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
 
       {/* Painel da fase: cor, número principal enorme e barra de progresso */}
       <section
+        inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined}
         aria-live="polite"
         className={`relative flex shrink-0 flex-col items-center justify-center px-4 py-3 text-center transition-[flex-grow] duration-300 ${corPainel} ${descansando ? "grow" : ""}`}
         style={{ minHeight: descansando ? undefined : "36%" }}
@@ -496,7 +491,7 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
       </section>
 
       {/* Câmera (ou gabarito grande no modo sem câmera) */}
-      <section className={`relative min-h-0 ${descansando ? "h-0" : "flex-1"}`}>
+      <section inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined} className={`relative min-h-0 ${descansando ? "h-0" : "flex-1"}`}>
         {comCamera ? (
           <>
             <video ref={videoRef} playsInline muted className="absolute inset-0 h-full w-full -scale-x-100 object-contain" />
@@ -542,21 +537,31 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
       </section>
 
       {/* Rodapé: começar agora, feito (sem câmera) e senti dor */}
-      <footer className="flex shrink-0 items-center gap-2 bg-black px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+      <footer inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined} className="flex shrink-0 items-center gap-2 bg-black px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
         <button onClick={() => pausar("dor")} className="h-12 shrink-0 rounded-full border border-white/30 px-4 text-base font-bold active:bg-white/15">
           Senti dor
         </button>
-        {fase.tipo === "preparo" && comCamera && !hud.contagem && !hud.carregando && (
-          <button onClick={() => acaoRef.current("comecar")} className="h-12 flex-1 rounded-full bg-mel text-base font-black text-black active:bg-mel-forte">
-            Começar agora
-          </button>
-        )}
         {!comCamera && fase.tipo === "trabalho" && !fase.sustentar && fase.alvoReps !== undefined && !(fase.emom && hud.emomCumprido) && (
           <button onClick={() => acaoRef.current("feito")} className="h-14 flex-1 rounded-full bg-mel text-lg font-black text-black active:bg-mel-forte">
             Feito: {fase.alvoReps} reps
           </button>
         )}
       </footer>
+
+      {popupAberto && (
+        <PopupPrepare
+          nome={bloco.exercicio}
+          exercicioId={bloco.exercicioId}
+          bloco={linha.estrutura.blocos[exIndice]}
+          exercicio={exercicios[exIndice]}
+          segundos={Math.ceil((hud.restanteMs ?? 0) / 1000)}
+          progresso={hud.progresso}
+          primeiro={hud.indice === 0}
+          inerte={modal !== null}
+          aoSair={() => pausar("sair")}
+          aoComecar={() => acaoRef.current("pular")}
+        />
+      )}
 
       {modal === "dor" && (
         <div role="dialog" aria-modal="true" aria-label="Senti dor" className="absolute inset-0 z-20 flex items-end bg-black/75">
@@ -604,6 +609,72 @@ export function Execucao({ id, blocos, linha, comCamera, aoFim, aoSemCamera }: P
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * Pop-up "PREPARE-SE": aparece antes do primeiro esforço de cada exercício,
+ * com as instruções rápidas e a contagem regressiva. "Ok, let's hive" pula a
+ * contagem e começa na hora.
+ */
+function PopupPrepare({
+  nome, exercicioId, bloco, exercicio, segundos, progresso, primeiro, inerte, aoSair, aoComecar,
+}: {
+  nome: string;
+  exercicioId: string;
+  bloco: Bloco | undefined;
+  exercicio: ExercicioMetodo | undefined;
+  segundos: number;
+  progresso: number;
+  primeiro: boolean;
+  inerte: boolean;
+  aoSair: () => void;
+  aoComecar: () => void;
+}) {
+  return (
+    <div inert={inerte} aria-hidden={inerte || undefined} role="dialog" aria-modal="true" aria-label={`Prepare-se: ${nome}`} className="absolute inset-0 z-20 flex flex-col bg-[#F5F2EA] text-black">
+      <div className="flex items-center justify-between px-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+        <button onClick={aoSair} aria-label="Encerrar o desafio" className="flex h-12 w-12 items-center justify-center rounded-full text-black/60 active:bg-black/10">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+        <p className="pr-4 text-sm font-black uppercase tracking-[0.18em] text-black/60">Prepare-se</p>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-5 pb-3 text-center">
+        <h2 className="text-[1.75rem] font-black leading-tight">{nome}</h2>
+        {bloco && <p className="mt-1 text-lg font-bold leading-snug">{descreverBloco(bloco, exercicio)}</p>}
+        {bloco && <p className="text-base font-semibold text-black/70">{descreverScore(bloco)}</p>}
+        <div className="my-2 rounded-3xl bg-[#17191e] p-2">
+          <Gabarito exercicio={exercicioId} tamanho={150} />
+        </div>
+        {bloco && (
+          <ul className="flex flex-wrap justify-center gap-1.5">
+            {etiquetasDoBloco(bloco).map((e) => (
+              <li key={e.rotulo} className="rounded-full border border-black/20 bg-white px-2.5 py-0.5 text-sm font-bold">
+                <span className="text-black/55">{e.rotulo}</span> {e.valor}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-2 text-[15px] leading-snug text-black/75">
+          {bloco?.cadencia ? `Cadência: ${explicarCadencia(bloco.cadencia)}. ` : ""}
+          {dicaDoGabarito(exercicioId)}
+        </p>
+        {primeiro && <p className="mt-1 text-[15px] font-semibold text-black/75">Afaste-se até o corpo inteiro aparecer na câmera.</p>}
+      </div>
+      <div className="flex flex-col items-center gap-3 px-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <p role="timer" aria-label={`Começa em ${segundos} segundos`} className="text-[clamp(5rem,26vw,7rem)] font-black leading-none tabular-nums">
+          {segundos}
+        </p>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-black/10" aria-hidden>
+          <div className="h-full bg-black/60 transition-[width] duration-150" style={{ width: `${Math.round(progresso * 100)}%` }} />
+        </div>
+        <button onClick={aoComecar} className="h-14 w-full rounded-2xl bg-mel text-lg font-black text-black active:bg-mel-forte">
+          Ok, let&apos;s hive
+        </button>
+      </div>
+    </div>
   );
 }
 
