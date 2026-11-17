@@ -4,11 +4,11 @@ import { ConfiguracaoPendente } from "@/componentes/ConfiguracaoPendente";
 import type { DadosTrilha } from "@/dominio/trilha";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 import { supabaseConfigurado } from "@/lib/supabase/env";
-import { TimerDesafio, type BlocoTimer } from "./TimerDesafio";
+import { Desafio, type BlocoDesafio } from "./Desafio";
 
 export const metadata: Metadata = { title: "Desafio · Hive Break" };
 
-export default async function Desafio({ params }: { params: Promise<{ id: string }> }) {
+export default async function PaginaDesafio({ params }: { params: Promise<{ id: string }> }) {
   if (!supabaseConfigurado) return <ConfiguracaoPendente />;
   const { id } = await params;
   if (!/^[a-z0-9_]+$/.test(id)) notFound();
@@ -26,7 +26,9 @@ export default async function Desafio({ params }: { params: Promise<{ id: string
   if (desafio.estado === "bloqueado" || desafio.estado === "travado") redirect("/trilha");
 
   const nomes = new Map((exercicios.data ?? []).map((e) => [e.id as string, e as { nome: string; camera: string }]));
-  const lista: BlocoTimer[] = (blocos.data ?? []).map((b) => ({
+  const lista: BlocoDesafio[] = (blocos.data ?? []).map((b) => ({
+    ordem: Number(b.ordem),
+    exercicioId: String(b.exercise_id),
     exercicio: nomes.get(b.exercise_id as string)?.nome ?? String(b.exercise_id),
     lateral: nomes.get(b.exercise_id as string)?.camera === "lateral",
     segundos: Number((b.parametros_por_dificuldade as { padrao?: { segundos?: number } }).padrao?.segundos ?? 60),
@@ -35,7 +37,7 @@ export default async function Desafio({ params }: { params: Promise<{ id: string
   const nivel = dados.niveis.find((n) => n.id === desafio.level_id);
 
   return (
-    <TimerDesafio
+    <Desafio
       id={desafio.id}
       titulo={desafio.titulo}
       modalidade={desafio.modalidade}
