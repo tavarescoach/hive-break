@@ -39,11 +39,11 @@
   "fases": [
     {
       "nome": "baixo",
-      "condicao": "medida < 30"
+      "condicao": "medida < 35"
     },
     {
       "nome": "alto",
-      "condicao": "medida > 150"
+      "condicao": "medida > 135"
     }
   ],
   "repeticao": [
@@ -51,20 +51,26 @@
     "alto",
     "baixo"
   ],
-  "parcial_se": "max_medida > 110",
+  "parcial_se": "max_medida > 100",
   "parcial_feedback": "Suba mais os braços",
   "amplitude": {
     "extremo": "max",
-    "minimo_aceito": 150,
+    "minimo_aceito": 135,
     "ideal": 170
   },
   "duracao_minima_ms": 800,
   "erros": [
     {
       "id": "cotovelo_dobrado",
-      "condicao": "cotovelo < 150",
+      "condicao": "cotovelo < 140",
       "fase": "alto",
       "feedback": "Estenda os cotovelos"
+    },
+    {
+      "id": "amplitude_curta",
+      "quando": "fim_rep",
+      "condicao": "max_medida < 150",
+      "feedback": "Suba mais os braços"
     }
   ],
   "kpis": [

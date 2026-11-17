@@ -2,7 +2,7 @@ import { analisar, avaliarCondicao, type Contexto, type No } from "./expressao";
 import { FiltroPose } from "./filtro-one-euro";
 import { distancia, limitar, type Vetor } from "./geometria";
 import { calcularKpis } from "./kpis";
-import { calcularMedida, distEntre, prepararPose, type PoseMedida } from "./medidas";
+import { calcularMedida, distEntre, prepararPose, visibilidadeDe, type PoseMedida } from "./medidas";
 import { gruposObrigatorios, indicesDoPonto, resolverPonto, TOTAL_PONTOS } from "./pontos";
 import type {
   DefinicaoErro,
@@ -55,6 +55,13 @@ interface Alvo {
   raio: number;
   nasceu: number;
 }
+
+/**
+ * Visibilidade mínima dos pontos obrigatórios. A especificação sugeria 0,6; o
+ * teste com pessoas reais (18/11/2026) mostrou que isso deixava o corpo "fora do
+ * quadro" com frequência em casa, então o padrão ficou mais tolerante.
+ */
+export const VISIBILIDADE_MINIMA_PADRAO = 0.5;
 
 /** Intervalo máximo creditado entre dois frames (protege contra travadas). */
 const DT_MAXIMO_MS = 500;
@@ -148,7 +155,7 @@ export class Motor {
 
     this.def = def;
     this.proporcao = opcoes.proporcao ?? 1;
-    this.visibilidadeMinima = opcoes.visibilidadeMinima ?? 0.6;
+    this.visibilidadeMinima = opcoes.visibilidadeMinima ?? VISIBILIDADE_MINIMA_PADRAO;
     this.foraQuadroMs = opcoes.foraQuadroMs ?? 1000;
     this.faseMinimaMs = def.fase_minima_ms ?? 150;
     this.duracaoMinimaMs = def.duracao_minima_ms ?? 400;
@@ -254,6 +261,7 @@ export class Motor {
         return NaN;
       },
       dist: (nomes) => distEntre(nomes, pose),
+      vis: (nome) => visibilidadeDe(nome, pose),
     };
 
     if (this.def.formato === "repeticoes") this.processarRepeticoes(t, ctx, eventos);

@@ -8,7 +8,6 @@
     "ombro",
     "quadril",
     "joelho",
-    "tornozelo",
     "punho"
   ],
   "medida_principal": {
@@ -57,7 +56,7 @@
   },
   "histerese": 5,
   "sustentacao": {
-    "condicao": "medida entre 55 e 105 e joelho > 150 e cotovelo > 155 e quadril_alto > 0.2",
+    "condicao": "medida entre 50 e 115 e (joelho > 140 ou vis(tornozelo) < 0.5) e cotovelo > 145 e quadril_alto > 0.1",
     "feedback_perda": "Quadril para o alto, joelhos e cotovelos estendidos"
   },
   "erros": [],

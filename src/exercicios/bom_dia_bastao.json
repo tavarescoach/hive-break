@@ -8,8 +8,7 @@
   "pontos_obrigatorios": [
     "ombro",
     "quadril",
-    "joelho",
-    "tornozelo"
+    "joelho"
   ],
   "medida_principal": {
     "tipo": "angulo",
@@ -37,11 +36,11 @@
   "fases": [
     {
       "nome": "topo",
-      "condicao": "medida > 165"
+      "condicao": "medida > 155"
     },
     {
       "nome": "fundo",
-      "condicao": "medida < 110"
+      "condicao": "medida < 125"
     }
   ],
   "repeticao": [
@@ -49,20 +48,26 @@
     "fundo",
     "topo"
   ],
-  "parcial_se": "min_medida < 135",
+  "parcial_se": "min_medida < 145",
   "parcial_feedback": "Incline mais o tronco",
   "amplitude": {
     "extremo": "min",
-    "minimo_aceito": 110,
+    "minimo_aceito": 125,
     "ideal": 90
   },
   "duracao_minima_ms": 800,
   "erros": [
     {
       "id": "joelhos_dobrados",
-      "condicao": "joelho < 150",
+      "condicao": "vis(tornozelo) > 0.7 e joelho < 140",
       "fase": "fundo",
       "feedback": "Joelhos quase estendidos"
+    },
+    {
+      "id": "amplitude_curta",
+      "quando": "fim_rep",
+      "condicao": "min_medida > 110",
+      "feedback": "Incline mais o tronco"
     }
   ],
   "kpis": [

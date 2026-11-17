@@ -45,6 +45,12 @@ Rode, nesta ordem:
 Sem os dois, o app converte o formato anterior na hora e continua funcionando; a PSE e a
 escolha da contagem só funcionam depois da migração.
 
+### Avaliação menos exigente (18/11/2026)
+
+Nada obrigatório: o app usa as regras dos exercícios direto do código. Rodar de novo o
+[`supabase/seed_trilha.sql`](../supabase/seed_trilha.sql) só atualiza a cópia das regras
+guardada no banco.
+
 Quem ainda não instalou nada usa só o `instalar.sql`, que já inclui tudo.
 
 Nas próximas fases eu aviso quais arquivos novos de `supabase/migrations/` precisam ser

@@ -26,7 +26,7 @@
   "histerese": 0.05,
   "fase_minima_ms": 150,
   "sustentacao": {
-    "condicao": "abs(medida) > 0.25",
+    "condicao": "abs(medida) > 0.18",
     "feedback_perda": "Pé tocou o chão",
     "lado": {
       "medida": "medida",

@@ -4,6 +4,7 @@ import { analisar, avaliarCondicao, avaliarNumero, variaveisUsadas, type Context
 const ctx = (valores: Record<string, number>, dists: Record<string, number> = {}): Contexto => ({
   variavel: (nome) => valores[nome] ?? NaN,
   dist: (pontos) => dists[pontos.join(",")] ?? NaN,
+  vis: (ponto) => valores[`vis:${ponto}`] ?? NaN,
 });
 
 const testar = (texto: string, valores: Record<string, number>, folga = 0, dists = {}) =>
@@ -39,6 +40,12 @@ describe("interpretador de condições", () => {
     expect(testar("dist(joelhos) < 0.8 * dist(tornozelos)", {}, 0, { joelhos: 0.19, tornozelos: 0.2 })).toBe(false);
     expect(avaliarNumero(analisar("abs(-3) + max(1, 2) * 2 - 6 / 3"), ctx({}))).toBe(5);
     expect(avaliarNumero(analisar("-(2 + 3)"), ctx({}))).toBe(-5);
+  });
+
+  it("vis() lê a visibilidade dos pontos", () => {
+    expect(testar("vis(tornozelos) > 0.7 e medida < 100", { "vis:tornozelos": 0.9, medida: 90 })).toBe(true);
+    expect(testar("vis(tornozelos) > 0.7 e medida < 100", { "vis:tornozelos": 0.4, medida: 90 })).toBe(false);
+    expect(() => analisar("vis(1)")).toThrow();
   });
 
   it("aplica a folga da histerese só para manter a condição", () => {

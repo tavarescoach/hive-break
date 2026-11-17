@@ -94,6 +94,16 @@ export function distEntre(pontos: string[], pose: PoseMedida): number {
   return distancia(ponto(pose.imagem, pontos[0], null), ponto(pose.imagem, pontos[1], null));
 }
 
+/** Visibilidade para `vis()`: ponto exato, pior dos dois (plural) ou melhor dos dois (sem lado). */
+export function visibilidadeDe(nome: string, pose: PoseMedida): number {
+  const plural = PLURAIS[nome];
+  const ref = resolverPonto(plural ?? nome);
+  if (ref.tipo === "unico") return pose.visibilidade[ref.indice];
+  const e = pose.visibilidade[ref.e];
+  const d = pose.visibilidade[ref.d];
+  return plural ? Math.min(e, d) : Math.max(e, d);
+}
+
 /** Valida os nomes de ponto de uma medida (lança erro se algum não existir). */
 export function validarMedida(def: DefinicaoMedida): void {
   for (const nome of def.pontos) resolverPonto(nome);

@@ -127,14 +127,23 @@ describe("exercícios de lado para a câmera", () => {
     expect(comErro.motor.kpis()).toMatchObject({ indice_tecnico: 0, erros: { joelhos_dobrados: 4 } });
   });
 
+  it("prancha com os pés fora da imagem: mede ombro, quadril e joelho", () => {
+    const motor = new Motor(definicao("prancha"), { proporcao: 1 });
+    for (let i = 0; i < 300; i++) {
+      const f = poseLateral(i * 33, { ombro: [0.25, 0.6], quadril: [0.5, 0.63], joelho: [0.68, 0.65] });
+      motor.processar(f);
+    }
+    expect(motor.kpis().tempo_valido_s).toBeGreaterThan(9.4);
+  });
+
   it("prancha: o tempo só corre com o corpo deitado e alinhado", () => {
     const prancha = definicao("prancha");
     const corpo = (t: number, quadrilY: number) =>
-      poseLateral(t, { ombro: [0.25, 0.6], quadril: [0.5, quadrilY], tornozelo: [0.78, 0.66] });
+      poseLateral(t, { ombro: [0.25, 0.6], quadril: [0.5, quadrilY], joelho: [0.64, (quadrilY + 0.66) / 2], tornozelo: [0.78, 0.66] });
     const frames: Frame[] = [];
     let t = 0;
     for (let i = 0; i < 300; i++) frames.push(corpo((t += 33), 0.63)); // alinhado: ~10 s
-    for (let i = 0; i < 150; i++) frames.push(corpo((t += 33), 0.74)); // quadril caído: ~5 s
+    for (let i = 0; i < 150; i++) frames.push(corpo((t += 33), 0.8)); // quadril bem caído: ~5 s
     const motor = new Motor(prancha, { proporcao: 1 });
     const eventos = frames.flatMap((f) => motor.processar(f));
     const kpis = motor.kpis();
@@ -146,7 +155,7 @@ describe("exercícios de lado para a câmera", () => {
 
     // Em pé o corpo também fica "alinhado", mas não é prancha.
     const emPe = new Motor(prancha, { proporcao: 1 });
-    for (let i = 0; i < 90; i++) emPe.processar(poseLateral(i * 33, { ombro: [0.5, 0.3], quadril: [0.5, 0.55], tornozelo: [0.5, 0.9] }));
+    for (let i = 0; i < 90; i++) emPe.processar(poseLateral(i * 33, { ombro: [0.5, 0.3], quadril: [0.5, 0.55], joelho: [0.5, 0.72], tornozelo: [0.5, 0.9] }));
     expect(emPe.kpis().tempo_valido_s).toBe(0);
   });
 });
@@ -154,7 +163,7 @@ describe("exercícios de lado para a câmera", () => {
 describe("toque nos alvos", () => {
   const def = definicao("toque_alvos");
 
-  it("acerta quando o punho entra no círculo e perde o alvo depois de 2 s", () => {
+  it("acerta quando o punho entra no círculo e perde o alvo depois de 2,5 s", () => {
     const motor = new Motor(def, { proporcao: PROPORCAO, aleatorio: criarAleatorio(5), suavizar: false });
     const eventos: EventoMotor[] = [];
     let t = 0;
@@ -169,7 +178,7 @@ describe("toque nos alvos", () => {
     }
     expect(dosTipo(eventos, "alvo_acerto")).toHaveLength(5);
     // Fase 2: parado, sem tocar: os alvos vencem a cada 2 s.
-    const fim = t + 8000;
+    const fim = t + 10_000;
     while (t < fim) eventos.push(...motor.processar({ ...base, t: (t += 33) }));
     const kpis = motor.kpis();
     expect(kpis.acertos).toBe(5);

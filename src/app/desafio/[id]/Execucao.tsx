@@ -14,13 +14,14 @@ import {
   type Bloco, type EventoSessao, type ExercicioMetodo, type Fase, type LinhaDoTempo,
 } from "@/dominio/metodos";
 import { ehSustentacao, exercicioPorId } from "@/exercicios";
-import { Motor } from "@/motor/motor";
+import { Motor, VISIBILIDADE_MINIMA_PADRAO } from "@/motor/motor";
+import { avaliarEnquadramento } from "@/motor/enquadramento";
 import { gruposObrigatorios } from "@/motor/pontos";
 import type { DefinicaoExercicio, EventoMotor, Frame, Kpis } from "@/motor/tipos";
 import { registrarDor } from "./acoes";
 import type { BlocoDesafio, FimDoDesafio } from "./Desafio";
 
-const VISIBILIDADE_MINIMA = 0.6;
+const VISIBILIDADE_MINIMA = VISIBILIDADE_MINIMA_PADRAO;
 const REGIOES = [
   ["joelho", "Joelho"], ["ombro", "Ombro"], ["lombar", "Lombar"], ["punho", "Punho"],
   ["quadril", "Quadril"], ["tornozelo", "Tornozelo"], ["pescoco", "Pescoço"], ["outra", "Outro lugar"],
@@ -57,12 +58,14 @@ interface Hud {
   indicadores: Indicador[];
   ultimoResultado: string | null;
   lento: boolean;
+  /** Aviso de posicionamento (o que a câmera não vê e como corrigir). */
+  enquadramento: string | null;
 }
 
 const HUD_INICIAL: Hud = {
   carregando: true, indice: 0, restanteMs: null, restanteTetoMs: null, progresso: 0, reps: 0, parciais: 0,
   tempoValidoMs: 0, naPosicao: false, emomCumprido: false, feedback: null, fora: false, corpoVisivel: false,
-  indicadores: [], ultimoResultado: null, lento: false,
+  indicadores: [], ultimoResultado: null, lento: false, enquadramento: null,
 };
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -238,6 +241,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
       let pontos: Frame["pontos"] = null;
       let mundo: Frame["mundo"] = null;
       let corpoVisivel = !comCamera;
+      let enquadramento: string | null = null;
       let erroAtivo = false;
       let reps = 0;
       let parciais = 0;
@@ -265,6 +269,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
         const ex = f.tipo === "descanso" ? f.proximo : f.exercicio;
         const grupos = defs[ex] ? gruposObrigatorios(defs[ex]!.pontos_obrigatorios) : [];
         corpoVisivel = !!pontos && grupos.every((g) => g.some((i) => (pontos![i].visibility ?? 1) >= VISIBILIDADE_MINIMA));
+        const defAtual = defs[ex];
+        enquadramento = defAtual ? avaliarEnquadramento(pontos, defAtual, VISIBILIDADE_MINIMA, proporcao).aviso : null;
         if (motor && f.tipo === "trabalho" && !pausadoRef.current) {
           const eventos: EventoMotor[] = motor.processar({ t: agora, pontos, mundo });
           for (const e of eventos) {
@@ -323,6 +329,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
           indicadores: chips,
           ultimoResultado,
           lento: comCamera && fps < 12,
+          enquadramento,
         });
       }
     };
@@ -519,8 +526,10 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
               {hud.feedback}
             </p>
           )}
-          {comCamera && hud.fora && fase.tipo === "trabalho" && (
-            <p className="numero-camera text-center text-xl font-black text-ruim">Não estou te vendo. Volte para o quadro.</p>
+          {comCamera && fase.tipo === "trabalho" && (hud.fora || hud.enquadramento) && (
+            <p className={`numero-camera rounded-xl bg-black/60 px-3 py-1.5 text-center text-lg font-black leading-snug ${hud.fora ? "text-ruim" : "text-atencao"}`}>
+              {hud.enquadramento ?? "Não estou te vendo. Volte para o quadro."}
+            </p>
           )}
           {hud.lento && <p className="text-sm font-semibold text-atencao">A câmera está lenta neste aparelho; a contagem pode falhar.</p>}
           {comCamera && hud.indicadores.length > 0 && fase.tipo === "trabalho" && (
@@ -557,6 +566,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
           segundos={Math.ceil((hud.restanteMs ?? 0) / 1000)}
           progresso={hud.progresso}
           primeiro={hud.indice === 0}
+          duracaoMs={fase.tipo === "preparo" ? fase.duracaoMs : 0}
+          enquadramento={comCamera ? { ok: hud.corpoVisivel && !hud.enquadramento, aviso: hud.enquadramento } : null}
           inerte={modal !== null}
           aoSair={() => pausar("sair")}
           aoComecar={() => acaoRef.current("pular")}
@@ -618,7 +629,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
  * contagem e começa na hora.
  */
 function PopupPrepare({
-  nome, exercicioId, bloco, exercicio, segundos, progresso, primeiro, inerte, aoSair, aoComecar,
+  nome, exercicioId, bloco, exercicio, segundos, progresso, primeiro, duracaoMs, enquadramento, inerte, aoSair, aoComecar,
 }: {
   nome: string;
   exercicioId: string;
@@ -627,10 +638,15 @@ function PopupPrepare({
   segundos: number;
   progresso: number;
   primeiro: boolean;
+  /** Duração do pop-up: acima de 15 s ele também é a pausa entre exercícios. */
+  duracaoMs: number;
+  /** Situação da câmera (null no modo sem câmera). */
+  enquadramento: { ok: boolean; aviso: string | null } | null;
   inerte: boolean;
   aoSair: () => void;
   aoComecar: () => void;
 }) {
+  const pausaLonga = duracaoMs > 15_000;
   return (
     <div inert={inerte} aria-hidden={inerte || undefined} role="dialog" aria-modal="true" aria-label={`Prepare-se: ${nome}`} className="absolute inset-0 z-20 flex flex-col bg-[#F5F2EA] text-black">
       <div className="flex items-center justify-between px-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
@@ -639,7 +655,7 @@ function PopupPrepare({
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
-        <p className="pr-4 text-sm font-black uppercase tracking-[0.18em] text-black/60">Prepare-se</p>
+        <p className="pr-4 text-sm font-black uppercase tracking-[0.18em] text-black/60">{pausaLonga ? "Pausa · Prepare-se" : "Prepare-se"}</p>
       </div>
       <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-5 pb-3 text-center">
         <h2 className="text-[1.75rem] font-black leading-tight">{nome}</h2>
@@ -661,9 +677,18 @@ function PopupPrepare({
           {bloco?.cadencia ? `Cadência: ${explicarCadencia(bloco.cadencia)}. ` : ""}
           {dicaDoGabarito(exercicioId)}
         </p>
-        {primeiro && <p className="mt-1 text-[15px] font-semibold text-black/75">Afaste-se até o corpo inteiro aparecer na câmera.</p>}
+        {primeiro && !enquadramento && <p className="mt-1 text-[15px] font-semibold text-black/75">Afaste-se até o corpo inteiro aparecer na câmera.</p>}
       </div>
       <div className="flex flex-col items-center gap-3 px-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        {enquadramento && (
+          <p
+            role="status"
+            className={`w-full rounded-xl px-3 py-2 text-center text-[15px] font-bold leading-snug ${enquadramento.ok ? "bg-[#1f7a46] text-white" : "bg-[#f3c34a] text-black"}`}
+          >
+            {enquadramento.ok ? "✓ Câmera te vendo bem" : (enquadramento.aviso ?? "Afaste-se até o corpo aparecer na câmera.")}
+          </p>
+        )}
+        {pausaLonga && <p className="-mb-2 text-base font-bold text-black/60">Descanse. Começa em</p>}
         <p role="timer" aria-label={`Começa em ${segundos} segundos`} className="text-[clamp(5rem,26vw,7rem)] font-black leading-none tabular-nums">
           {segundos}
         </p>

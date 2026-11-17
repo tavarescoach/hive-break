@@ -12,9 +12,7 @@
     "quadril_e",
     "quadril_d",
     "joelho_e",
-    "joelho_d",
-    "tornozelo_e",
-    "tornozelo_d"
+    "joelho_d"
   ],
   "medida_principal": {
     "tipo": "angulo",
@@ -50,7 +48,7 @@
   },
   "histerese": 5,
   "sustentacao": {
-    "condicao": "medida entre 85 e 125 e ombro_min > 70 e ombro_max < 115",
+    "condicao": "medida entre 80 e 135 e ombro_min > 60 e ombro_max < 125",
     "feedback_perda": "Braços na altura dos ombros, joelho da frente dobrado",
     "controle": {
       "ponto": "quadril",

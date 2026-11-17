@@ -346,3 +346,44 @@ Detalhes em `docs/METODOS.md`.
     escolhida em Perfil > Configurações (5, 8 ou 10 s).
 96. A coluna `metodo` (formato da migração 0008) fica vazia; o app converte o formato
     antigo se encontrar um desafio sem `estrutura`.
+
+## Avaliação menos exigente e avisos de posicionamento (18/11/2026)
+
+Teste do Luan no celular: a prancha não contava porque o corpo inteiro não cabia na
+imagem, e o agachamento marcava "joelhos para dentro" em 8 de 11 repetições (falso
+positivo).
+
+### Respondidas pelo Luan
+
+97. **Avaliação menos exigente.** Muitas vezes a pessoa não terá espaço para aparecer
+    inteira, e a meia repetição precisa ser validada, com o aviso ("Desça mais").
+98. **O celular fica sempre em pé.** Nunca pedir para girar o celular; os avisos indicam
+    como se posicionar.
+99. **Joelhos para dentro:** limite afrouxado.
+100. **Pop-up com pausa longa** mostra "Pausa · Prepare-se".
+
+### Decididas na implementação (revisar no próximo teste)
+
+101. **Visibilidade mínima dos pontos de 0,6 para 0,5.**
+102. **Menos pontos obrigatórios:** os pés deixam de ser obrigatórios no agachamento,
+     afundo, flexão, prancha, mountain climber, bom-dia, alongamento, guerreiro e cachorro.
+     A prancha passa a medir ombro-quadril-joelho (antes ombro-quadril-tornozelo).
+103. **Meia repetição conta, com aviso:** agachamento vale a partir de 120° no joelho
+     (antes 100°) e avisa "Desça mais" acima de 100°; afundo a partir de 115°; flexão a
+     partir de 110° no cotovelo ("Desça mais o peito" acima de 90°); ponte a partir de
+     155° ("Suba mais o quadril" abaixo de 165°); elevação em Y a partir de 135°; bom-dia
+     a partir de 125°. Mais raso que isso vira parcial (não conta), com o mesmo aviso. O
+     aviso aparece na faixa vermelha e na voz, e a meia repetição pesa menos na amplitude
+     e na técnica.
+104. **Polichinelo:** abertura das pernas a partir de 1,3× a largura dos ombros (antes 1,5×);
+     mãos acima dos ombros contam, com o aviso "Braços acima da cabeça"; abaixo dos ombros
+     não contam ("Suba os braços").
+105. **Joelhos para dentro:** joelhos a menos de 70% da distância dos tornozelos (antes 80%),
+     e só quando os tornozelos estão bem visíveis (nova função `vis()` nas regras).
+106. **Outras folgas:** skipping e marcha com o joelho um pouco mais baixo; posturas de
+     yoga, árvore, apoio em uma perna e respiração com faixas mais largas; alvos maiores e
+     com 2,5 s para tocar.
+107. **Avisos de posicionamento** (`src/motor/enquadramento.ts`): dizem qual parte do corpo
+     não aparece ("Não vejo seus pés: afaste-se um pouco ou incline o celular para baixo")
+     e avisam "Vire de lado" / "Fique de frente". Aparecem ao vivo no pop-up (verde quando
+     está tudo certo) e durante a série.
