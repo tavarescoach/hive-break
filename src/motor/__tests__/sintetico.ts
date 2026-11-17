@@ -24,6 +24,9 @@ export interface ParametrosPose {
   /** Altura do pé esquerdo / direito fora do chão, em metros. */
   peE?: number;
   peD?: number;
+  /** Elevação do joelho esquerdo / direito: 0 = em pé, 1 = coxa na horizontal (altura do quadril). */
+  joelhoAltoE?: number;
+  joelhoAltoD?: number;
   /** Deslocamento lateral do tronco e quadril, em metros (oscilação). */
   balanco?: number;
   /** Visibilidade de todos os pontos (padrão 0,95). */
@@ -100,6 +103,16 @@ function esqueleto(p: ParametrosPose): V3[] {
       (tornozelo[1] + quadril[1]) / 2,
       -CANELA * Math.sin(alfa) - (elevado > 0 ? 0.12 : 0),
     ];
+    const subida = (sufixo === "e" ? p.joelhoAltoE : p.joelhoAltoD) ?? 0;
+    if (subida > 0) {
+      // Coxa gira para a frente a partir do quadril; a canela fica pendurada.
+      const giro = rad(90 * subida);
+      joelhoPos[0] = quadril[0];
+      joelhoPos[1] = quadril[1] + CANELA * Math.cos(giro);
+      joelhoPos[2] = -CANELA * Math.sin(giro);
+      tornozelo[1] = joelhoPos[1] + CANELA;
+      tornozelo[2] = joelhoPos[2];
+    }
     definir(`quadril_${sufixo}`, quadril);
     definir(`joelho_${sufixo}`, joelhoPos);
     definir(`tornozelo_${sufixo}`, tornozelo);

@@ -30,15 +30,27 @@ async function captura(pagina, nome, paginaInteira = true) {
   if (CAPTURAS) await pagina.screenshot({ path: `${CAPTURAS}/${String(++passo).padStart(2, "0")}-${nome}.png`, fullPage: paginaInteira });
 }
 
-/** Faz um desafio pelo modo provisório: Começar → Concluí → Continuar. */
+/** Faz um desafio sem câmera: timer → Concluí → Continuar. */
 async function fazerDesafio(pagina, id) {
   await pagina.goto(`${APP}/desafio/${id}`);
-  await pagina.getByRole("button", { name: "Começar" }).click();
+  await pagina.getByRole("button", { name: "Fazer sem câmera" }).click();
+  await pagina.getByRole("timer").waitFor();
   await pagina.getByRole("button", { name: "Concluí" }).click();
   await pagina.getByText("Ofensiva:").waitFor();
   await pagina.getByRole("link", { name: "Continuar" }).click();
   await pagina.waitForURL("**/trilha");
 }
+
+/** Abre o desafio com a câmera e espera o exercício começar a valer. */
+async function abrirComCamera(pagina) {
+  await pagina.getByRole("button", { name: "Começar com a câmera" }).click();
+  // Com a câmera falsa de padrão colorido ninguém aparece: começa pelo botão.
+  const botao = pagina.getByRole("button", { name: "Começar agora" });
+  await pagina.getByRole("timer").or(botao).first().waitFor({ timeout: 60000 });
+  await botao.click({ timeout: 1500 }).catch(() => {});
+  await pagina.getByRole("timer").waitFor({ timeout: 60000 });
+}
+
 const continuar = (pagina, nome = "Continuar") => pagina.getByRole("button", { name: nome }).click();
 
 async function novaPessoa(navegador, identidade) {
@@ -200,29 +212,42 @@ try {
   await trilha.getByRole("link", { name: "Começar" }).click();
   await trilha.waitForURL("**/desafio/n1u1d01");
   await trilha.getByText("Marcha estacionária com braços").waitFor();
+  await trilha.getByText("de frente para o celular").first().waitFor();
   await captura(trilha, "ana-desafio-pronto", false);
-  await trilha.getByRole("button", { name: "Começar" }).click();
-  await trilha.getByRole("timer").waitFor();
-  await trilha.waitForTimeout(1300);
-  await captura(trilha, "ana-desafio-timer", false);
-  await trilha.getByRole("button", { name: "Pausar" }).click();
-  await trilha.getByRole("button", { name: "Continuar o timer" }).click();
+
+  // Com a câmera: o exercício começa, o contador e o anel aparecem.
+  await abrirComCamera(trilha);
+  await trilha.getByText("Exercício 1 de 2").waitFor();
+  await trilha.waitForTimeout(1500);
+  await captura(trilha, "ana-desafio-camera", false);
+  // "Senti dor" pausa e pergunta onde dói; dá para continuar.
+  await trilha.getByRole("button", { name: "Senti dor" }).click();
+  await trilha.getByRole("dialog", { name: "Senti dor" }).waitFor();
+  await captura(trilha, "ana-desafio-dor", false);
+  await trilha.getByRole("button", { name: "Foi só um susto, continuar" }).click();
+  // A imagem da câmera falsa é parada: sem movimento, vale como sem câmera (metade do XP).
   await trilha.getByRole("button", { name: "Concluí" }).click();
-  await trilha.getByText("+15").waitFor();
-  await trilha.getByText("primeiro desafio do dia").waitFor();
+  await trilha.getByText("+8").waitFor();
+  await trilha.getByText("A câmera não viu movimento").waitFor();
   await captura(trilha, "ana-desafio-resultado", false);
   await trilha.getByRole("link", { name: "Continuar" }).click();
   await trilha.waitForURL("**/trilha");
-  await trilha.getByLabel("15 de 20 XP hoje").waitFor();
+  await trilha.getByLabel("8 de 20 XP hoje").waitFor();
   await trilha.getByLabel("Ofensiva de 1 dia").waitFor();
   await trilha.getByRole("button", { name: "Aquecimento, concluído" }).first().waitFor();
   await trilha.getByRole("button", { name: "Mobilidade articular, disponível" }).waitFor();
 
-  // Refazer no mesmo dia não dá XP de novo; desafio bloqueado não abre.
+  // Refazer vale 1/3 do XP uma vez por dia; desafio bloqueado não abre.
   await trilha.goto(`${APP}/desafio/n1u1d01`);
-  await trilha.getByRole("button", { name: "Começar" }).click();
+  await trilha.getByText("refazer vale 1/3 do XP").waitFor();
+  await trilha.getByRole("button", { name: "Fazer sem câmera" }).click();
+  await trilha.getByRole("timer").waitFor();
+  await captura(trilha, "ana-desafio-timer", false);
+  await trilha.getByRole("button", { name: "Pausar" }).click();
+  await trilha.getByRole("button", { name: "Continuar o timer" }).click();
   await trilha.getByRole("button", { name: "Concluí" }).click();
-  await trilha.getByText("não soma XP de novo").waitFor();
+  await trilha.getByText("+2").waitFor();
+  await trilha.getByText("Refazer vale 1/3 do XP").waitFor();
   await trilha.goto(`${APP}/desafio/n1u1d05`);
   await trilha.waitForURL("**/trilha");
 
@@ -231,9 +256,23 @@ try {
   await trilha.getByRole("button", { name: "Abrir baú" }).click();
   await trilha.getByText("+10 XP para você!").waitFor();
   await captura(trilha, "ana-trilha-bau", false);
-  await trilha.getByLabel("55 de 20 XP hoje").waitFor();
+  await trilha.getByLabel("35 de 20 XP hoje").waitFor();
   let xp = await sql("select tipo, sum(valor)::int as total from public.xp_events where user_id = $1 group by tipo order by tipo", [perfilAna.id]);
-  assert.deepEqual(xp, [{ tipo: "bau", total: 10 }, { tipo: "desafio", total: 40 }, { tipo: "primeiro_do_dia", total: 5 }]);
+  assert.deepEqual(xp, [{ tipo: "bau", total: 10 }, { tipo: "desafio", total: 20 }, { tipo: "primeiro_do_dia", total: 3 }, { tipo: "refazer", total: 2 }]);
+  // Só números chegaram ao servidor: um bloco por exercício do desafio feito com a câmera.
+  const blocosSalvos = await sql("select reps_validas, tempo_valido_s::float, kpis from public.attempt_blocks b join public.challenge_attempts a on a.id = b.attempt_id where a.user_id = $1", [perfilAna.id]);
+  assert.equal(blocosSalvos.length, 1);
+  assert.ok("cadencia" in blocosSalvos[0].kpis);
+
+  // "Senti dor" de verdade: registra a região e encerra sem XP.
+  await trilha.goto(`${APP}/desafio/n1u1d05`);
+  await abrirComCamera(trilha);
+  await trilha.getByRole("button", { name: "Senti dor" }).click();
+  await trilha.getByRole("button", { name: "Joelho" }).click();
+  await trilha.waitForURL("**/trilha");
+  const dores = await sql("select regiao, acao_tomada from public.pain_reports where user_id = $1", [perfilAna.id]);
+  assert.deepEqual(dores, [{ regiao: "joelho", acao_tomada: "encerrou" }]);
+  await trilha.getByLabel("35 de 20 XP hoje").waitFor();
 
   // Lista de seções e "Pular para cá".
   await trilha.getByRole("button", { name: "Ver todas as seções" }).click();

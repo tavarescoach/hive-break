@@ -1,0 +1,72 @@
+{
+  "id": "skipping",
+  "nome": "Skipping (elevação de joelhos)",
+  "modalidade": "cardio",
+  "camera": "frontal",
+  "formato": "alternado",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "quadril_e",
+    "quadril_d",
+    "joelho_e",
+    "joelho_d"
+  ],
+  "medida_principal": {
+    "tipo": "altura",
+    "pontos": [
+      "quadril",
+      "joelho"
+    ],
+    "lado": "max",
+    "normalizar_por": [
+      "ombro",
+      "quadril"
+    ]
+  },
+  "medidas": {
+    "joelho_e_alt": {
+      "tipo": "altura",
+      "pontos": [
+        "quadril_e",
+        "joelho_e"
+      ],
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ]
+    },
+    "joelho_d_alt": {
+      "tipo": "altura",
+      "pontos": [
+        "quadril_d",
+        "joelho_d"
+      ],
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ]
+    }
+  },
+  "histerese": 0.05,
+  "alternado": {
+    "e": "joelho_e_alt > -0.12",
+    "d": "joelho_d_alt > -0.12",
+    "quase_e": "joelho_e_alt > -0.45",
+    "quase_d": "joelho_d_alt > -0.45"
+  },
+  "parcial_feedback": "Joelho mais alto",
+  "duracao_minima_ms": 180,
+  "fase_minima_ms": 60,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "cadencia",
+    "simetria"
+  ],
+  "instrucoes": [
+    "Fique de frente para o celular, com o corpo inteiro na tela.",
+    "Corra no lugar levando cada joelho até a altura do quadril."
+  ]
+}

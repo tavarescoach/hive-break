@@ -43,3 +43,22 @@ export function desenharEsqueleto(ctx: CanvasRenderingContext2D, pontos: Ponto[]
     ctx.fill();
   }
 }
+
+/** Desenha o alvo do exercício "Toque nos alvos" (coordenadas de 0 a 1; raio em fração da altura). */
+export function desenharAlvo(ctx: CanvasRenderingContext2D, alvo: { x: number; y: number; raio: number }): void {
+  const { width: largura, height: altura } = ctx.canvas;
+  const x = alvo.x * largura;
+  const y = alvo.y * altura;
+  const raio = alvo.raio * altura;
+  ctx.beginPath();
+  ctx.arc(x, y, raio, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255, 196, 46, 0.35)";
+  ctx.fill();
+  ctx.lineWidth = Math.max(4, raio * 0.14);
+  ctx.strokeStyle = COR_OK;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, raio * 0.25, 0, Math.PI * 2);
+  ctx.fillStyle = COR_OK;
+  ctx.fill();
+}

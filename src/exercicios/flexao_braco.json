@@ -1,0 +1,87 @@
+{
+  "id": "flexao_braco",
+  "nome": "Flexão de braço",
+  "modalidade": "forca",
+  "camera": "lateral",
+  "formato": "repeticoes",
+  "pontos_obrigatorios": [
+    "ombro",
+    "cotovelo",
+    "punho",
+    "quadril"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "cotovelo",
+      "punho"
+    ],
+    "lado": "visivel",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "alinhamento": {
+      "tipo": "angulo",
+      "pontos": [
+        "ombro",
+        "quadril",
+        "tornozelo"
+      ],
+      "lado": "visivel",
+      "espaco": "2d"
+    },
+    "tronco": {
+      "tipo": "inclinacao",
+      "pontos": [
+        "quadril",
+        "ombro"
+      ],
+      "lado": "visivel"
+    }
+  },
+  "histerese": 5,
+  "fases": [
+    {
+      "nome": "topo",
+      "condicao": "medida > 150 e tronco > 50"
+    },
+    {
+      "nome": "fundo",
+      "condicao": "medida < 90 e tronco > 50"
+    }
+  ],
+  "repeticao": [
+    "topo",
+    "fundo",
+    "topo"
+  ],
+  "parcial_se": "min_medida < 120",
+  "parcial_feedback": "Desça mais o peito",
+  "amplitude": {
+    "extremo": "min",
+    "minimo_aceito": 90,
+    "ideal": 70
+  },
+  "duracao_minima_ms": 600,
+  "erros": [
+    {
+      "id": "quadril_fora",
+      "condicao": "alinhamento < 160",
+      "feedback": "Alinhe o quadril"
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia",
+    "indice_tecnico"
+  ],
+  "variacao_facil": "flexao_joelhos",
+  "instrucoes": [
+    "Celular no chão, de lado para você, mostrando o corpo inteiro.",
+    "Mãos no chão na linha dos ombros, corpo reto.",
+    "Desça até o cotovelo dobrar 90 graus e suba."
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "id": "mountain_climber",
+  "nome": "Mountain climber",
+  "modalidade": "condicionamento",
+  "camera": "lateral",
+  "formato": "alternado",
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "joelho"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "quadril",
+      "joelho"
+    ],
+    "lado": "min",
+    "espaco": "3d"
+  },
+  "medidas": {
+    "quadril_e": {
+      "tipo": "angulo",
+      "pontos": [
+        "ombro_e",
+        "quadril_e",
+        "joelho_e"
+      ],
+      "lado": "e",
+      "espaco": "3d"
+    },
+    "quadril_d": {
+      "tipo": "angulo",
+      "pontos": [
+        "ombro_d",
+        "quadril_d",
+        "joelho_d"
+      ],
+      "lado": "d",
+      "espaco": "3d"
+    },
+    "tronco": {
+      "tipo": "inclinacao",
+      "pontos": [
+        "quadril",
+        "ombro"
+      ]
+    },
+    "alinhamento": {
+      "tipo": "angulo",
+      "pontos": [
+        "ombro",
+        "quadril",
+        "tornozelo"
+      ],
+      "lado": "max",
+      "espaco": "2d"
+    }
+  },
+  "histerese": 5,
+  "alternado": {
+    "e": "quadril_e < 95 e tronco > 45",
+    "d": "quadril_d < 95 e tronco > 45"
+  },
+  "duracao_minima_ms": 200,
+  "fase_minima_ms": 80,
+  "erros": [
+    {
+      "id": "quadril_alto",
+      "condicao": "alinhamento < 150 e tronco > 45",
+      "feedback": "Abaixe o quadril"
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "cadencia",
+    "simetria",
+    "indice_tecnico"
+  ],
+  "instrucoes": [
+    "Celular no chão, de lado para você.",
+    "Em posição de prancha alta, leve um joelho de cada vez em direção ao peito."
+  ]
+}

@@ -39,9 +39,16 @@ async function pessoa(nome: string, liberado = true) {
 const rpc = <T>(usuario: string | null, sql: string, params: unknown[] = []) =>
   como(db, { usuario }, async (tx) => (await tx.query<{ r: T }>(`select ${sql} as r`, params)).rows[0].r);
 const ler = (usuario: string) => rpc<Trilha>(usuario, "public.ler_trilha()");
-const concluir = (usuario: string, desafio: string) =>
-  rpc<{ xp: number; primeiro_do_dia: boolean; repetido: boolean; ofensiva: number; unidade_concluida: boolean; nivel_concluido: boolean; proximo_nivel: number | null }>(
-    usuario, "public.concluir_desafio_provisorio($1)", [desafio]);
+interface Resultado {
+  xp: number; modo: string; sem_movimento: boolean; primeiro_do_dia: boolean; refeito: boolean; refazer_sem_xp: boolean;
+  ofensiva: number; unidade_concluida: boolean; unidade_sessao: boolean; nivel_concluido: boolean; proximo_nivel: number | null;
+}
+/** Blocos como a câmera enviaria: `reps` repetições válidas em cada exercício do desafio. */
+const BLOCOS = (reps: number) => `(select jsonb_agg(jsonb_build_object('ordem', ordem, 'reps_validas', ${reps}, 'reps_parciais', 0,
+  'tempo_valido_s', 0, 'fora_quadro_pct', 0, 'kpis', '{}'::jsonb)) from public.challenge_blocks where challenge_id = $1)`;
+/** Conclui pela câmera, com movimento em todos os exercícios. */
+const concluir = (usuario: string, desafio: string) => rpc<Resultado>(usuario, `public.finalizar_desafio($1, 'camera', ${BLOCOS(10)})`, [desafio]);
+const concluirManual = (usuario: string, desafio: string) => rpc<Resultado>(usuario, "public.finalizar_desafio($1, 'manual', '[]')", [desafio]);
 const estados = (t: Trilha, filtro: (d: Desafio) => boolean) => t.desafios.filter(filtro).map((d) => d.estado);
 
 beforeAll(async () => {
@@ -97,17 +104,53 @@ describe("percorrer a trilha", () => {
     expect(new Set(estados(t, (d) => d.level_id > 1))).toEqual(new Set(["bloqueado"]));
   });
 
-  it("concluir dá XP, conta a ofensiva e libera o próximo; refazer no mesmo dia não dá XP de novo", async () => {
+  it("concluir com a câmera dá XP cheio, conta a ofensiva e libera o próximo", async () => {
     const ana = await pessoa("Ana 2");
-    expect(await concluir(ana, "n1u1d01")).toMatchObject({ xp: 15, primeiro_do_dia: true, repetido: false, ofensiva: 1, unidade_concluida: false });
+    expect(await concluir(ana, "n1u1d01")).toMatchObject({ xp: 15, modo: "camera", primeiro_do_dia: true, refeito: false, ofensiva: 1, unidade_concluida: false });
     expect(await concluir(ana, "n1u1d02")).toMatchObject({ xp: 10, primeiro_do_dia: false, ofensiva: 1 });
-    expect(await concluir(ana, "n1u1d01")).toMatchObject({ xp: 0, repetido: true });
     const t = await ler(ana);
     expect(t).toMatchObject({ xp_hoje: 25, ofensiva: 1 });
     expect(estados(t, (d) => d.unit_id === "n1u1").slice(0, 4)).toEqual(["concluido", "concluido", "disponivel", "bloqueado"]);
-    const tentativas = await db.query<{ modo: string; valido_para_liga: boolean; score: null }>(
-      "select distinct modo, valido_para_liga, score from public.challenge_attempts where user_id = $1", [ana]);
-    expect(tentativas.rows).toEqual([{ modo: "manual", valido_para_liga: false, score: null }]);
+    const blocos = await db.query<{ n: number; reps: number }>(
+      `select count(*)::int as n, sum(reps_validas)::int as reps from public.attempt_blocks b
+       join public.challenge_attempts a on a.id = b.attempt_id where a.user_id = $1`, [ana]);
+    expect(blocos.rows[0]).toEqual({ n: 4, reps: 40 });
+  });
+
+  it("refazer dá 1/3 do XP, uma vez por desafio por dia", async () => {
+    const ana = await pessoa("Ana refaz");
+    await concluir(ana, "n1u1d01");
+    expect(await concluir(ana, "n1u1d01")).toMatchObject({ xp: 3, refeito: true, refazer_sem_xp: false });
+    expect(await concluir(ana, "n1u1d01")).toMatchObject({ xp: 0, refeito: true, refazer_sem_xp: true });
+    // Outro desafio refeito no mesmo dia ainda ganha o seu terço.
+    await concluir(ana, "n1u1d02");
+    expect(await concluir(ana, "n1u1d02")).toMatchObject({ xp: 3 });
+    expect((await ler(ana)).xp_hoje).toBe(15 + 3 + 10 + 3);
+    // No dia seguinte, o terço volta a valer (e com o +5 do primeiro do dia).
+    await db.query("update public.challenge_attempts set concluido_em = concluido_em - interval '1 day' where user_id = $1", [ana]);
+    expect(await concluir(ana, "n1u1d01")).toMatchObject({ xp: 3 + 5, refeito: true, primeiro_do_dia: true });
+  });
+
+  it("sem câmera (modo manual) vale metade do XP", async () => {
+    const ana = await pessoa("Ana manual");
+    expect(await concluirManual(ana, "n1u1d01")).toMatchObject({ xp: 5 + 3, modo: "manual" });
+    expect(await concluirManual(ana, "n1u1d02")).toMatchObject({ xp: 5 });
+    expect(await concluirManual(ana, "n1u1d02")).toMatchObject({ xp: 2, refeito: true });
+    const tentativas = await db.query<{ modo: string; valido_para_liga: boolean }>(
+      "select distinct modo, valido_para_liga from public.challenge_attempts where user_id = $1", [ana]);
+    expect(tentativas.rows).toEqual([{ modo: "manual", valido_para_liga: false }]);
+  });
+
+  it("câmera sem movimento vale como manual; números impossíveis são recusados", async () => {
+    const ana = await pessoa("Ana parada");
+    const parada = await rpc<Resultado>(ana, `public.finalizar_desafio($1, 'camera', ${BLOCOS(0)})`, ["n1u1d01"]);
+    expect(parada).toMatchObject({ modo: "manual", sem_movimento: true, xp: 5 + 3 });
+    await expect(rpc(ana, `public.finalizar_desafio($1, 'camera', ${BLOCOS(5000)})`, ["n1u1d02"])).rejects.toThrow(/kpis_invalidos/);
+    await expect(rpc(ana, "public.finalizar_desafio('n1u1d02', 'camera', '{}')")).rejects.toThrow(/kpis_invalidos/);
+    await expect(rpc(ana, "public.finalizar_desafio('n1u1d02', 'turbo', '[]')")).rejects.toThrow(/modo_invalido/);
+    await expect(
+      rpc(ana, `public.finalizar_desafio('n1u1d02', 'camera', '[{"ordem": 9, "reps_validas": 3, "kpis": {}}]')`),
+    ).rejects.toThrow(/kpis_invalidos/);
   });
 
   it("não deixa concluir desafio bloqueado nem inexistente", async () => {
@@ -115,7 +158,7 @@ describe("percorrer a trilha", () => {
     await expect(concluir(ana, "n1u1d05")).rejects.toThrow(/desafio_bloqueado/);
     await expect(concluir(ana, "n2u1d01")).rejects.toThrow(/desafio_bloqueado/);
     await expect(concluir(ana, "nao_existe")).rejects.toThrow(/desafio_inexistente/);
-    await expect(rpc(null, "public.concluir_desafio_provisorio('n1u1d01')")).rejects.toThrow(/permission denied/);
+    await expect(rpc(null, "public.finalizar_desafio('n1u1d01', 'manual', '[]')")).rejects.toThrow(/permission denied/);
     await expect(rpc(null, "public.ler_trilha()")).rejects.toThrow(/permission denied/);
   });
 
@@ -137,7 +180,7 @@ describe("percorrer a trilha", () => {
     ).rejects.toThrow(/permission denied/);
   });
 
-  it("fechar a unidade e o nível: avisa, dá +30 XP e libera a seção seguinte", async () => {
+  it("fechar a unidade numa sessão dá +50 XP; fechar o nível dá +30 e libera a seção seguinte", async () => {
     const ana = await pessoa("Ana 5");
     const nivel1 = (await ler(ana)).desafios.filter((d) => d.level_id === 1);
     expect(nivel1).toHaveLength(27);
@@ -145,13 +188,25 @@ describe("percorrer a trilha", () => {
     for (const d of nivel1) resultados.push({ id: d.id, ...(await concluir(ana, d.id)) });
     expect(resultados.filter((r) => r.unidade_concluida).map((r) => r.id)).toEqual(["n1u1final", "n1u2final", "n1u3final"]);
     expect(resultados.filter((r) => r.nivel_concluido).map((r) => r.id)).toEqual(["n1u3final"]);
-    expect(resultados.at(-1)).toMatchObject({ xp: 20 + 30, proximo_nivel: 2 });
+    expect(resultados.filter((r) => r.unidade_sessao).map((r) => r.id)).toEqual(["n1u1final", "n1u2final", "n1u3final"]);
+    expect(resultados.find((r) => r.id === "n1u1final")).toMatchObject({ xp: 20 + 50 });
+    expect(resultados.at(-1)).toMatchObject({ xp: 20 + 50 + 30, proximo_nivel: 2 });
     const t = await ler(ana);
     expect(t.nivel_atual).toBe(2);
     expect(t.niveis.slice(0, 3).map((n) => [n.liberado, n.concluido])).toEqual([[true, true], [true, false], [false, false]]);
     expect(t.desafios.filter((d) => d.estado === "disponivel").map((d) => d.id)).toEqual(["n2u1d01"]);
     // Refazer um desafio antigo não conclui a unidade de novo.
-    expect(await concluir(ana, "n1u1final")).toMatchObject({ unidade_concluida: false, nivel_concluido: false });
+    expect(await concluir(ana, "n1u1final")).toMatchObject({ xp: 7, unidade_concluida: false, nivel_concluido: false });
+  });
+
+  it("unidade feita em dias diferentes não ganha o bônus de sessão única", async () => {
+    const ana = await pessoa("Ana aos poucos");
+    const unidade = (await ler(ana)).desafios.filter((d) => d.unit_id === "n1u1");
+    for (const d of unidade.slice(0, 4)) await concluir(ana, d.id);
+    await db.query("update public.user_challenge_progress set concluido_em = concluido_em - interval '2 days' where user_id = $1", [ana]);
+    let ultimo: Resultado | null = null;
+    for (const d of unidade.slice(4)) ultimo = await concluir(ana, d.id);
+    expect(ultimo).toMatchObject({ unidade_concluida: true, unidade_sessao: false, xp: 20 });
   });
 
   it("'Pular para cá' libera a seção escolhida e muda o nível atual", async () => {
@@ -182,7 +237,7 @@ describe("quem está limitado a baixa intensidade (triagem)", () => {
     expect(t.desafios.filter((d) => d.estado === "disponivel").map((d) => d.id)).toEqual(["n1u1d07"]);
     await concluir(bia, "n1u1d07");
     // Fecha a unidade pelos desafios que pode fazer (o desafio final é de intensidade média).
-    expect(await concluir(bia, "n1u1d08")).toMatchObject({ unidade_concluida: true, nivel_concluido: false });
+    expect(await concluir(bia, "n1u1d08")).toMatchObject({ unidade_concluida: true, unidade_sessao: true, nivel_concluido: false });
     // Baú depois de 4 itens: liberado porque nada pendente ficou para trás.
     expect(await rpc<{ xp: number }>(bia, "public.abrir_bau('n1u1', 4)")).toEqual({ xp: 10 });
 

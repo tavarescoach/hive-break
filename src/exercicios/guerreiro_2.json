@@ -1,0 +1,75 @@
+{
+  "id": "guerreiro_2",
+  "nome": "Guerreiro II",
+  "modalidade": "yoga",
+  "camera": "frontal",
+  "formato": "postura",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "cotovelo_e",
+    "cotovelo_d",
+    "quadril_e",
+    "quadril_d",
+    "joelho_e",
+    "joelho_d",
+    "tornozelo_e",
+    "tornozelo_d"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "quadril",
+      "joelho",
+      "tornozelo"
+    ],
+    "lado": "min",
+    "espaco": "3d"
+  },
+  "medidas": {
+    "ombro_min": {
+      "tipo": "angulo",
+      "pontos": [
+        "quadril",
+        "ombro",
+        "cotovelo"
+      ],
+      "lado": "min",
+      "espaco": "2d"
+    },
+    "ombro_max": {
+      "tipo": "angulo",
+      "pontos": [
+        "quadril",
+        "ombro",
+        "cotovelo"
+      ],
+      "lado": "max",
+      "espaco": "2d"
+    }
+  },
+  "histerese": 5,
+  "sustentacao": {
+    "condicao": "medida entre 85 e 125 e ombro_min > 70 e ombro_max < 115",
+    "feedback_perda": "Braços na altura dos ombros, joelho da frente dobrado",
+    "controle": {
+      "ponto": "quadril",
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ],
+      "oscilacao_maxima": 0.08
+    }
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "estabilidade",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "Fique de frente para o celular, pernas bem afastadas.",
+    "Dobre um joelho a 90 graus e abra os braços na altura dos ombros.",
+    "Segure. Troque o lado na metade do tempo."
+  ]
+}

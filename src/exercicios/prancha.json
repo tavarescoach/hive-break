@@ -1,0 +1,56 @@
+{
+  "id": "prancha",
+  "nome": "Prancha",
+  "modalidade": "core",
+  "camera": "lateral",
+  "formato": "isometria",
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "tornozelo"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "quadril",
+      "tornozelo"
+    ],
+    "lado": "visivel",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "tronco": {
+      "tipo": "inclinacao",
+      "pontos": [
+        "quadril",
+        "ombro"
+      ],
+      "lado": "visivel"
+    }
+  },
+  "histerese": 4,
+  "sustentacao": {
+    "condicao": "medida > 165 e tronco > 55",
+    "feedback_perda": "Alinhe o quadril",
+    "controle": {
+      "ponto": "quadril",
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ],
+      "oscilacao_maxima": 0.06
+    }
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "estabilidade",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "Celular no chão, de lado para você.",
+    "Apoie as mãos ou os antebraços, corpo reto da cabeça aos pés.",
+    "O tempo só corre com o quadril alinhado."
+  ]
+}

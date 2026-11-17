@@ -212,3 +212,52 @@ Pedido do Luan. Muda a estrutura da seção 6 da especificação.
 - Pular para uma seção que pede equipamento que a pessoa não tem só mostra um aviso; a
   troca por alternativas sem equipamento (seção 3.3) é da Fase 3.
 - "Nível completo numa única sessão" (+50 XP) precisa ser redefinido para a unidade.
+
+## Desafios com câmera e regras novas de XP (17/11/2026)
+
+### Respondidas pelo Luan
+
+51. **Decisões 39 a 50 aprovadas.**
+52. **+50 XP passa a valer para a unidade completa numa única sessão.**
+53. **Refazer um desafio dá 1/3 do XP, uma vez por desafio por dia** (substitui a decisão 45).
+54. **Câmera agora.** O documento `docs/REFERENCIAS_PRODUTO.md` sugere a validação por
+    câmera como último passo, mas o Luan pediu para ligá-la nos desafios já. Parte desta
+    tela será refeita quando os métodos da seção 6 daquele documento (Tabata, EMOM,
+    AMRAP, cadência) forem definidos.
+
+### Decididas na implementação
+
+55. **Os 19 exercícios têm regras de detecção** em `src/exercicios/*.json`. Só agachamento
+    livre, polichinelo e apoio em uma perna foram testados com pessoas (Fase 0). Os outros
+    16 usam os valores iniciais da especificação e foram testados só com sequências
+    sintéticas ou pela validação da definição: **precisam de calibração com pessoas reais**.
+56. **Formatos novos no motor:** `alternado` (marcha, skipping, mountain climber: cada lado
+    conta quando a condição dele vale, e só volta a contar depois de voltar ao repouso),
+    `precisao` (alvos que aparecem ao alcance das mãos) e `respiracao` (a câmera só mede se
+    a pessoa está parada). Medidas novas: `inclinacao` (deitado ou em pé) e `movimento`.
+57. **Exercícios de lado para o celular** usam o lado do corpo que a câmera enxerga melhor
+    (`lado: "visivel"`) e ângulos 2D; basta um dos lados visível para o frame valer.
+58. **Elevação em Y conta a partir de 150°** (a especificação diz 160°): com os braços em Y
+    o ângulo real fica perto de 150°. Revisar no teste.
+59. **Simplificações a revisar:** o afundo não confere "joelho de trás perto do chão" nem
+    separa os lados; a marcha não confere o braço oposto; o toque nos alvos usa só as mãos;
+    o Guerreiro II não mede semelhança com a pose-modelo.
+60. **Blocos por tempo.** Cada exercício do desafio dura o tempo definido no conteúdo; a
+    tela mostra a contagem ao vivo e o anel do tempo. Metas de repetições e séries ("8/12",
+    "2ª série de 3") dependem dos métodos e da escala por dificuldade, que ainda não existem.
+61. **O tempo do exercício para quando a pessoa sai do quadro** e volta sozinho.
+62. **Modo sem câmera vale metade do XP** (seção 3.5): 5 por desafio, 10 no desafio da
+    unidade, +3 no primeiro do dia. É o caminho de quem nega a câmera ou escolhe o timer.
+63. **Câmera sem movimento vale como sem câmera.** Se a câmera não contar nada em pelo
+    menos metade dos exercícios, o servidor aplica o XP do modo manual.
+64. **"Unidade numa única sessão" = do primeiro ao último desafio em até 3 horas** (revisar).
+65. **O servidor recusa números impossíveis:** mais de 4 repetições por segundo, tempo
+    válido maior que o tempo do exercício, bloco que não existe. O score de 0 a 100 e os
+    pontos de liga continuam na Fase 4; por enquanto os KPIs ficam guardados em
+    `attempt_blocks`.
+66. **"Senti dor"** pausa o desafio, pergunta a região, registra em `pain_reports` e
+    encerra sem XP. Trocar o exercício por alternativa e "sem perder a ofensiva" ficam
+    para depois.
+67. **Voz do treinador** pela Web Speech API (pt-BR), no máximo uma frase a cada 4 s.
+68. **As regras usadas pela câmera vêm dos arquivos do app**, não do banco: assim uma
+    correção de limiar não depende de rodar SQL. O seed mantém a cópia no banco.

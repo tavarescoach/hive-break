@@ -17,6 +17,10 @@ export interface ResumoBloco {
   oscilacaoMaxima: number | null;
   /** Contagem de ocorrências por erro. */
   erros: Record<string, number>;
+  /** Formato precisão: alvos acertados, perdidos e soma dos tempos de reação. */
+  acertos: number;
+  alvosPerdidos: number;
+  somaReacaoMs: number;
 }
 
 const arredondar = (valor: number, casas = 3) => {
@@ -46,6 +50,11 @@ export function calcularKpis(r: ResumoBloco): Kpis {
 
   const comErro = validas.filter((rep) => rep.erros.length > 0).length;
   const { e, d } = r.tempoValidoLadoMs;
+  const repsE = validas.filter((rep) => rep.lado === "e").length;
+  const repsD = validas.filter((rep) => rep.lado === "d").length;
+  const alvos = r.acertos + r.alvosPerdidos;
+  // Simetria: tempo por lado nas sustentações, repetições por lado nos alternados.
+  const [menor, maior] = e > 0 || d > 0 ? [Math.min(e, d), Math.max(e, d)] : [Math.min(repsE, repsD), Math.max(repsE, repsD)];
 
   let estabilidade: number | null = null;
   if (r.oscilacao !== null && r.oscilacaoMaxima) {
@@ -56,6 +65,13 @@ export function calcularKpis(r: ResumoBloco): Kpis {
     reps_validas: validas.length,
     reps_parciais: parciais.length,
     reps_rapidas: r.repsRapidas,
+    reps_e: repsE,
+    reps_d: repsD,
+    acertos: r.acertos,
+    alvos_perdidos: r.alvosPerdidos,
+    precisao: alvos > 0 ? arredondar(r.acertos / alvos) : null,
+    tempo_reacao: r.acertos > 0 ? arredondar(r.somaReacaoMs / r.acertos / 1000, 2) : null,
+    pct_tempo_valido: tempoAtivoMs > 0 && r.tempoValidoMs > 0 ? arredondar(limitar(r.tempoValidoMs / tempoAtivoMs, 0, 1)) : null,
     amplitude_media: amplitudes.length ? ouNulo(media(amplitudes)) : null,
     tempo_excentrico: idas.length ? ouNulo(media(idas), 2) : null,
     tempo_concentrico: voltas.length ? ouNulo(media(voltas), 2) : null,
@@ -69,7 +85,7 @@ export function calcularKpis(r: ResumoBloco): Kpis {
     maior_sustentacao_s: arredondar(r.maiorSustentacaoMs / 1000, 1),
     oscilacao: r.oscilacao === null ? null : arredondar(r.oscilacao, 4),
     estabilidade,
-    simetria: e > 0 && d > 0 ? arredondar(Math.min(e, d) / Math.max(e, d)) : null,
+    simetria: maior > 0 && (e > 0 || d > 0 ? menor > 0 : true) ? arredondar(menor / maior) : null,
     perdas_posicao: r.perdasPosicao,
     tempo_trabalho_s: arredondar(r.tempoTrabalhoMs / 1000, 1),
     fora_quadro_pct: r.tempoTrabalhoMs > 0 ? arredondar((100 * r.tempoForaMs) / r.tempoTrabalhoMs, 1) : 0,

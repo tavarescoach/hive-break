@@ -3,7 +3,7 @@
 import { useState, useSyncExternalStore } from "react";
 import type { ModeloPose } from "@/camera/pose";
 import { prepararSom } from "@/camera/som";
-import { EXERCICIOS } from "@/exercicios";
+import { EXERCICIOS_TESTADOS as EXERCICIOS } from "@/exercicios";
 import { dentroDaTolerancia, historico, resumirPorExercicio, textoDoHistorico } from "./historico";
 import { ehSustentacao, type ConfigTeste } from "./tipos";
 

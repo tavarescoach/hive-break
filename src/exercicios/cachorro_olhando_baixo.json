@@ -1,0 +1,73 @@
+{
+  "id": "cachorro_olhando_baixo",
+  "nome": "Cachorro olhando para baixo",
+  "modalidade": "yoga",
+  "camera": "lateral",
+  "formato": "postura",
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "joelho",
+    "tornozelo",
+    "punho"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "quadril",
+      "joelho"
+    ],
+    "lado": "visivel",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "joelho": {
+      "tipo": "angulo",
+      "pontos": [
+        "quadril",
+        "joelho",
+        "tornozelo"
+      ],
+      "lado": "visivel",
+      "espaco": "2d"
+    },
+    "cotovelo": {
+      "tipo": "angulo",
+      "pontos": [
+        "ombro",
+        "cotovelo",
+        "punho"
+      ],
+      "lado": "visivel",
+      "espaco": "2d"
+    },
+    "quadril_alto": {
+      "tipo": "altura",
+      "pontos": [
+        "ombro",
+        "quadril"
+      ],
+      "lado": "visivel",
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ]
+    }
+  },
+  "histerese": 5,
+  "sustentacao": {
+    "condicao": "medida entre 55 e 105 e joelho > 150 e cotovelo > 155 e quadril_alto > 0.2",
+    "feedback_perda": "Quadril para o alto, joelhos e cotovelos estendidos"
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "Celular no chão, de lado para você.",
+    "Mãos e pés no chão, quadril para o alto, formando um V invertido.",
+    "Joelhos e cotovelos estendidos."
+  ]
+}

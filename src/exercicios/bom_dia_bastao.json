@@ -1,0 +1,77 @@
+{
+  "id": "bom_dia_bastao",
+  "nome": "Bom-dia com bastão",
+  "modalidade": "forca",
+  "camera": "lateral",
+  "formato": "repeticoes",
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "joelho",
+    "tornozelo"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "quadril",
+      "joelho"
+    ],
+    "lado": "visivel",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "joelho": {
+      "tipo": "angulo",
+      "pontos": [
+        "quadril",
+        "joelho",
+        "tornozelo"
+      ],
+      "lado": "visivel",
+      "espaco": "2d"
+    }
+  },
+  "histerese": 5,
+  "fases": [
+    {
+      "nome": "topo",
+      "condicao": "medida > 165"
+    },
+    {
+      "nome": "fundo",
+      "condicao": "medida < 110"
+    }
+  ],
+  "repeticao": [
+    "topo",
+    "fundo",
+    "topo"
+  ],
+  "parcial_se": "min_medida < 135",
+  "parcial_feedback": "Incline mais o tronco",
+  "amplitude": {
+    "extremo": "min",
+    "minimo_aceito": 110,
+    "ideal": 90
+  },
+  "duracao_minima_ms": 800,
+  "erros": [
+    {
+      "id": "joelhos_dobrados",
+      "condicao": "joelho < 150",
+      "fase": "fundo",
+      "feedback": "Joelhos quase estendidos"
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "indice_tecnico"
+  ],
+  "instrucoes": [
+    "Fique de lado para o celular, com o bastão apoiado nas costas.",
+    "Incline o tronco para a frente com os joelhos quase estendidos e volte."
+  ]
+}

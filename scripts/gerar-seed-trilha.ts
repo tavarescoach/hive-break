@@ -43,13 +43,6 @@ export const EXERCICIOS: Exercicio[] = [
   { id: "bom_dia_bastao", nome: "Bom-dia com bastão", modalidade: "forca", camera: "lateral", equipamento: "cabo_vassoura", formato: "repeticoes" },
 ];
 
-/** Os 3 exercícios com definição pronta para o motor (Fase 0). Os demais chegam na Fase 2. */
-const COM_DEFINICAO: Record<string, string> = {
-  agachamento_livre: "agachamento_livre.json",
-  polichinelo: "polichinelo.json",
-  apoio_uma_perna: "apoio_uma_perna.json",
-};
-
 /** 3 unidades temáticas por nível. */
 export const UNIDADES: Record<number, [string, string][]> = {
   1: [["Acordando o corpo", "Os primeiros movimentos, sem pressa."], ["Pernas firmes", "A base de tudo: agachar e sustentar."], ["Fôlego novo", "Um pouco mais de ritmo a cada dia."]],
@@ -120,10 +113,8 @@ export function gerarSeedTrilha(): string {
   ];
   linhas.push(
     EXERCICIOS.map((e) => {
-      const arquivo = COM_DEFINICAO[e.id];
-      const definicao = arquivo
-        ? JSON.stringify(JSON.parse(readFileSync(path.join(raiz, "src", "exercicios", arquivo), "utf8")))
-        : JSON.stringify({ id: e.id, pendente: true });
+      // A definição de cada exercício vem do arquivo JSON que o motor usa.
+      const definicao = JSON.stringify(JSON.parse(readFileSync(path.join(raiz, "src", "exercicios", `${e.id}.json`), "utf8")));
       return `  (${txt(e.id)}, ${txt(e.nome)}, ${txt(e.modalidade)}, ${txt(e.camera)}, ${txt(definicao)}::jsonb, ${txt(e.equipamento)})`;
     }).join(",\n") +
       "\non conflict (id) do update set nome = excluded.nome, modalidade = excluded.modalidade, camera = excluded.camera,\n  definicao = excluded.definicao, equipamento = excluded.equipamento;",

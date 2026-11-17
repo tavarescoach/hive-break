@@ -90,6 +90,15 @@ export function resolverPonto(nome: string): RefPonto {
   throw new Error(`Ponto desconhecido: "${nome}"`);
 }
 
+/**
+ * Pontos obrigatórios como grupos "pelo menos um destes visível".
+ * "joelho_e" exige esse ponto; "joelho" (sem lado) aceita qualquer um dos dois
+ * lados, para os exercícios feitos de lado para o celular.
+ */
+export function gruposObrigatorios(nomes: string[]): number[][] {
+  return nomes.map(indicesDoPonto);
+}
+
 /** Índices envolvidos em um nome de ponto (um ou dois). */
 export function indicesDoPonto(nome: string): number[] {
   const ref = resolverPonto(nome);
