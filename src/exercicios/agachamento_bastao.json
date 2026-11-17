@@ -1,0 +1,87 @@
+{
+  "id": "agachamento_bastao",
+  "nome": "Agachamento com bastão acima da cabeça",
+  "modalidade": "mobilidade",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "pontos_obrigatorios": [
+    "quadril_e",
+    "quadril_d",
+    "joelho_e",
+    "joelho_d",
+    "tornozelo_e",
+    "tornozelo_d"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "quadril",
+      "joelho",
+      "tornozelo"
+    ],
+    "lado": "media",
+    "espaco": "3d"
+  },
+  "medidas": {
+    "maos_cabeca": {
+      "tipo": "altura",
+      "pontos": [
+        "nariz",
+        "punho"
+      ],
+      "lado": "min",
+      "normalizar_por": [
+        "ombro_e",
+        "ombro_d"
+      ]
+    }
+  },
+  "histerese": 5,
+  "fases": [
+    {
+      "nome": "topo",
+      "condicao": "medida > 160"
+    },
+    {
+      "nome": "fundo",
+      "condicao": "medida < 100"
+    }
+  ],
+  "repeticao": [
+    "topo",
+    "fundo",
+    "topo"
+  ],
+  "parcial_se": "min_medida < 120",
+  "parcial_feedback": "Desça um pouco mais",
+  "amplitude": {
+    "extremo": "min",
+    "minimo_aceito": 100,
+    "ideal": 80
+  },
+  "duracao_minima_ms": 600,
+  "erros": [
+    {
+      "id": "bracos_caem",
+      "condicao": "maos_cabeca < 0",
+      "feedback": "Bastão acima da cabeça"
+    },
+    {
+      "id": "valgo",
+      "condicao": "dist(joelhos) < 0.8 * dist(tornozelos)",
+      "fase": "fundo",
+      "feedback": "Joelhos para fora"
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "indice_tecnico"
+  ],
+  "instrucoes": [
+    "Fique de frente para o celular.",
+    "Segure o cabo de vassoura acima da cabeça, braços estendidos.",
+    "Agache sem deixar o bastão cair para a frente."
+  ]
+}

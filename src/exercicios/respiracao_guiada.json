@@ -1,0 +1,38 @@
+{
+  "id": "respiracao_guiada",
+  "nome": "Respiração guiada",
+  "modalidade": "respiracao",
+  "camera": "frontal",
+  "formato": "respiracao",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d"
+  ],
+  "medida_principal": {
+    "tipo": "movimento",
+    "pontos": [
+      "nariz",
+      "ombro"
+    ],
+    "normalizar_por": [
+      "ombro_e",
+      "ombro_d"
+    ]
+  },
+  "histerese": 0.1,
+  "fase_minima_ms": 500,
+  "sustentacao": {
+    "condicao": "medida < 0.35",
+    "feedback_perda": "Fique parado e respire"
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "Sente ou fique em pé, de frente para o celular.",
+    "Inspire pelo nariz por 4 segundos e solte o ar por 6.",
+    "A câmera só confere se você está parado."
+  ]
+}

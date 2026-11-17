@@ -3,7 +3,7 @@ import { validarDist, validarMedida } from "./medidas";
 import { indicesDoPonto } from "./pontos";
 import type { DefinicaoExercicio } from "./tipos";
 
-const SUSTENTACAO = new Set(["isometria", "equilibrio", "postura"]);
+const SUSTENTACAO = new Set(["isometria", "equilibrio", "postura", "respiracao"]);
 
 /**
  * Confere uma definição de exercício e devolve a lista de problemas
@@ -65,6 +65,20 @@ export function validarDefinicao(def: DefinicaoExercicio): string[] {
     }
     for (const erro of def.erros ?? []) {
       if (erro.fase && !nomesFases.has(erro.fase)) problemas.push(`erro ${erro.id}: fase inexistente "${erro.fase}"`);
+    }
+  } else if (def.formato === "alternado") {
+    if (!def.alternado) problemas.push("falta o bloco alternado");
+    else {
+      conferirCondicao("alternado.e", def.alternado.e, false);
+      conferirCondicao("alternado.d", def.alternado.d, false);
+      if (def.alternado.quase_e) conferirCondicao("alternado.quase_e", def.alternado.quase_e, false);
+      if (def.alternado.quase_d) conferirCondicao("alternado.quase_d", def.alternado.quase_d, false);
+    }
+  } else if (def.formato === "precisao") {
+    if (!def.alvos) problemas.push("falta o bloco alvos");
+    else {
+      tentar("alvos.pontos", () => def.alvos!.pontos.forEach((n) => indicesDoPonto(n)));
+      if (!(def.alvos.tempo_ms > 0) || !(def.alvos.raio > 0)) problemas.push("alvos: tempo_ms e raio precisam ser positivos");
     }
   } else if (SUSTENTACAO.has(def.formato)) {
     if (!def.sustentacao) problemas.push("falta o bloco sustentacao");

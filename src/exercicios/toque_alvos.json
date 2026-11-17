@@ -1,0 +1,43 @@
+{
+  "id": "toque_alvos",
+  "nome": "Toque nos alvos",
+  "modalidade": "precisao",
+  "camera": "frontal",
+  "formato": "precisao",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "punho_e",
+    "punho_d"
+  ],
+  "medida_principal": {
+    "tipo": "distancia",
+    "pontos": [
+      "punho_e",
+      "punho_d"
+    ],
+    "normalizar_por": [
+      "ombro_e",
+      "ombro_d"
+    ]
+  },
+  "alvos": {
+    "pontos": [
+      "punho_e",
+      "punho_d"
+    ],
+    "tempo_ms": 2000,
+    "raio": 0.45,
+    "intervalo_ms": 500
+  },
+  "erros": [],
+  "kpis": [
+    "acertos",
+    "precisao",
+    "tempo_reacao"
+  ],
+  "instrucoes": [
+    "Fique de frente para o celular, com espaço para abrir os braços.",
+    "Um círculo aparece na tela: toque nele com a mão em até 2 segundos."
+  ]
+}

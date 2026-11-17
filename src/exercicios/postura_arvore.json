@@ -1,0 +1,58 @@
+{
+  "id": "postura_arvore",
+  "nome": "Postura da árvore",
+  "modalidade": "yoga",
+  "camera": "frontal",
+  "formato": "postura",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "quadril_e",
+    "quadril_d",
+    "tornozelo_e",
+    "tornozelo_d"
+  ],
+  "medida_principal": {
+    "tipo": "altura",
+    "pontos": [
+      "tornozelo_d",
+      "tornozelo_e"
+    ],
+    "normalizar_por": [
+      "ombro",
+      "quadril"
+    ]
+  },
+  "histerese": 0.05,
+  "fase_minima_ms": 150,
+  "sustentacao": {
+    "condicao": "abs(medida) > 0.25",
+    "feedback_perda": "Pé tocou o chão",
+    "lado": {
+      "medida": "medida",
+      "positivo": "e",
+      "negativo": "d"
+    },
+    "controle": {
+      "ponto": "quadril",
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ],
+      "oscilacao_maxima": 0.08
+    }
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "tempo_valido_e_s",
+    "tempo_valido_d_s",
+    "estabilidade",
+    "simetria"
+  ],
+  "instrucoes": [
+    "Fique de frente para o celular.",
+    "Apoie a planta de um pé na perna de apoio, acima do tornozelo.",
+    "Segure. Troque de perna na metade do tempo."
+  ]
+}

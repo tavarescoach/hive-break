@@ -22,7 +22,8 @@ export interface Frame {
 }
 
 export type Lado = "e" | "d";
-export type CombinarLados = Lado | "media" | "min" | "max";
+/** "visivel" usa o lado que a câmera enxerga melhor (exercícios de lado para o celular). */
+export type CombinarLados = Lado | "media" | "min" | "max" | "visivel";
 export type Espaco = "2d" | "3d";
 
 interface MedidaBase {
@@ -59,7 +60,24 @@ export interface MedidaAltura extends MedidaBase {
   normalizar_por?: [string, string];
 }
 
-export type DefinicaoMedida = MedidaAngulo | MedidaDistancia | MedidaAltura;
+/** Inclinação do segmento a→b em relação à vertical, na imagem: 0 = em pé, 90 = deitado. */
+export interface MedidaInclinacao extends MedidaBase {
+  tipo: "inclinacao";
+  pontos: [string, string];
+}
+
+/**
+ * Quanto o corpo está se mexendo: velocidade média dos pontos, em "larguras de
+ * referência por segundo". Usada na respiração guiada (a pessoa precisa ficar parada).
+ */
+export interface MedidaMovimento {
+  tipo: "movimento";
+  pontos: string[];
+  normalizar_por: [string, string];
+  lado?: undefined;
+}
+
+export type DefinicaoMedida = MedidaAngulo | MedidaDistancia | MedidaAltura | MedidaInclinacao | MedidaMovimento;
 
 export interface DefinicaoFase {
   nome: string;
@@ -93,7 +111,32 @@ export interface DefinicaoAmplitude {
   ideal: number;
 }
 
-export type Formato = "repeticoes" | "isometria" | "equilibrio" | "postura";
+export type Formato = "repeticoes" | "alternado" | "isometria" | "equilibrio" | "postura" | "respiracao" | "precisao";
+
+/**
+ * Exercício alternado (marcha, skipping, mountain climber): cada lado conta uma
+ * repetição quando a condição dele fica verdadeira, e só volta a contar depois
+ * que ela deixa de valer.
+ */
+export interface DefinicaoAlternado {
+  e: string;
+  d: string;
+  /** "Quase": o movimento começou mas não chegou lá. Vira repetição parcial. */
+  quase_e?: string;
+  quase_d?: string;
+}
+
+/** Toque nos alvos: alvos aparecem ao alcance das mãos e somem depois de um tempo. */
+export interface DefinicaoAlvos {
+  /** Pontos que acertam o alvo (ex.: punho_e, punho_d). */
+  pontos: string[];
+  /** Tempo para acertar cada alvo. */
+  tempo_ms: number;
+  /** Raio do alvo, em larguras de ombro. */
+  raio: number;
+  /** Pausa entre um alvo e o próximo. */
+  intervalo_ms?: number;
+}
 
 /** Bloco de sustentação: isometria, postura e equilíbrio. */
 export interface DefinicaoSustentacao {
@@ -136,7 +179,13 @@ export interface DefinicaoExercicio {
   /** Duração mínima de cada fase. Padrão 150 ms. */
   fase_minima_ms?: number;
 
-  // --- formatos de sustentação ---
+  // --- formato "alternado" ---
+  alternado?: DefinicaoAlternado;
+
+  // --- formato "precisao" ---
+  alvos?: DefinicaoAlvos;
+
+  // --- formatos de sustentação (isometria, postura, equilíbrio, respiração) ---
   sustentacao?: DefinicaoSustentacao;
 
   erros?: DefinicaoErro[];
@@ -153,6 +202,8 @@ export interface RegistroRep {
   /** Momento em que a repetição fechou. */
   t: number;
   valida: boolean;
+  /** Lado que fez a repetição, nos exercícios alternados. */
+  lado?: Lado;
   motivo?: "amplitude" | "rapida" | string;
   duracaoMs: number;
   /** Do início do movimento até o extremo (fase excêntrica no agachamento). */
@@ -174,6 +225,8 @@ export type EventoMotor =
   | { tipo: "fase"; t: number; fase: string }
   | { tipo: "posicao_inicio"; t: number; lado: Lado | null }
   | { tipo: "posicao_perdida"; t: number; lado: Lado | null; duracaoMs: number; feedback?: string }
+  | { tipo: "alvo_acerto"; t: number; total: number; reacaoMs: number }
+  | { tipo: "alvo_perdido"; t: number }
   | { tipo: "fora_quadro"; t: number }
   | { tipo: "voltou_quadro"; t: number };
 
@@ -195,6 +248,8 @@ export interface EstadoMotor {
   errosAtivos: string[];
   /** Últimos valores das medidas, com `medida` sendo a principal. */
   medidas: Record<string, number>;
+  /** Alvo na tela agora (formato precisão), em coordenadas da imagem de 0 a 1. */
+  alvo: { x: number; y: number; raio: number } | null;
 }
 
 export interface OpcoesMotor {
@@ -206,12 +261,22 @@ export interface OpcoesMotor {
   foraQuadroMs?: number;
   /** Liga a suavização One Euro. Padrão: ligada. */
   suavizar?: boolean;
+  /** Gerador de números aleatórios (posição dos alvos). Padrão: Math.random. */
+  aleatorio?: () => number;
 }
 
 export interface Kpis {
   reps_validas: number;
   reps_parciais: number;
   reps_rapidas: number;
+  reps_e: number;
+  reps_d: number;
+  acertos: number;
+  alvos_perdidos: number;
+  precisao: number | null;
+  tempo_reacao: number | null;
+  /** Fração do tempo de trabalho em que a posição foi mantida (isometria, respiração). */
+  pct_tempo_valido: number | null;
   amplitude_media: number | null;
   tempo_excentrico: number | null;
   tempo_concentrico: number | null;

@@ -1,9 +1,9 @@
 import { analisar, avaliarCondicao, type Contexto, type No } from "./expressao";
 import { FiltroPose } from "./filtro-one-euro";
-import { distancia, limitar } from "./geometria";
+import { distancia, limitar, type Vetor } from "./geometria";
 import { calcularKpis } from "./kpis";
 import { calcularMedida, distEntre, prepararPose, type PoseMedida } from "./medidas";
-import { indicesDoPonto, resolverPonto, TOTAL_PONTOS } from "./pontos";
+import { gruposObrigatorios, indicesDoPonto, resolverPonto, TOTAL_PONTOS } from "./pontos";
 import type {
   DefinicaoErro,
   DefinicaoExercicio,
@@ -35,6 +35,27 @@ interface ErroCompilado {
   anunciado: boolean;
 }
 
+interface LadoAlternado {
+  lado: Lado;
+  condicao: No;
+  quase: No | null;
+  ativa: boolean;
+  desde: number;
+  /** Pode contar de novo (a condição deixou de valer depois da última repetição). */
+  armado: boolean;
+  quaseAtiva: boolean;
+  /** Começou o movimento ("quase") sem ainda ter contado repetição. */
+  tentou: boolean;
+}
+
+interface Alvo {
+  /** Posição na imagem, com x já corrigido pela proporção. */
+  x: number;
+  y: number;
+  raio: number;
+  nasceu: number;
+}
+
 /** Intervalo máximo creditado entre dois frames (protege contra travadas). */
 const DT_MAXIMO_MS = 500;
 
@@ -52,7 +73,24 @@ export class Motor {
   private readonly faseMinimaMs: number;
   private readonly duracaoMinimaMs: number;
   private readonly erroMinimoMs: number;
-  private readonly obrigatorios: number[];
+  private readonly obrigatorios: number[][];
+  private readonly aleatorio: () => number;
+
+  // Alternado
+  private readonly lados: LadoAlternado[] = [];
+  private ultimaRep = Number.NEGATIVE_INFINITY;
+
+  // Precisão (alvos)
+  private readonly pontosAlvo: number[] = [];
+  private alvo: Alvo | null = null;
+  private proximoAlvoEm = 0;
+  private acertos = 0;
+  private alvosPerdidos = 0;
+  private somaReacaoMs = 0;
+
+  // Medida "movimento"
+  private poseAnterior: { t: number; imagem: Vetor[] } | null = null;
+  private movimento: Record<string, number> = {};
   private readonly filtroImagem: FiltroPose | null;
   private readonly filtroMundo: FiltroPose | null;
 
@@ -115,7 +153,8 @@ export class Motor {
     this.faseMinimaMs = def.fase_minima_ms ?? 150;
     this.duracaoMinimaMs = def.duracao_minima_ms ?? 400;
     this.erroMinimoMs = def.erro_minimo_ms ?? 150;
-    this.obrigatorios = [...new Set(def.pontos_obrigatorios.flatMap(indicesDoPonto))];
+    this.obrigatorios = gruposObrigatorios(def.pontos_obrigatorios);
+    this.aleatorio = opcoes.aleatorio ?? Math.random;
     const suavizar = opcoes.suavizar ?? true;
     this.filtroImagem = suavizar ? new FiltroPose(TOTAL_PONTOS) : null;
     this.filtroMundo = suavizar ? new FiltroPose(TOTAL_PONTOS) : null;
@@ -143,6 +182,22 @@ export class Motor {
       };
       (erro.quando === "fim_rep" ? this.errosFim : this.errosDurante).push(compilado);
     }
+    if (def.alternado) {
+      for (const lado of ["e", "d"] as const) {
+        const quase = def.alternado[`quase_${lado}`];
+        this.lados.push({
+          lado,
+          condicao: analisar(def.alternado[lado]),
+          quase: quase ? analisar(quase) : null,
+          ativa: false,
+          desde: 0,
+          armado: true,
+          quaseAtiva: false,
+          tentou: false,
+        });
+      }
+    }
+    if (def.alvos) this.pontosAlvo.push(...def.alvos.pontos.flatMap(indicesDoPonto));
     this.sustCondicao = def.sustentacao ? analisar(def.sustentacao.condicao) : null;
     this.sustHisterese = def.sustentacao?.histerese ?? histerese;
   }
@@ -160,7 +215,7 @@ export class Motor {
     const visivel =
       !!pontos &&
       pontos.length >= TOTAL_PONTOS &&
-      this.obrigatorios.every((i) => (pontos[i].visibility ?? 1) >= this.visibilidadeMinima);
+      this.obrigatorios.every((grupo) => grupo.some((i) => (pontos[i].visibility ?? 1) >= this.visibilidadeMinima));
 
     if (!visivel || !pontos) {
       this.frameValido = false;
@@ -186,6 +241,7 @@ export class Motor {
 
     const medidas: Record<string, number> = { medida: calcularMedida(this.def.medida_principal, pose) };
     for (const [nome, def] of Object.entries(this.def.medidas ?? {})) medidas[nome] = calcularMedida(def, pose);
+    this.medirMovimento(t, pose, medidas);
     this.medidas = medidas;
 
     const ctx: Contexto = {
@@ -199,6 +255,8 @@ export class Motor {
     };
 
     if (this.def.formato === "repeticoes") this.processarRepeticoes(t, ctx, eventos);
+    else if (this.def.formato === "alternado") this.processarAlternado(t, ctx, eventos);
+    else if (this.def.formato === "precisao") this.processarAlvos(t, pose, eventos);
     else this.processarSustentacao(t, dt, ctx, pose, eventos);
 
     this.processarErrosDurante(t, ctx, eventos);
@@ -335,6 +393,127 @@ export class Motor {
     eventos.push({ tipo: "rep_parcial", t, total: this.repsParciais, rep, feedback });
   }
 
+  // ----------------------------------------------------------------- alternado
+
+  private processarAlternado(t: number, ctx: Contexto, eventos: EventoMotor[]): void {
+    const histerese = this.def.histerese ?? 5;
+    for (const l of this.lados) {
+      const ativa = avaliarCondicao(l.condicao, ctx, l.ativa ? histerese : 0);
+      if (ativa && !l.ativa) l.desde = t;
+      l.ativa = ativa;
+
+      if (ativa && l.armado && t - l.desde >= this.faseMinimaMs) {
+        l.armado = false;
+        l.tentou = false;
+        const rep: RegistroRep = {
+          t, valida: false, lado: l.lado, duracaoMs: t - l.desde, tempoIdaMs: 0, tempoVoltaMs: 0,
+          extremo: NaN, amplitude: null, erros: [...this.errosDaRep],
+        };
+        this.errosDaRep.clear();
+        for (const erro of this.errosDurante) erro.anunciado = false;
+        // Antifraude: repetições mais rápidas que o limite humano não contam.
+        if (t - this.ultimaRep < this.duracaoMinimaMs) {
+          rep.motivo = "rapida";
+          this.repsRapidas++;
+          eventos.push({ tipo: "rep_rapida", t, rep });
+        } else {
+          rep.valida = true;
+          this.reps.push(rep);
+          this.repsValidas++;
+          this.lado = l.lado;
+          eventos.push({ tipo: "rep_valida", t, total: this.repsValidas, rep });
+        }
+        this.ultimaRep = t;
+      }
+      if (!ativa) l.armado = true;
+
+      if (l.quase) {
+        const quase = avaliarCondicao(l.quase, ctx, l.quaseAtiva ? histerese : 0);
+        if (quase && !l.quaseAtiva && l.armado) l.tentou = true;
+        // Baixou sem ter chegado lá: repetição parcial.
+        if (!quase && l.quaseAtiva && l.tentou) {
+          l.tentou = false;
+          this.registrarParcial(
+            { t, valida: false, lado: l.lado, motivo: "amplitude", duracaoMs: 0, tempoIdaMs: 0, tempoVoltaMs: 0, extremo: NaN, amplitude: null, erros: [] },
+            t, this.def.parcial_feedback, eventos,
+          );
+        }
+        l.quaseAtiva = quase;
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ precisão
+
+  private processarAlvos(t: number, pose: PoseMedida, eventos: EventoMotor[]): void {
+    const cfg = this.def.alvos!;
+    const oe = pose.imagem[11];
+    const od = pose.imagem[12];
+    const largura = distancia(oe, od);
+    if (largura < 1e-6) return;
+
+    if (!this.alvo) {
+      if (t < this.proximoAlvoEm) return;
+      // Alvo ao alcance das mãos: ao lado e acima dos ombros, de um lado ou de outro.
+      const lado = this.aleatorio() < 0.5 ? -1 : 1;
+      const x = (oe.x + od.x) / 2 + lado * largura * (0.9 + 0.8 * this.aleatorio());
+      const y = (oe.y + od.y) / 2 + largura * (-1.3 + 1.9 * this.aleatorio());
+      const margem = cfg.raio * largura;
+      this.alvo = {
+        x: limitar(x, margem, this.proporcao - margem),
+        y: limitar(y, margem, 1 - margem),
+        raio: margem,
+        nasceu: t,
+      };
+      return;
+    }
+
+    const alvo = this.alvo;
+    const acertou = this.pontosAlvo.some((i) => Math.hypot(pose.imagem[i].x - alvo.x, pose.imagem[i].y - alvo.y) <= alvo.raio);
+    if (acertou) {
+      this.acertos++;
+      this.repsValidas++;
+      this.somaReacaoMs += t - alvo.nasceu;
+      eventos.push({ tipo: "alvo_acerto", t, total: this.acertos, reacaoMs: t - alvo.nasceu });
+    } else if (t - alvo.nasceu > cfg.tempo_ms) {
+      this.alvosPerdidos++;
+      eventos.push({ tipo: "alvo_perdido", t });
+    } else {
+      return;
+    }
+    this.alvo = null;
+    this.proximoAlvoEm = t + (cfg.intervalo_ms ?? 500);
+  }
+
+  // ----------------------------------------------------------------- movimento
+
+  /** Calcula as medidas do tipo "movimento": velocidade média dos pontos, suavizada. */
+  private medirMovimento(t: number, pose: PoseMedida, medidas: Record<string, number>): void {
+    const todas: [string, DefinicaoExercicio["medida_principal"]][] = [
+      ["medida", this.def.medida_principal],
+      ...Object.entries(this.def.medidas ?? {}),
+    ];
+    const anterior = this.poseAnterior;
+    for (const [nome, def] of todas) {
+      if (def.tipo !== "movimento") continue;
+      const dt = anterior ? (t - anterior.t) / 1000 : 0;
+      if (!anterior || dt <= 0 || dt > 0.5) {
+        medidas[nome] = this.movimento[nome] ?? 0;
+        continue;
+      }
+      const escala = distancia(this.pontoMedioNome(pose, def.normalizar_por[0]), this.pontoMedioNome(pose, def.normalizar_por[1]));
+      const indices = def.pontos.flatMap(indicesDoPonto);
+      const media = indices.reduce((s, i) => s + distancia(pose.imagem[i], anterior.imagem[i]), 0) / indices.length;
+      const velocidade = escala > 1e-6 ? media / escala / dt : 0;
+      // Média móvel exponencial com constante de tempo de meio segundo.
+      const alfa = 1 - Math.exp(-dt / 0.5);
+      const suave = (this.movimento[nome] ?? velocidade) + alfa * (velocidade - (this.movimento[nome] ?? velocidade));
+      this.movimento[nome] = suave;
+      medidas[nome] = suave;
+    }
+    this.poseAnterior = { t, imagem: pose.imagem };
+  }
+
   // --------------------------------------------------------------- sustentação
 
   private processarSustentacao(t: number, dt: number, ctx: Contexto, pose: PoseMedida, eventos: EventoMotor[]): void {
@@ -429,7 +608,8 @@ export class Motor {
   // --------------------------------------------------------------------- erros
 
   private processarErrosDurante(t: number, ctx: Contexto, eventos: EventoMotor[]): void {
-    const emAcao = this.def.formato === "repeticoes" ? this.emExcursao : this.naPosicao;
+    const emAcao =
+      this.def.formato === "repeticoes" ? this.emExcursao : this.def.formato === "alternado" ? true : this.naPosicao;
     for (const erro of this.errosDurante) {
       const aplicavel = !erro.def.fase || erro.def.fase === this.faseAtual;
       const ativa = aplicavel && avaliarCondicao(erro.condicao, ctx, erro.ativa ? erro.histerese : 0);
@@ -457,6 +637,9 @@ export class Motor {
     for (const fase of this.fases) fase.ativa = false;
     for (const erro of this.errosDurante) erro.ativa = false;
     this.sustAtiva = false;
+    for (const l of this.lados) Object.assign(l, { ativa: false, armado: true, quaseAtiva: false, tentou: false });
+    this.alvo = null;
+    this.poseAnterior = null;
     if (this.naPosicao) this.encerrarPosicao(this.tUltimoValido ?? t, undefined, eventos);
     this.filtroImagem?.reiniciar();
     this.filtroMundo?.reiniciar();
@@ -480,6 +663,7 @@ export class Motor {
       frameValido: this.frameValido,
       errosAtivos,
       medidas: this.medidas,
+      alvo: this.alvo ? { x: this.alvo.x / this.proporcao, y: this.alvo.y, raio: this.alvo.raio } : null,
     };
   }
 
@@ -509,6 +693,9 @@ export class Motor {
       oscilacao: pesoOsc > 0 ? somaOsc / pesoOsc : null,
       oscilacaoMaxima: this.def.sustentacao?.controle?.oscilacao_maxima ?? null,
       erros: this.contagemErros,
+      acertos: this.acertos,
+      alvosPerdidos: this.alvosPerdidos,
+      somaReacaoMs: this.somaReacaoMs,
     });
   }
 }

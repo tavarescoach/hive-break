@@ -1,0 +1,50 @@
+{
+  "id": "alongamento_posterior",
+  "nome": "Alongamento de posterior em pé",
+  "modalidade": "alongamento",
+  "camera": "lateral",
+  "formato": "isometria",
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "joelho",
+    "tornozelo"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "quadril",
+      "joelho"
+    ],
+    "lado": "visivel",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "joelho": {
+      "tipo": "angulo",
+      "pontos": [
+        "quadril",
+        "joelho",
+        "tornozelo"
+      ],
+      "lado": "visivel",
+      "espaco": "2d"
+    }
+  },
+  "histerese": 5,
+  "sustentacao": {
+    "condicao": "medida < 110 e joelho > 160",
+    "feedback_perda": "Joelhos estendidos, tronco para a frente"
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "Fique de lado para o celular.",
+    "Com os joelhos estendidos, incline o tronco para a frente e solte os braços.",
+    "O tempo corre enquanto você mantém a posição."
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "id": "marcha_estacionaria",
+  "nome": "Marcha estacionária com braços",
+  "modalidade": "aquecimento",
+  "camera": "frontal",
+  "formato": "alternado",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "quadril_e",
+    "quadril_d",
+    "joelho_e",
+    "joelho_d"
+  ],
+  "medida_principal": {
+    "tipo": "altura",
+    "pontos": [
+      "quadril",
+      "joelho"
+    ],
+    "lado": "max",
+    "normalizar_por": [
+      "ombro",
+      "quadril"
+    ]
+  },
+  "medidas": {
+    "joelho_e_alt": {
+      "tipo": "altura",
+      "pontos": [
+        "quadril_e",
+        "joelho_e"
+      ],
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ]
+    },
+    "joelho_d_alt": {
+      "tipo": "altura",
+      "pontos": [
+        "quadril_d",
+        "joelho_d"
+      ],
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ]
+    }
+  },
+  "histerese": 0.05,
+  "alternado": {
+    "e": "joelho_e_alt > -0.5",
+    "d": "joelho_d_alt > -0.5",
+    "quase_e": "joelho_e_alt > -0.66",
+    "quase_d": "joelho_d_alt > -0.66"
+  },
+  "parcial_feedback": "Suba mais o joelho",
+  "duracao_minima_ms": 250,
+  "fase_minima_ms": 100,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "cadencia",
+    "simetria"
+  ],
+  "instrucoes": [
+    "Fique de frente para o celular, com o corpo inteiro na tela.",
+    "Marche no lugar subindo bem os joelhos e balançando os braços."
+  ]
+}

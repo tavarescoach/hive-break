@@ -1,0 +1,79 @@
+{
+  "id": "elevacao_bracos_y",
+  "nome": "Elevação de braços em Y",
+  "modalidade": "mobilidade",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "cotovelo_e",
+    "cotovelo_d",
+    "quadril_e",
+    "quadril_d"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "quadril",
+      "ombro",
+      "cotovelo"
+    ],
+    "lado": "media",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "cotovelo": {
+      "tipo": "angulo",
+      "pontos": [
+        "ombro",
+        "cotovelo",
+        "punho"
+      ],
+      "lado": "min",
+      "espaco": "2d"
+    }
+  },
+  "histerese": 5,
+  "fases": [
+    {
+      "nome": "baixo",
+      "condicao": "medida < 30"
+    },
+    {
+      "nome": "alto",
+      "condicao": "medida > 150"
+    }
+  ],
+  "repeticao": [
+    "baixo",
+    "alto",
+    "baixo"
+  ],
+  "parcial_se": "max_medida > 110",
+  "parcial_feedback": "Suba mais os braços",
+  "amplitude": {
+    "extremo": "max",
+    "minimo_aceito": 150,
+    "ideal": 170
+  },
+  "duracao_minima_ms": 800,
+  "erros": [
+    {
+      "id": "cotovelo_dobrado",
+      "condicao": "cotovelo < 150",
+      "fase": "alto",
+      "feedback": "Estenda os cotovelos"
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "indice_tecnico"
+  ],
+  "instrucoes": [
+    "Fique de frente para o celular, com os braços aparecendo inteiros no alto.",
+    "Suba os braços estendidos formando um Y e desça devagar."
+  ]
+}

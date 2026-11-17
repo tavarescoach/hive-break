@@ -1,14 +1,53 @@
 import type { DefinicaoExercicio } from "@/motor/tipos";
-import agachamento from "./agachamento_livre.json";
-import apoio from "./apoio_uma_perna.json";
+import afundo_alternado from "./afundo_alternado.json";
+import agachamento_bastao from "./agachamento_bastao.json";
+import agachamento_livre from "./agachamento_livre.json";
+import alongamento_posterior from "./alongamento_posterior.json";
+import apoio_uma_perna from "./apoio_uma_perna.json";
+import bom_dia_bastao from "./bom_dia_bastao.json";
+import cachorro_olhando_baixo from "./cachorro_olhando_baixo.json";
+import elevacao_bracos_y from "./elevacao_bracos_y.json";
+import flexao_braco from "./flexao_braco.json";
+import guerreiro_2 from "./guerreiro_2.json";
+import marcha_estacionaria from "./marcha_estacionaria.json";
+import mountain_climber from "./mountain_climber.json";
 import polichinelo from "./polichinelo.json";
+import ponte_gluteo from "./ponte_gluteo.json";
+import postura_arvore from "./postura_arvore.json";
+import prancha from "./prancha.json";
+import respiracao_guiada from "./respiracao_guiada.json";
+import skipping from "./skipping.json";
+import toque_alvos from "./toque_alvos.json";
 
-/** Exercícios da Fase 0. Cada um é só um arquivo de dados lido pelo motor. */
-export const EXERCICIOS: DefinicaoExercicio[] = [
-  agachamento as unknown as DefinicaoExercicio,
-  polichinelo as unknown as DefinicaoExercicio,
-  apoio as unknown as DefinicaoExercicio,
-];
+/**
+ * Catálogo de exercícios (seção 7). Cada um é só um arquivo de dados lido pelo
+ * motor. Os 3 primeiros foram testados com pessoas na Fase 0; os demais usam os
+ * valores iniciais da especificação e ainda precisam de calibração.
+ */
+export const EXERCICIOS = [
+  agachamento_livre,
+  polichinelo,
+  apoio_uma_perna,
+  afundo_alternado,
+  flexao_braco,
+  ponte_gluteo,
+  prancha,
+  skipping,
+  mountain_climber,
+  elevacao_bracos_y,
+  alongamento_posterior,
+  marcha_estacionaria,
+  guerreiro_2,
+  postura_arvore,
+  cachorro_olhando_baixo,
+  toque_alvos,
+  respiracao_guiada,
+  agachamento_bastao,
+  bom_dia_bastao,
+] as unknown as DefinicaoExercicio[];
+
+/** Exercícios do teste técnico da Fase 0. */
+export const EXERCICIOS_TESTADOS = EXERCICIOS.slice(0, 3);
 
 export function exercicioPorId(id: string): DefinicaoExercicio | undefined {
   return EXERCICIOS.find((e) => e.id === id);
