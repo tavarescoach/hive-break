@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Assinatura } from "@/componentes/Assinatura";
 import { botaoPrimario, sobrelinha } from "@/componentes/estilos";
+import { InstalarApp } from "@/componentes/InstalarApp";
 import { seguirSeLogado } from "@/lib/sessao";
 
 const BENEFICIOS = [
@@ -38,6 +39,7 @@ export default async function Landing() {
       </ul>
 
       <div className="mt-auto flex flex-col gap-4">
+        <InstalarApp />
         <Link href="/entrar" className={botaoPrimario}>
           Começar
         </Link>
