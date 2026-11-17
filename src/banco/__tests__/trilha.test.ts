@@ -1,7 +1,7 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import { exercicioPorId, paraMetodo } from "@/exercicios";
-import { montarLinhaDoTempo, validarMetodo, type Metodo } from "@/dominio/metodos";
+import { compilar, validarEstrutura, type Estrutura } from "@/dominio/metodos";
 import { como, criarBanco, criarUsuario } from "../banco-de-teste";
 
 let db: PGlite;
@@ -86,23 +86,40 @@ describe("conteúdo da trilha (seed)", () => {
     expect(longos.rows).toEqual([]);
   });
 
-  it("todo desafio tem um método válido, que cabe em 5 minutos com os descansos", async () => {
-    const { rows } = await db.query<{ id: string; metodo: Metodo; duracao_s: number; exercicios: string[] }>(
-      `select c.id, c.metodo, c.duracao_s, array_agg(b.exercise_id order by b.ordem) as exercicios
+  it("todo desafio tem blocos válidos, um por exercício, e cabe em 5 minutos com as pausas", async () => {
+    const { rows } = await db.query<{ id: string; estrutura: Estrutura; metodo: unknown; duracao_s: number; exercicios: string[]; series: number[]; pausas: number[] }>(
+      `select c.id, c.estrutura, c.metodo, c.duracao_s, array_agg(b.exercise_id order by b.ordem) as exercicios,
+              array_agg(b.series order by b.ordem) as series, array_agg(b.descanso_s order by b.ordem) as pausas
        from public.challenges c join public.challenge_blocks b on b.challenge_id = c.id group by c.id`);
     expect(rows).toHaveLength(270);
-    const tipos = new Set<string>();
+    const metodos = new Set<string>();
     for (const r of rows) {
       const ex = r.exercicios.map((id) => paraMetodo(exercicioPorId(id)!));
-      expect(validarMetodo(r.metodo, ex), r.id).toEqual([]);
-      const linha = montarLinhaDoTempo(r.metodo, ex);
+      expect(r.metodo, r.id).toBeNull();
+      expect(r.estrutura.blocos.map((b) => b.exercicio_id), r.id).toEqual(r.exercicios);
+      expect(r.estrutura.blocos.map((b) => b.series), r.id).toEqual(r.series);
+      expect(r.estrutura.blocos.map((b) => b.pausa_s), r.id).toEqual(r.pausas);
+      expect(validarEstrutura(r.estrutura, ex), r.id).toEqual([]);
+      const linha = compilar(r.estrutura, ex);
       expect(linha.duracaoEstimadaS, r.id).toBeLessThanOrEqual(300);
       expect(r.duracao_s, r.id).toBe(Math.max(30, linha.duracaoEstimadaS));
-      tipos.add(r.metodo.tipo);
+      for (const b of r.estrutura.blocos) {
+        metodos.add(b.metodo);
+        expect(b.pse_alvo, r.id).toBeGreaterThanOrEqual(1);
+      }
     }
-    expect([...tipos].sort()).toEqual(["circuito", "contra_relogio", "emom", "escada", "intervalado", "series", "tabata"]);
-    const hiit = rows.filter((r) => r.id.endsWith("d06") && r.id.startsWith("n1"));
-    expect(hiit.every((r) => r.metodo.tipo === "tabata")).toBe(true);
+    expect([...metodos].sort()).toEqual(["amrap", "emom", "for_time", "isometria", "reps", "tabata"]);
+  });
+
+  it("n6u1d07 está como o Luan pediu: prancha isometria 3×30 s e mountain climber AMRAP 3×30 s, pausas de 20 s", async () => {
+    const { rows } = await db.query<{ estrutura: Estrutura; duracao_s: number }>("select estrutura, duracao_s from public.challenges where id = 'n6u1d07'");
+    const e = rows[0].estrutura;
+    expect(e).toMatchObject({ organizacao: "sequencia", pausa_entre_blocos_s: 20 });
+    expect(e.blocos.map((b) => [b.exercicio_id, b.metodo, b.series, b.esforco_s, b.pausa_s, b.score])).toEqual([
+      ["prancha", "isometria", 3, 30, 20, "tempo_valido"],
+      ["mountain_climber", "amrap", 3, 30, 20, "total_reps"],
+    ]);
+    expect(rows[0].duracao_s).toBe((3 * 30 + 2 * 20) * 2 + 20);
   });
 
   it("equipamento segue a seção 6.1: nada até o nível 4, tapete a partir do 5, cabo de vassoura a partir do 7", async () => {
@@ -147,6 +164,19 @@ describe("percorrer a trilha", () => {
     // No dia seguinte, o terço volta a valer (e com o +5 do primeiro do dia).
     await db.query("update public.challenge_attempts set concluido_em = concluido_em - interval '1 day' where user_id = $1", [ana]);
     expect(await concluir(ana, "n1u1d01")).toMatchObject({ xp: 3 + 5, refeito: true, primeiro_do_dia: true });
+  });
+
+  it("registra a PSE (1 a 10) na tentativa mais recente do desafio", async () => {
+    const ana = await pessoa("Ana PSE");
+    expect(await rpc<boolean>(ana, "public.registrar_esforco('n1u1d01', 6)")).toBe(false);
+    await concluir(ana, "n1u1d01");
+    expect(await rpc<boolean>(ana, "public.registrar_esforco('n1u1d01', 6)")).toBe(true);
+    const { rows } = await db.query<{ esforco_percebido: number }>("select esforco_percebido from public.challenge_attempts where user_id = $1", [ana]);
+    expect(rows).toEqual([{ esforco_percebido: 6 }]);
+    await expect(rpc(ana, "public.registrar_esforco('n1u1d01', 11)")).rejects.toThrow(/esforco_invalido/);
+    // A contagem do pop-up "PREPARE-SE" é editável pelo dono, de 5 a 10 s.
+    await como(db, { usuario: ana }, (tx) => tx.query("update public.profiles set contagem_preparo_s = 5 where id = $1", [ana]));
+    await expect(como(db, { usuario: ana }, (tx) => tx.query("update public.profiles set contagem_preparo_s = 30 where id = $1", [ana]))).rejects.toThrow(/check constraint/);
   });
 
   it("sem câmera (modo manual) vale metade do XP", async () => {

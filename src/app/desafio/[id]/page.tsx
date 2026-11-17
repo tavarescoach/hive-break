@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { ConfiguracaoPendente } from "@/componentes/ConfiguracaoPendente";
-import type { Metodo } from "@/dominio/metodos";
+import type { Estrutura, MetodoAntigo } from "@/dominio/metodos";
 import type { DadosTrilha } from "@/dominio/trilha";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 import { supabaseConfigurado } from "@/lib/supabase/env";
@@ -15,12 +15,12 @@ export default async function PaginaDesafio({ params }: { params: Promise<{ id: 
   if (!/^[a-z0-9_]+$/.test(id)) notFound();
   const sessao = await exigirCadastroCompleto();
 
-  const [trilha, blocos, exercicios, metodo] = await Promise.all([
+  const [trilha, blocos, exercicios, desafioBanco] = await Promise.all([
     sessao.supabase.rpc("ler_trilha"),
     sessao.supabase.from("challenge_blocks").select("ordem,exercise_id,parametros_por_dificuldade").eq("challenge_id", id).order("ordem"),
     sessao.supabase.from("exercises").select("id,nome,camera"),
-    // Sem a migração 0008 a coluna não existe: o app usa o tempo de cada exercício (método legado).
-    sessao.supabase.from("challenges").select("metodo").eq("id", id).maybeSingle(),
+    // Antes da migração 0009 a coluna estrutura não existe: o app converte o método antigo.
+    sessao.supabase.from("challenges").select("*").eq("id", id).maybeSingle(),
   ]);
   const dados = trilha.data as DadosTrilha | null;
   const desafio = dados?.desafios.find((d) => d.id === id);
@@ -49,7 +49,9 @@ export default async function PaginaDesafio({ params }: { params: Promise<{ id: 
       equipamento={desafio.equipamento}
       jaFeito={desafio.estado === "concluido"}
       blocos={lista}
-      metodo={metodo.error ? null : ((metodo.data?.metodo as Metodo | null) ?? null)}
+      estrutura={(desafioBanco.data?.estrutura as Estrutura | null | undefined) ?? null}
+      metodoAntigo={(desafioBanco.data?.metodo as MetodoAntigo | null | undefined) ?? null}
+      preparoS={sessao.perfil.contagem_preparo_s ?? 10}
     />
   );
 }

@@ -61,5 +61,5 @@ export const ehSustentacao = (def: DefinicaoExercicio) => SUSTENTACAO.has(def.fo
 
 /** O que o método do desafio precisa saber do exercício. */
 export function paraMetodo(def: DefinicaoExercicio): ExercicioMetodo {
-  return { nome: def.nome, sustentacao: ehSustentacao(def), segPorRep: def.seg_por_rep ?? 3 };
+  return { nome: def.nome, sustentacao: ehSustentacao(def), segPorRep: def.seg_por_rep ?? 3, lateral: def.camera === "lateral" };
 }

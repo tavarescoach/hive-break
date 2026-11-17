@@ -57,3 +57,11 @@ export async function registrarDor(id: string, exercicio: string, regiao: string
   const { error } = await sessao.supabase.rpc("registrar_dor", { p_challenge_id: id, p_exercise_id: exercicio, p_regiao: regiao });
   return { ok: !error };
 }
+
+/** Percepção de esforço (PSE, 1 a 10) respondida no fim do desafio. */
+export async function registrarEsforco(id: string, valor: number): Promise<{ ok: boolean }> {
+  if (!Number.isInteger(valor) || valor < 1 || valor > 10) return { ok: false };
+  const sessao = await exigirCadastroCompleto();
+  const { data, error } = await sessao.supabase.rpc("registrar_esforco", { p_challenge_id: id, p_valor: valor });
+  return { ok: !error && data === true };
+}

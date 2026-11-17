@@ -67,6 +67,18 @@ export default async function Configuracoes() {
             <span className={rotulo}>Volume da voz do treinador</span>
             <input type="range" name="volume_voz" min={0} max={100} step={5} defaultValue={perfil.volume_voz} className="h-12 w-full accent-[var(--color-mel)]" />
           </label>
+          {perfil.contagem_preparo_s !== undefined && (
+            <fieldset>
+              <legend className={rotulo}>Contagem antes de cada exercício</legend>
+              <Opcoes
+                nome="contagem_preparo_s"
+                opcoes={[5, 8, 10].map((v) => ({ valor: v, rotulo: `${v} s` }))}
+                atual={perfil.contagem_preparo_s}
+                colunas={3}
+              />
+              <p className="mt-1.5 text-sm text-apagado">Tempo do aviso &quot;Prepare-se&quot; para ler as instruções e se posicionar.</p>
+            </fieldset>
+          )}
           <label>
             <span className={rotulo}>Horário do lembrete (opcional)</span>
             <input type="time" name="horario_lembrete" defaultValue={perfil.horario_lembrete?.slice(0, 5) ?? ""} className={campoTexto} />
