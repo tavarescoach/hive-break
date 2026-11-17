@@ -4,6 +4,7 @@
   "modalidade": "aquecimento",
   "camera": "frontal",
   "formato": "alternado",
+  "seg_por_rep": 0.9,
   "pontos_obrigatorios": [
     "ombro_e",
     "ombro_d",

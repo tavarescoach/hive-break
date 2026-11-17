@@ -1,3 +1,4 @@
+import type { ExercicioMetodo } from "@/dominio/metodos";
 import type { DefinicaoExercicio } from "@/motor/tipos";
 import afundo_alternado from "./afundo_alternado.json";
 import agachamento_bastao from "./agachamento_bastao.json";
@@ -51,4 +52,14 @@ export const EXERCICIOS_TESTADOS = EXERCICIOS.slice(0, 3);
 
 export function exercicioPorId(id: string): DefinicaoExercicio | undefined {
   return EXERCICIOS.find((e) => e.id === id);
+}
+
+const SUSTENTACAO = new Set(["isometria", "postura", "equilibrio", "respiracao"]);
+
+/** Exercício de sustentação: mede tempo na posição, não repetições. */
+export const ehSustentacao = (def: DefinicaoExercicio) => SUSTENTACAO.has(def.formato);
+
+/** O que o método do desafio precisa saber do exercício. */
+export function paraMetodo(def: DefinicaoExercicio): ExercicioMetodo {
+  return { nome: def.nome, sustentacao: ehSustentacao(def), segPorRep: def.seg_por_rep ?? 3 };
 }

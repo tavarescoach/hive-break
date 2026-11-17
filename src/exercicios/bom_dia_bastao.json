@@ -4,6 +4,7 @@
   "modalidade": "forca",
   "camera": "lateral",
   "formato": "repeticoes",
+  "seg_por_rep": 3.5,
   "pontos_obrigatorios": [
     "ombro",
     "quadril",

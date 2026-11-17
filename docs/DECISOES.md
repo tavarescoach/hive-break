@@ -261,3 +261,48 @@ Pedido do Luan. Muda a estrutura da seção 6 da especificação.
 67. **Voz do treinador** pela Web Speech API (pt-BR), no máximo uma frase a cada 4 s.
 68. **As regras usadas pela câmera vêm dos arquivos do app**, não do banco: assim uma
     correção de limiar não depende de rodar SQL. O seed mantém a cópia no banco.
+
+## Métodos dos desafios (18/11/2026)
+
+Detalhes em `docs/METODOS.md`.
+
+### Respondidas pelo Luan
+
+69. **Métodos:** intervalado por tempo (AMRAP, faixa de reps ou sustentar), Tabata
+    (8 × 20/10), séries e repetições, circuito, EMOM, escada e contra o relógio.
+70. **Trabalho em amarelo-mel**, descanso em cinza, preparo e transição em branco.
+71. **A série de repetições espera a pessoa** completar (sem teto de tempo).
+72. **Limite de 5 minutos inclui os descansos**, aplicado à duração planejada.
+
+### Pedidas no teste do Luan
+
+73. **"Concluí" não encerra mais o desafio.** O topo tem "Pular ›" (fecha a fase atual e
+    segue; na última vira "Concluir") e um X para encerrar o desafio registrando o que
+    foi feito.
+74. **Timer grande:** o painel da fase ocupa cerca de 1/3 da tela em trabalho, com
+    números de 7 a 9 rem; no descanso o painel cinza cobre a tela com a contagem enorme.
+75. **Gabarito da posição** para os 19 exercícios: figura de palito parada nas
+    isometrias e posturas, animada nos exercícios de repetição. Aparece na tela de
+    preparação, no descanso (próximo exercício), no canto da câmera durante as
+    sustentações e grande no modo sem câmera.
+
+### Decididas na implementação (revisar)
+
+76. **Método por posição da unidade** (tabela da seção 3 de `docs/METODOS.md`):
+    aquecimento intervalado 30/10 com faixa; mobilidade em circuito; equilíbrio e yoga
+    sustentando; força em séries e repetições (EMOM na 3ª unidade de cada seção); CORE em
+    circuito; condicionamento alternando circuito e intervalado AMRAP; HIIT em Tabata;
+    volta à calma em circuito de 1 rodada; desafio da unidade alternando contra o
+    relógio, escada e circuito.
+77. **Progressão por seção:** reps de força 8 → 10 → 12 → 15 (tronco 6 → 12), descanso
+    60 → 30 s; isometria 20 → 45 s; condicionamento 30 → 45 s de trabalho. Se passar de
+    5 min, o gerador reduz séries, rodadas ou reps até caber.
+78. **Ritmo de referência** (s por repetição) em cada exercício, usado para planejar a
+    duração e as metas de faixa: agachamento 3, polichinelo 1,5, skipping 0,6 etc.
+    Faixa do aquecimento = 60% a 90% do ritmo de referência.
+79. **Sustentação cumprida** = pelo menos 80% do tempo da fase na posição.
+80. **Tabata** alterna os exercícios a cada round; o resultado mostra a soma e o pior round.
+81. **Exercícios por tempo sem câmera** contam o tempo; os por repetição pedem o toque em
+    "Feito".
+82. **O XP não muda com o método** (10 por desafio, 20 no da unidade). Tabela de XP por
+    método segue em aberto (item 2 das decisões do documento de referências).

@@ -157,6 +157,8 @@ export interface DefinicaoExercicio {
   modalidade: string;
   camera: "frontal" | "lateral";
   formato: Formato;
+  /** Ritmo de referência em segundos por repetição (planejamento da duração dos desafios). */
+  seg_por_rep?: number;
   /** Pontos que precisam estar visíveis (> visibilidade mínima) para o frame valer. */
   pontos_obrigatorios: string[];
   /** Medida principal: aparece nas condições como `medida`. */

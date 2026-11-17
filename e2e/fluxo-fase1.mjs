@@ -30,25 +30,30 @@ async function captura(pagina, nome, paginaInteira = true) {
   if (CAPTURAS) await pagina.screenshot({ path: `${CAPTURAS}/${String(++passo).padStart(2, "0")}-${nome}.png`, fullPage: paginaInteira });
 }
 
-/** Faz um desafio sem câmera: timer → Concluí → Continuar. */
+/** Encerra o desafio pelo X do topo, registrando o que foi feito. */
+async function encerrarDesafio(pagina) {
+  await pagina.getByRole("button", { name: "Encerrar o desafio" }).click();
+  await pagina.getByRole("button", { name: "Encerrar e registrar" }).click();
+}
+
+/** Faz um desafio sem câmera: começa, encerra e volta para a trilha. */
 async function fazerDesafio(pagina, id) {
   await pagina.goto(`${APP}/desafio/${id}`);
   await pagina.getByRole("button", { name: "Fazer sem câmera" }).click();
   await pagina.getByRole("timer").waitFor();
-  await pagina.getByRole("button", { name: "Concluí" }).click();
+  await encerrarDesafio(pagina);
   await pagina.getByText("Ofensiva:").waitFor();
   await pagina.getByRole("link", { name: "Continuar" }).click();
   await pagina.waitForURL("**/trilha");
 }
 
-/** Abre o desafio com a câmera e espera o exercício começar a valer. */
+/** Abre o desafio com a câmera e espera a primeira fase de trabalho. */
 async function abrirComCamera(pagina) {
   await pagina.getByRole("button", { name: "Começar com a câmera" }).click();
-  // Com a câmera falsa de padrão colorido ninguém aparece: começa pelo botão.
   const botao = pagina.getByRole("button", { name: "Começar agora" });
-  await pagina.getByRole("timer").or(botao).first().waitFor({ timeout: 60000 });
-  await botao.click({ timeout: 1500 }).catch(() => {});
-  await pagina.getByRole("timer").waitFor({ timeout: 60000 });
+  await pagina.getByText("Posicione-se").or(pagina.getByText("Prepare-se")).first().waitFor({ timeout: 60000 });
+  await botao.click({ timeout: 3000 }).catch(() => {});
+  await pagina.locator("section[aria-live]").filter({ hasNotText: "Posicione-se" }).filter({ hasNotText: "Prepare-se" }).waitFor({ timeout: 15000 });
 }
 
 const continuar = (pagina, nome = "Continuar") => pagina.getByRole("button", { name: nome }).click();
@@ -207,28 +212,39 @@ try {
   await captura(trilha, "ana-trilha-bloqueado", false);
   // Hexágono atual abre o card com Começar.
   await trilha.getByRole("button", { name: "Aquecimento, disponível" }).click();
-  await trilha.getByText("3 min 30 s · +10 XP").waitFor();
+  await trilha.getByText("3 min 50 s · +10 XP").waitFor();
   await captura(trilha, "ana-trilha-card", false);
   await trilha.getByRole("link", { name: "Começar" }).click();
   await trilha.waitForURL("**/desafio/n1u1d01");
   await trilha.getByText("Marcha estacionária com braços").waitFor();
+  await trilha.getByText("6 séries de 30 s · 10 s de pausa · reps na faixa").waitFor();
   await trilha.getByText("de frente para o celular").first().waitFor();
+  await trilha.waitForTimeout(600);
   await captura(trilha, "ana-desafio-pronto", false);
 
-  // Com a câmera: o exercício começa, o contador e o anel aparecem.
+  // Com a câmera: preparo, depois a fase de trabalho em amarelo com o timer grande.
   await abrirComCamera(trilha);
-  await trilha.getByText("Exercício 1 de 2").waitFor();
-  await trilha.waitForTimeout(1500);
-  await captura(trilha, "ana-desafio-camera", false);
+  await trilha.getByText("Meta: 20 a 30 repetições").waitFor();
+  await trilha.getByText("1ª série de 6").waitFor();
+  await trilha.waitForTimeout(1200);
+  await captura(trilha, "ana-desafio-trabalho", false);
+  // "Pular" fecha a série e abre o descanso, em cinza, com o gabarito do próximo exercício.
+  await trilha.getByRole("button", { name: "Pular ›" }).click();
+  await trilha.getByText("Descanso · a seguir: 2ª série · Skipping").waitFor();
+  await trilha.waitForTimeout(400);
+  await captura(trilha, "ana-desafio-descanso", false);
+  await trilha.getByRole("button", { name: "Pular ›" }).click();
+  await trilha.getByText("2ª série de 6").waitFor();
   // "Senti dor" pausa e pergunta onde dói; dá para continuar.
   await trilha.getByRole("button", { name: "Senti dor" }).click();
   await trilha.getByRole("dialog", { name: "Senti dor" }).waitFor();
   await captura(trilha, "ana-desafio-dor", false);
   await trilha.getByRole("button", { name: "Foi só um susto, continuar" }).click();
   // A imagem da câmera falsa é parada: sem movimento, vale como sem câmera (metade do XP).
-  await trilha.getByRole("button", { name: "Concluí" }).click();
+  await encerrarDesafio(trilha);
   await trilha.getByText("+8").waitFor();
   await trilha.getByText("A câmera não viu movimento").waitFor();
+  await trilha.getByText("repetições em 2 séries").waitFor();
   await captura(trilha, "ana-desafio-resultado", false);
   await trilha.getByRole("link", { name: "Continuar" }).click();
   await trilha.waitForURL("**/trilha");
@@ -242,10 +258,9 @@ try {
   await trilha.getByText("refazer vale 1/3 do XP").waitFor();
   await trilha.getByRole("button", { name: "Fazer sem câmera" }).click();
   await trilha.getByRole("timer").waitFor();
-  await captura(trilha, "ana-desafio-timer", false);
-  await trilha.getByRole("button", { name: "Pausar" }).click();
-  await trilha.getByRole("button", { name: "Continuar o timer" }).click();
-  await trilha.getByRole("button", { name: "Concluí" }).click();
+  await trilha.getByText("1ª série de 6").waitFor({ timeout: 10000 });
+  await captura(trilha, "ana-desafio-sem-camera", false);
+  await encerrarDesafio(trilha);
   await trilha.getByText("+2").waitFor();
   await trilha.getByText("Refazer vale 1/3 do XP").waitFor();
   await trilha.goto(`${APP}/desafio/n1u1d05`);
@@ -261,7 +276,7 @@ try {
   assert.deepEqual(xp, [{ tipo: "bau", total: 10 }, { tipo: "desafio", total: 20 }, { tipo: "primeiro_do_dia", total: 3 }, { tipo: "refazer", total: 2 }]);
   // Só números chegaram ao servidor: um bloco por exercício do desafio feito com a câmera.
   const blocosSalvos = await sql("select reps_validas, tempo_valido_s::float, kpis from public.attempt_blocks b join public.challenge_attempts a on a.id = b.attempt_id where a.user_id = $1", [perfilAna.id]);
-  assert.equal(blocosSalvos.length, 1);
+  assert.equal(blocosSalvos.length, 2);
   assert.ok("cadencia" in blocosSalvos[0].kpis);
 
   // "Senti dor" de verdade: registra a região e encerra sem XP.

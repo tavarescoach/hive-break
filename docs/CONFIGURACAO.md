@@ -26,6 +26,15 @@ Quem já tinha a trilha em unidades precisa colar mais dois arquivos, nesta orde
 1. [`supabase/migrations/20261117000700_finalizar_desafio.sql`](../supabase/migrations/20261117000700_finalizar_desafio.sql) (obrigatório: sem ele o botão "Concluí" avisa que o banco não foi atualizado)
 2. [`supabase/seed_trilha.sql`](../supabase/seed_trilha.sql) de novo (atualiza as regras dos 19 exercícios guardadas no banco)
 
+### Métodos dos desafios (18/11/2026)
+
+Rode, nesta ordem:
+
+1. [`supabase/migrations/20261118000800_metodos.sql`](../supabase/migrations/20261118000800_metodos.sql) (adiciona a coluna `metodo`)
+2. [`supabase/seed_trilha.sql`](../supabase/seed_trilha.sql) de novo (grava o método, a duração e os exercícios de cada desafio)
+
+Sem os dois, os desafios continuam funcionando no formato antigo (um tempo por exercício).
+
 Quem ainda não instalou nada usa só o `instalar.sql`, que já inclui tudo.
 
 Nas próximas fases eu aviso quais arquivos novos de `supabase/migrations/` precisam ser

@@ -1,5 +1,7 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
+import { exercicioPorId, paraMetodo } from "@/exercicios";
+import { montarLinhaDoTempo, validarMetodo, type Metodo } from "@/dominio/metodos";
 import { como, criarBanco, criarUsuario } from "../banco-de-teste";
 
 let db: PGlite;
@@ -75,16 +77,32 @@ describe("conteúdo da trilha (seed)", () => {
     }
   });
 
-  it("começa no aquecimento e termina na respiração; cada desafio dura até 5 min e os blocos somam a duração", async () => {
+  it("começa no aquecimento e termina na respiração", async () => {
     const ordem = await db.query<{ primeiro: string; penultimo: string }>(
       `select (array_agg(modalidade order by ordem))[1] as primeiro, (array_agg(modalidade order by ordem desc))[2] as penultimo
        from public.challenges group by unit_id`);
     expect(new Set(ordem.rows.map((r) => `${r.primeiro}>${r.penultimo}`))).toEqual(new Set(["aquecimento>respiracao"]));
-    const blocos = await db.query<{ id: string }>(
-      `select c.id from public.challenges c join public.challenge_blocks b on b.challenge_id = c.id
-       group by c.id, c.duracao_s
-       having c.duracao_s > 300 or sum((b.parametros_por_dificuldade -> 'padrao' ->> 'segundos')::int) <> c.duracao_s`);
-    expect(blocos.rows).toEqual([]);
+    const longos = await db.query<{ id: string }>("select id from public.challenges where duracao_s > 300");
+    expect(longos.rows).toEqual([]);
+  });
+
+  it("todo desafio tem um método válido, que cabe em 5 minutos com os descansos", async () => {
+    const { rows } = await db.query<{ id: string; metodo: Metodo; duracao_s: number; exercicios: string[] }>(
+      `select c.id, c.metodo, c.duracao_s, array_agg(b.exercise_id order by b.ordem) as exercicios
+       from public.challenges c join public.challenge_blocks b on b.challenge_id = c.id group by c.id`);
+    expect(rows).toHaveLength(270);
+    const tipos = new Set<string>();
+    for (const r of rows) {
+      const ex = r.exercicios.map((id) => paraMetodo(exercicioPorId(id)!));
+      expect(validarMetodo(r.metodo, ex), r.id).toEqual([]);
+      const linha = montarLinhaDoTempo(r.metodo, ex);
+      expect(linha.duracaoEstimadaS, r.id).toBeLessThanOrEqual(300);
+      expect(r.duracao_s, r.id).toBe(Math.max(30, linha.duracaoEstimadaS));
+      tipos.add(r.metodo.tipo);
+    }
+    expect([...tipos].sort()).toEqual(["circuito", "contra_relogio", "emom", "escada", "intervalado", "series", "tabata"]);
+    const hiit = rows.filter((r) => r.id.endsWith("d06") && r.id.startsWith("n1"));
+    expect(hiit.every((r) => r.metodo.tipo === "tabata")).toBe(true);
   });
 
   it("equipamento segue a seção 6.1: nada até o nível 4, tapete a partir do 5, cabo de vassoura a partir do 7", async () => {

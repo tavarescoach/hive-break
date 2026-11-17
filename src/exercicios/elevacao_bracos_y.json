@@ -4,6 +4,7 @@
   "modalidade": "mobilidade",
   "camera": "frontal",
   "formato": "repeticoes",
+  "seg_por_rep": 3.5,
   "pontos_obrigatorios": [
     "ombro_e",
     "ombro_d",
