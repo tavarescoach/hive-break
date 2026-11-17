@@ -388,31 +388,59 @@ positivo).
      e avisam "Vire de lado" / "Fique de frente". Aparecem ao vivo no pop-up (verde quando
      está tudo certo) e durante a série.
 
-## Liga semanal (17/11/2026)
+## Hive ao vivo (19/11/2026)
 
-Regras completas na seção 9.3 da especificação. Código em
-`supabase/migrations/20261118001000_liga.sql`, `src/dominio/liga.ts` e `src/app/(app)/liga/page.tsx`.
+Telas: aba Hive (hives na sala ou em andamento, com Join), sala de espera de 60 s,
+faixa de colegas no topo da tela do exercício e card de resultado coletivo.
 
 ### Respondidas pelo Luan
 
-108. **Grupo menor que 30:** sobe e desce proporcional (7 e 5 em cada 30); com menos de 5
+108. **Modo competição** opcional: o anfitrião liga na sala, e os reps de todos aparecem
+     ao vivo. Desligado (padrão), cada um vê só os próprios números; os colegas aparecem
+     com a etapa (série, pausa, terminou) e a comparação fica no card do fim.
+109. **Join a qualquer momento**, inclusive com a hive em andamento ("o objetivo é hive").
+     Quem chega atrasado faz o desafio do início, no próprio relógio, e entra no mesmo card.
+110. **Todos veem e todos podem dar join** (não só amigos).
+
+### Decididas na implementação (revisar)
+
+111. **Desafio bloqueado na trilha** pode ser feito por quem está numa hive dele (até 3 h
+     depois do join). Travado pela triagem continua travado: a pessoa não entra.
+112. **Anfitrião** só abre hive de desafio liberado para ele, e uma de cada vez. Pode
+     começar antes dos 60 s.
+113. **Fim da hive:** duração do desafio + 3 min; cada join atrasado empurra o fim.
+114. **Sem vídeo:** o canal Realtime leva só etapa, série e reps. Na pausa, tocar num
+     colega manda um high five.
+115. **Sem bônus de XP por hive** por enquanto (valor a definir). Coluna `visibilidade`
+     já existe ('aberta' | 'equipe') para hive fechada de empresa no futuro.
+116. **Quem abre o link sem login** vai para a tela de entrar e, depois, para a trilha (não
+     volta sozinho para a hive).
+
+## Liga semanal (17/11/2026)
+
+Regras completas na seção 9.3 da especificação. Código em
+`supabase/migrations/20261119002000_liga.sql`, `src/dominio/liga.ts` e `src/app/(app)/liga/page.tsx`.
+
+### Respondidas pelo Luan
+
+117. **Grupo menor que 30:** sobe e desce proporcional (7 e 5 em cada 30); com menos de 5
      pessoas só o 1º sobe e ninguém desce.
-109. **Entrada:** no 1º desafio válido da semana, não só na segunda.
-110. **Ninguém é exposto:** a tela mostra o pódio, a pessoa e quem está logo acima; a zona
+118. **Entrada:** no 1º desafio válido da semana, não só na segunda.
+119. **Ninguém é exposto:** a tela mostra o pódio, a pessoa e quem está logo acima; a zona
      de descida só aparece para a própria pessoa, com quanto falta para ficar.
-111. **Pontos:** XP da semana, só de desafios com câmera (sem modo manual, respiração,
+120. **Pontos:** XP da semana, só de desafios com câmera (sem modo manual, respiração,
      convites e nivelamento). Agrupar por dificuldade parecida saiu do MVP.
 
 ### Decididas na implementação (revisar)
 
-112. **Semana no horário de Brasília para todos**, de segunda 00h00 a domingo 23h59, mesmo
+121. **Semana no horário de Brasília para todos**, de segunda 00h00 a domingo 23h59, mesmo
      para quem tem outro fuso no perfil.
-113. **Empate:** fica na frente quem chegou primeiro àqueles pontos.
-114. **Quem sobe ganha 1 protetor de ofensiva** (seção 10.2), respeitando o limite de 2 (4
+122. **Empate:** fica na frente quem chegou primeiro àqueles pontos.
+123. **Quem sobe ganha 1 protetor de ofensiva** (seção 10.2), respeitando o limite de 2 (4
      com ofensiva de 100 dias ou mais), e a conquista "Primeira subida de divisão".
-115. **Fechamento:** pg_cron toda segunda às 00h01. Sem pg_cron, a semana fecha sozinha na
+124. **Fechamento:** pg_cron toda segunda às 00h01. Sem pg_cron, a semana fecha sozinha na
      primeira vez que alguém abre a Liga ou pontua na semana seguinte.
-116. **Fora do quadro:** a média de `fora_quadro_pct` dos exercícios do desafio acima de 30%
+125. **Fora do quadro:** a média de `fora_quadro_pct` dos exercícios do desafio acima de 30%
      tira o desafio da liga (o XP continua valendo para a trilha).
-117. **Nível concluído** vale para a liga quando o desafio que fechou o nível foi feito com
+126. **Nível concluído** vale para a liga quando o desafio que fechou o nível foi feito com
      a câmera.

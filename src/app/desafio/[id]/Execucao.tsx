@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { AvisosHive, FaixaHive, useHive } from "@/app/hive/AoVivo";
 import { abrirCameraFrontal, fecharCamera } from "@/camera/camera";
 import { desenharAlvo, desenharEsqueleto } from "@/camera/desenhar-esqueleto";
 import { criarDetector, type Detector } from "@/camera/pose";
@@ -120,6 +121,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
   const [enviandoDor, setEnviandoDor] = useState(false);
   const entregar = useEffectEvent(aoFim);
   const semCamera = useEffectEvent(aoSemCamera);
+  const hive = useHive();
+  const repsPorFaseRef = useRef(new Map<number, number>());
 
   useEffect(() => {
     const sessao = new SessaoTreino(linha);
@@ -386,6 +389,23 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
   const trabalhoAtual = linha.fases.slice(0, hud.indice + 1).filter((f) => f.tipo === "trabalho").length;
   const respiracao = fase.tipo === "trabalho" && def?.formato === "respiracao";
 
+  // Hive: publica a etapa, a série e o total de reps (só números) para os colegas.
+  const publicarHive = hive?.publicar;
+  useEffect(() => {
+    if (!publicarHive || hud.carregando) return;
+    const atual = linha.fases[hud.indice];
+    if (!atual) return;
+    if (atual.tipo === "trabalho") repsPorFaseRef.current.set(hud.indice, Math.max(hud.reps, repsPorFaseRef.current.get(hud.indice) ?? 0));
+    let reps = 0;
+    for (const r of repsPorFaseRef.current.values()) reps += r;
+    publicarHive({
+      etapa: atual.tipo === "trabalho" ? "serie" : atual.tipo === "descanso" ? "pausa" : "preparo",
+      serie: trabalhoAtual,
+      total: totalTrabalhos,
+      reps,
+    });
+  }, [publicarHive, hud.carregando, hud.indice, hud.reps, linha, trabalhoAtual, totalTrabalhos]);
+
   const pausar = (qual: "dor" | "sair") => {
     pausadoRef.current = true;
     setModal(qual);
@@ -477,6 +497,11 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
         </button>
       </header>
 
+      {/* Hive: quem está fazendo junto (só aparece dentro de uma hive) */}
+      <div inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined}>
+        <FaixaHive descansando={descansando} />
+      </div>
+
       {/* Painel da fase: cor, número principal enorme e barra de progresso */}
       <section
         inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined}
@@ -519,6 +544,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
         )}
 
         {respiracao && <Respiracao />}
+
+        <AvisosHive />
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-10">
           {hud.feedback && (
