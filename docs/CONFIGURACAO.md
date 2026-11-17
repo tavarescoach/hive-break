@@ -45,6 +45,14 @@ Rode, nesta ordem:
 Sem os dois, o app converte o formato anterior na hora e continua funcionando; a PSE e a
 escolha da contagem só funcionam depois da migração.
 
+### Hive ao vivo (19/11/2026)
+
+Rode [`supabase/migrations/20261119001000_hive.sql`](../supabase/migrations/20261119001000_hive.sql)
+no SQL Editor. Ela cria as tabelas `hives` e `hive_participantes`, as funções da hive e
+atualiza `finalizar_desafio` (quem está numa hive pode fazer o desafio mesmo bloqueado na
+trilha). O tempo real usa o Realtime do Supabase, que já vem ligado: nada a configurar.
+Sem a migração, a aba Hive avisa que falta rodá-la e o resto do app segue igual.
+
 ### Avaliação menos exigente (18/11/2026)
 
 Nada obrigatório: o app usa as regras dos exercícios direto do código. Rodar de novo o

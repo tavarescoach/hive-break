@@ -387,3 +387,32 @@ positivo).
      não aparece ("Não vejo seus pés: afaste-se um pouco ou incline o celular para baixo")
      e avisam "Vire de lado" / "Fique de frente". Aparecem ao vivo no pop-up (verde quando
      está tudo certo) e durante a série.
+
+## Hive ao vivo (19/11/2026)
+
+Telas: aba Hive (hives na sala ou em andamento, com Join), sala de espera de 60 s,
+faixa de colegas no topo da tela do exercício e card de resultado coletivo.
+
+### Respondidas pelo Luan
+
+108. **Modo competição** opcional: o anfitrião liga na sala, e os reps de todos aparecem
+     ao vivo. Desligado (padrão), cada um vê só os próprios números; os colegas aparecem
+     com a etapa (série, pausa, terminou) e a comparação fica no card do fim.
+109. **Join a qualquer momento**, inclusive com a hive em andamento ("o objetivo é hive").
+     Quem chega atrasado faz o desafio do início, no próprio relógio, e entra no mesmo card.
+110. **Todos veem e todos podem dar join** (não só amigos).
+
+### Decididas na implementação (revisar)
+
+111. **Desafio bloqueado na trilha** pode ser feito por quem está numa hive dele (até 3 h
+     depois do join). Travado pela triagem continua travado: a pessoa não entra.
+112. **Anfitrião** só abre hive de desafio liberado para ele, e uma de cada vez. Pode
+     começar antes dos 60 s.
+113. **Fim da hive:** duração do desafio + 3 min; cada join atrasado empurra o fim.
+114. **Sem vídeo:** o canal Realtime leva só etapa, série e reps. Na pausa, tocar num
+     colega manda um high five.
+115. **Sem bônus de XP por hive** por enquanto (valor a definir). Coluna `visibilidade`
+     já existe ('aberta' | 'equipe') para hive fechada de empresa no futuro.
+116. **Quem abre o link sem login** vai para a tela de entrar e, depois, para a trilha (não
+     volta sozinho para a hive).
+
