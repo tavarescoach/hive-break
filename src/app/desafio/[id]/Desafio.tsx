@@ -9,9 +9,11 @@ import type { BlocoEnviado } from "@/dominio/agregar";
 import {
   compilar, converterMetodoAntigo, descreverBloco, descreverScore, estruturaLegada, etiquetasDoBloco, explicarCadencia,
   formatarTempo, GLOSSARIO,
-  type Estrutura, type ExercicioMetodo, type LinhaSerie, type MetodoAntigo, type ResumoMetodo,
+  type Estrutura, type ExercicioMetodo, type LinhaDoTempo, type LinhaSerie, type MetodoAntigo, type ResultadoFase, type ResumoMetodo,
 } from "@/dominio/metodos";
 import { ROTULO_EQUIPAMENTO, ROTULO_MODALIDADE } from "@/dominio/trilha";
+import { montarDadosCard, type RecordesAnteriores } from "@/dominio/card";
+import { Compartilhar } from "@/compartilhar/Compartilhar";
 import { exercicioPorId, paraMetodo } from "@/exercicios";
 import { finalizarDesafio, registrarEsforco, type ResultadoDesafio } from "./acoes";
 import { Execucao } from "./Execucao";
@@ -39,6 +41,11 @@ interface Props {
   metodoAntigo: MetodoAntigo | null;
   /** Segundos da contagem do pop-up "PREPARE-SE". */
   preparoS: number;
+  /** Identificação no card de compartilhamento. */
+  usuario: string;
+  instagram: string | null;
+  /** Melhores marcas anteriores neste desafio (com câmera). null: não deu para ler. */
+  recordes: RecordesAnteriores | null;
 }
 
 type Etapa = "pronto" | "camera" | "manual";
@@ -47,6 +54,8 @@ export interface FimDoDesafio {
   numeros: BlocoEnviado[];
   resumo: ResumoMetodo;
   porSerie: LinhaSerie[];
+  /** Resultado de cada série, para o card de compartilhamento. */
+  resultados: ResultadoFase[];
 }
 
 export function Desafio(props: Props) {
@@ -83,6 +92,9 @@ export function Desafio(props: Props) {
         fim={envio}
         nomes={blocos.map((b) => b.exercicio)}
         pseAlvo={pseAlvo.length ? Math.max(...pseAlvo) : null}
+        linha={linha}
+        modo={envio.modo}
+        card={{ titulo, modalidade: ROTULO_MODALIDADE[modalidade] ?? modalidade, usuario: props.usuario, instagram: props.instagram, recordes: props.recordes }}
       />
     );
   }
@@ -258,16 +270,50 @@ function PrevisaoFases({ linha }: { linha: ReturnType<typeof compilar> }) {
   );
 }
 
+interface InfoCard {
+  titulo: string;
+  modalidade: string;
+  usuario: string;
+  instagram: string | null;
+  recordes: RecordesAnteriores | null;
+}
+
 function Resultado({
-  id, resultado, fim, nomes, pseAlvo,
+  id, resultado, fim, nomes, pseAlvo, linha, card, modo,
 }: {
   id: string;
   resultado: ResultadoDesafio;
   fim: FimDoDesafio;
   nomes: string[];
   pseAlvo: number | null;
+  linha: LinhaDoTempo;
+  card: InfoCard;
+  modo: "camera" | "manual";
 }) {
   const [pse, setPse] = useState<number | null>(null);
+  const [compartilhando, setCompartilhando] = useState(false);
+  // Hora em que o treino terminou (fica fixa enquanto a pessoa monta o card).
+  const [quando] = useState(() => new Date());
+  const dadosCard = useMemo(
+    () =>
+      montarDadosCard({
+        linha,
+        resultados: fim.resultados,
+        nomes,
+        ofensiva: resultado.ofensiva ?? 1,
+        // Sem câmera as séries não são guardadas: não há recorde para comparar.
+        recordesAnteriores: modo === "camera" && !resultado.sem_movimento ? card.recordes : null,
+        // A hive ainda não existe nesta versão: o item fica escondido.
+        hive: null,
+        pse,
+        usuario: card.usuario,
+        instagram: card.instagram,
+        desafio: card.titulo,
+        modalidade: card.modalidade,
+        quando,
+      }),
+    [linha, fim.resultados, nomes, resultado, card, pse, quando, modo],
+  );
   const [salvandoPse, iniciar] = useTransition();
   const titulo = resultado.nivel_concluido ? "Seção concluída" : resultado.unidade_concluida ? "Unidade concluída" : "Desafio concluído";
   const notas: string[] = [];
@@ -285,6 +331,8 @@ function Resultado({
       await registrarEsforco(id, valor);
     });
   };
+
+  if (compartilhando) return <Compartilhar dados={dadosCard} aoFechar={() => setCompartilhando(false)} />;
 
   return (
     <main className="flex min-h-dvh flex-col gap-4 px-5 pb-6 pt-[max(2rem,env(safe-area-inset-top))]">
@@ -358,6 +406,9 @@ function Resultado({
         <Link href="/trilha" className={botaoPrimario}>
           Continuar
         </Link>
+        <button onClick={() => setCompartilhando(true)} className={botaoSecundario}>
+          Compartilhar treino
+        </button>
         <Link href="/amigos" className={botaoSecundario}>
           Convidar amigos
         </Link>

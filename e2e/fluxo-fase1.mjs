@@ -265,6 +265,33 @@ try {
   await captura(trilha, "ana-desafio-resultado", true);
   const [pse] = await sql("select esforco_percebido from public.challenge_attempts where user_id = $1 and challenge_id = 'n1u1d01'", [perfilAna.id]);
   assert.equal(pse.esforco_percebido, 7);
+  // Card de compartilhamento: montado no aparelho, com 1 dia de sequência.
+  await trilha.getByRole("button", { name: "Compartilhar treino" }).click();
+  await trilha.getByRole("heading", { name: "Compartilhar treino" }).waitFor();
+  await trilha.getByRole("img", { name: /Prévia do card: 1 dia/ }).waitFor();
+  // Sem câmera não há recorde; a hive ainda não existe: os dois ficam de fora.
+  assert.equal(await trilha.getByText("Recorde pessoal").count(), 0);
+  assert.equal(await trilha.getByText("Sua hive hoje").count(), 0);
+  // PSE vem desligada por padrão.
+  const chavePse = trilha.getByRole("switch", { name: /Esforço \(PSE\)/ });
+  assert.equal(await chavePse.isChecked(), false);
+  await trilha.getByText("Esforço (PSE)").click();
+  assert.equal(await chavePse.isChecked(), true);
+  // Selfie pela câmera frontal (falsa no teste).
+  await trilha.getByRole("button", { name: "Tirar selfie" }).click();
+  await trilha.getByRole("button", { name: "Tirar foto" }).click();
+  await trilha.getByRole("button", { name: "Tirar selfie", pressed: true }).waitFor();
+  await trilha.getByRole("button", { name: "4:5 feed" }).click();
+  // Chromium no desktop não compartilha arquivos: cai em "Baixar imagem".
+  const download = trilha.waitForEvent("download");
+  await trilha.getByRole("button", { name: "Baixar imagem" }).click();
+  assert.equal((await download).suggestedFilename(), "hive-break-treino.png");
+  const adesivo = trilha.waitForEvent("download");
+  await trilha.getByRole("button", { name: "Baixar adesivo" }).click();
+  assert.equal((await adesivo).suggestedFilename(), "hive-break-adesivo.png");
+  await captura(trilha, "ana-desafio-compartilhar", true);
+  await trilha.getByRole("button", { name: "Voltar para o resultado" }).click();
+  await trilha.getByText("Anotado: esforço 7.").waitFor();
   await trilha.getByRole("link", { name: "Continuar" }).click();
   await trilha.waitForURL("**/trilha");
   await trilha.getByLabel("8 de 20 XP hoje").waitFor();

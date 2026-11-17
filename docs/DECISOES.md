@@ -387,3 +387,23 @@ positivo).
      não aparece ("Não vejo seus pés: afaste-se um pouco ou incline o celular para baixo")
      e avisam "Vire de lado" / "Fique de frente". Aparecem ao vivo no pop-up (verde quando
      está tudo certo) e durante a série.
+
+### Card de compartilhamento
+
+108. **Card montado no celular** (`src/compartilhar/`): botão "Compartilhar treino" na tela
+     final abre a criação do card, com fundo de selfie (câmera frontal), foto da galeria ou
+     arte da hive, em 9:16 (1080×1920) ou 4:5 (1080×1350), e um adesivo PNG transparente só
+     com os dados. A imagem é desenhada num `<canvas>` depois de `document.fonts.load`; a
+     foto nunca vai para o servidor. Compartilha com `navigator.share({ files })` quando
+     `canShare` aceita; senão, "Baixar imagem". Adesivo: "Copiar adesivo" (área de
+     transferência) e "Baixar adesivo".
+109. **O que entra no card** (`src/dominio/card.ts`): sequência em destaque (inclusive
+     "1 dia · O 1º de muitos"), um bloco por exercício no tipo do score (reps com as séries
+     embaixo, segundos válidos ou tempo para completar), identificação (apelido, @instagram,
+     desafio, modalidade, data e hora) e extras com liga/desliga: recorde pessoal, total da
+     hive e PSE (desligada por padrão). Nunca peso, medidas, calorias ou posição em ranking.
+     Dado que ainda não existe some do card em vez de quebrar.
+110. **Recorde pessoal** = melhor marca do mesmo bloco deste desafio entre as tentativas com
+     câmera (`attempt_blocks`). Sempre "Seu recorde: X"; "Novo recorde" só quando supera uma
+     marca anterior. Sem câmera não há recorde. Tempo para completar ainda não é guardado
+     por bloco, então não entra no recorde.
