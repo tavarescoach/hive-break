@@ -7,8 +7,7 @@
   "pontos_obrigatorios": [
     "ombro",
     "quadril",
-    "joelho",
-    "tornozelo"
+    "joelho"
   ],
   "medida_principal": {
     "tipo": "angulo",
@@ -34,7 +33,7 @@
   },
   "histerese": 5,
   "sustentacao": {
-    "condicao": "medida < 110 e joelho > 160",
+    "condicao": "medida < 120 e (joelho > 150 ou vis(tornozelo) < 0.5)",
     "feedback_perda": "Joelhos estendidos, tronco para a frente"
   },
   "erros": [],

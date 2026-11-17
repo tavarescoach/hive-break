@@ -9,9 +9,7 @@
     "quadril_e",
     "quadril_d",
     "joelho_e",
-    "joelho_d",
-    "tornozelo_e",
-    "tornozelo_d"
+    "joelho_d"
   ],
   "medida_principal": {
     "tipo": "angulo",
@@ -41,11 +39,11 @@
   "fases": [
     {
       "nome": "topo",
-      "condicao": "medida > 160"
+      "condicao": "medida > 155"
     },
     {
       "nome": "fundo",
-      "condicao": "medida < 100"
+      "condicao": "medida < 120"
     }
   ],
   "repeticao": [
@@ -53,25 +51,31 @@
     "fundo",
     "topo"
   ],
-  "parcial_se": "min_medida < 120",
-  "parcial_feedback": "Desça um pouco mais",
+  "parcial_se": "min_medida < 140",
+  "parcial_feedback": "Desça mais",
   "amplitude": {
     "extremo": "min",
-    "minimo_aceito": 100,
-    "ideal": 80
+    "minimo_aceito": 120,
+    "ideal": 85
   },
   "duracao_minima_ms": 600,
   "erros": [
     {
       "id": "bracos_caem",
-      "condicao": "maos_cabeca < 0",
+      "condicao": "vis(punhos) > 0.6 e maos_cabeca < -0.2",
       "feedback": "Bastão acima da cabeça"
     },
     {
       "id": "valgo",
-      "condicao": "dist(joelhos) < 0.8 * dist(tornozelos)",
+      "condicao": "vis(tornozelos) > 0.7 e dist(joelhos) < 0.7 * dist(tornozelos)",
       "fase": "fundo",
       "feedback": "Joelhos para fora"
+    },
+    {
+      "id": "amplitude_curta",
+      "quando": "fim_rep",
+      "condicao": "min_medida > 100",
+      "feedback": "Desça mais"
     }
   ],
   "kpis": [

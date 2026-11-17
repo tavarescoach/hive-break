@@ -61,15 +61,15 @@
   },
   "histerese": 5,
   "alternado": {
-    "e": "quadril_e < 95 e tronco > 45",
-    "d": "quadril_d < 95 e tronco > 45"
+    "e": "quadril_e < 105 e tronco > 40",
+    "d": "quadril_d < 105 e tronco > 40"
   },
   "duracao_minima_ms": 200,
   "fase_minima_ms": 80,
   "erros": [
     {
       "id": "quadril_alto",
-      "condicao": "alinhamento < 150 e tronco > 45",
+      "condicao": "vis(tornozelo) > 0.7 e alinhamento < 145 e tronco > 40",
       "feedback": "Abaixe o quadril"
     }
   ],

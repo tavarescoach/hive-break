@@ -6,7 +6,7 @@ import { desenharEsqueleto } from "@/camera/desenhar-esqueleto";
 import { criarDetector, type Detector } from "@/camera/pose";
 import { som } from "@/camera/som";
 import { serializarFrame, type FrameFixture } from "@/motor/fixture";
-import { Motor } from "@/motor/motor";
+import { Motor, VISIBILIDADE_MINIMA_PADRAO } from "@/motor/motor";
 import { indicesDoPonto } from "@/motor/pontos";
 import type { EventoMotor, Frame, Lado } from "@/motor/tipos";
 import { ehSustentacao, formatarTempo, type ConfigTeste, type ResultadoTeste } from "./tipos";
@@ -49,7 +49,7 @@ const HUD_INICIAL: Hud = {
   motor: "",
 };
 
-const VISIBILIDADE_MINIMA = 0.6;
+const VISIBILIDADE_MINIMA = VISIBILIDADE_MINIMA_PADRAO;
 /** Corpo visível por este tempo dispara a contagem regressiva sozinho. */
 const ENQUADRADO_MS = 1500;
 const REGRESSIVA_S = 5;

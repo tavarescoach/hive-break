@@ -21,7 +21,7 @@ export function desenharEsqueleto(ctx: CanvasRenderingContext2D, pontos: Ponto[]
   ctx.clearRect(0, 0, largura, altura);
   if (!pontos) return;
 
-  const minimo = estilo.visibilidadeMinima ?? 0.6;
+  const minimo = estilo.visibilidadeMinima ?? 0.5;
   const visivel = (i: number) => (pontos[i].visibility ?? 1) >= minimo;
   const base = Math.max(2, Math.round(Math.min(largura, altura) / 110));
 

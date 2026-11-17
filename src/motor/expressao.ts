@@ -3,6 +3,7 @@
  *   "medida > 160"
  *   "min_medida entre 100 e 120"
  *   "dist(joelhos) < 0.8 * dist(tornozelos)"
+ *   "vis(tornozelos) > 0.7"   (visibilidade dos pontos, de 0 a 1)
  *   "pes_abertura > 1.5 e maos_cabeca > 0"
  *
  * É um analisador próprio e pequeno: não usa eval nem executa código.
@@ -22,6 +23,7 @@ export type No =
   | { tipo: "num"; valor: number }
   | { tipo: "var"; nome: string }
   | { tipo: "dist"; pontos: string[] }
+  | { tipo: "vis"; ponto: string }
   | { tipo: "func"; nome: "abs" | "min" | "max"; args: No[] }
   | { tipo: "neg"; arg: No }
   | { tipo: "arit"; op: "+" | "-" | "*" | "/"; a: No; b: No }
@@ -36,6 +38,11 @@ export interface Contexto {
   variavel(nome: string): number;
   /** Distância na imagem: um plural ("joelhos") ou dois nomes de ponto. */
   dist(pontos: string[]): number;
+  /**
+   * Visibilidade de 0 a 1: "tornozelo_e" é o ponto; "tornozelos" (plural) é o pior
+   * dos dois lados; "tornozelo" (sem lado) é o melhor dos dois.
+   */
+  vis(ponto: string): number;
 }
 
 type Token = { tipo: "num"; valor: number } | { tipo: "nome"; valor: string } | { tipo: "simb"; valor: string };
@@ -199,6 +206,13 @@ class Analisador {
       this.pos++;
       if (this.eh("simb", "(")) {
         this.pos++;
+        if (t.valor === "vis") {
+          const p = this.espiar();
+          if (p?.tipo !== "nome") throw this.erro("vis() espera um nome de ponto");
+          this.pos++;
+          this.consumir("simb", ")");
+          return { tipo: "vis", ponto: p.valor };
+        }
         if (t.valor === "dist") {
           const pontos: string[] = [];
           do {
@@ -240,6 +254,8 @@ function numero(no: No, ctx: Contexto): number {
       return ctx.variavel(no.nome);
     case "dist":
       return ctx.dist(no.pontos);
+    case "vis":
+      return ctx.vis(no.ponto);
     case "neg":
       return -numero(no.arg, ctx);
     case "func": {
@@ -323,6 +339,35 @@ export function variaveisUsadas(no: No, acc = new Set<string>()): Set<string> {
       variaveisUsadas(no.valor, acc);
       variaveisUsadas(no.minimo, acc);
       variaveisUsadas(no.maximo, acc);
+      break;
+  }
+  return acc;
+}
+
+/** Pontos citados em vis() (para validar a definição). */
+export function visUsadas(no: No, acc: string[] = []): string[] {
+  switch (no.tipo) {
+    case "vis":
+      acc.push(no.ponto);
+      break;
+    case "neg":
+    case "nao":
+      visUsadas(no.arg, acc);
+      break;
+    case "func":
+      no.args.forEach((a) => visUsadas(a, acc));
+      break;
+    case "arit":
+    case "comp":
+    case "e":
+    case "ou":
+      visUsadas(no.a, acc);
+      visUsadas(no.b, acc);
+      break;
+    case "entre":
+      visUsadas(no.valor, acc);
+      visUsadas(no.minimo, acc);
+      visUsadas(no.maximo, acc);
       break;
   }
   return acc;

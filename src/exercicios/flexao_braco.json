@@ -27,7 +27,7 @@
       "pontos": [
         "ombro",
         "quadril",
-        "tornozelo"
+        "joelho"
       ],
       "lado": "visivel",
       "espaco": "2d"
@@ -45,11 +45,11 @@
   "fases": [
     {
       "nome": "topo",
-      "condicao": "medida > 150 e tronco > 50"
+      "condicao": "medida > 145 e tronco > 45"
     },
     {
       "nome": "fundo",
-      "condicao": "medida < 90 e tronco > 50"
+      "condicao": "medida < 110 e tronco > 45"
     }
   ],
   "repeticao": [
@@ -57,19 +57,25 @@
     "fundo",
     "topo"
   ],
-  "parcial_se": "min_medida < 120",
+  "parcial_se": "min_medida < 130",
   "parcial_feedback": "Desça mais o peito",
   "amplitude": {
     "extremo": "min",
-    "minimo_aceito": 90,
-    "ideal": 70
+    "minimo_aceito": 110,
+    "ideal": 75
   },
   "duracao_minima_ms": 600,
   "erros": [
     {
       "id": "quadril_fora",
-      "condicao": "alinhamento < 160",
+      "condicao": "vis(joelho) > 0.6 e alinhamento < 150",
       "feedback": "Alinhe o quadril"
+    },
+    {
+      "id": "amplitude_curta",
+      "quando": "fim_rep",
+      "condicao": "min_medida > 90",
+      "feedback": "Desça mais o peito"
     }
   ],
   "kpis": [

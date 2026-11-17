@@ -51,10 +51,10 @@
   },
   "histerese": 0.05,
   "alternado": {
-    "e": "joelho_e_alt > -0.5",
-    "d": "joelho_d_alt > -0.5",
-    "quase_e": "joelho_e_alt > -0.66",
-    "quase_d": "joelho_d_alt > -0.66"
+    "e": "joelho_e_alt > -0.56",
+    "d": "joelho_d_alt > -0.56",
+    "quase_e": "joelho_e_alt > -0.7",
+    "quase_d": "joelho_d_alt > -0.7"
   },
   "parcial_feedback": "Suba mais o joelho",
   "duracao_minima_ms": 250,

@@ -6,10 +6,9 @@
   "formato": "repeticoes",
   "seg_por_rep": 3.5,
   "pontos_obrigatorios": [
+    "ombro",
     "quadril",
-    "joelho",
-    "tornozelo",
-    "ombro"
+    "joelho"
   ],
   "medida_principal": {
     "tipo": "angulo",
@@ -34,11 +33,11 @@
   "fases": [
     {
       "nome": "topo",
-      "condicao": "medida > 150"
+      "condicao": "medida > 145"
     },
     {
       "nome": "fundo",
-      "condicao": "medida < 100"
+      "condicao": "medida < 115"
     }
   ],
   "repeticao": [
@@ -46,20 +45,26 @@
     "fundo",
     "topo"
   ],
-  "parcial_se": "min_medida < 125",
-  "parcial_feedback": "Desça um pouco mais",
+  "parcial_se": "min_medida < 140",
+  "parcial_feedback": "Desça mais",
   "amplitude": {
     "extremo": "min",
-    "minimo_aceito": 100,
+    "minimo_aceito": 115,
     "ideal": 85
   },
   "duracao_minima_ms": 600,
   "erros": [
     {
       "id": "tronco_inclinado",
-      "condicao": "tronco > 30",
+      "condicao": "tronco > 35",
       "fase": "fundo",
       "feedback": "Tronco mais reto"
+    },
+    {
+      "id": "amplitude_curta",
+      "quando": "fim_rep",
+      "condicao": "min_medida > 100",
+      "feedback": "Desça mais"
     }
   ],
   "kpis": [

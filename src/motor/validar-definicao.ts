@@ -1,6 +1,6 @@
-import { analisar, distsUsadas, variaveisUsadas } from "./expressao";
+import { analisar, distsUsadas, variaveisUsadas, visUsadas } from "./expressao";
 import { validarDist, validarMedida } from "./medidas";
-import { indicesDoPonto } from "./pontos";
+import { indicesDoPonto, PLURAIS } from "./pontos";
 import type { DefinicaoExercicio } from "./tipos";
 
 const SUSTENTACAO = new Set(["isometria", "equilibrio", "postura", "respiracao"]);
@@ -47,6 +47,10 @@ export function validarDefinicao(def: DefinicaoExercicio): string[] {
         if (ehExtremo && !permiteExtremos) throw new Error(`"${v}" só vale em parcial_se e em erros de fim de repetição`);
       }
       for (const pontos of distsUsadas(no)) validarDist(pontos);
+      for (const ponto of visUsadas(no)) {
+        const base = PLURAIS[ponto] ?? ponto;
+        indicesDoPonto(base);
+      }
     });
   };
 

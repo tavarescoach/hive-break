@@ -20,8 +20,8 @@ describe("agachamento livre", () => {
     expect(rodar(def, frames).estado.repsValidas).toBe(10);
   });
 
-  it("repetição rasa vira parcial: aparece no feedback e não soma", () => {
-    const { estado, eventos } = rodar(
+  it("meia repetição (fundo a 112°) conta, mas com o aviso \"Desça mais\"", () => {
+    const { estado, eventos, kpis } = rodar(
       def,
       cenario(
         repetir(3, () => agachamento()),
@@ -29,15 +29,24 @@ describe("agachamento livre", () => {
         repetir(2, () => agachamento()),
       ),
     );
-    expect(estado.repsValidas).toBe(5);
-    expect(estado.repsParciais).toBe(3);
-    const parciais = dosTipo(eventos, "rep_parcial");
-    expect(parciais[0].feedback).toBe("Desça um pouco mais");
-    expect(parciais[0].rep.motivo).toBe("amplitude");
+    expect(estado.repsValidas).toBe(8);
+    expect(estado.repsParciais).toBe(0);
+    const avisos = dosTipo(eventos, "erro").filter((e) => e.id === "amplitude_curta");
+    expect(avisos).toHaveLength(3);
+    expect(avisos[0].feedback).toBe("Desça mais");
+    // A meia repetição vale menos na amplitude e na técnica.
+    expect(kpis.indice_tecnico).toBeCloseTo(5 / 8, 2);
   });
 
-  it("flexão leve do joelho (130 graus) não é rep nem parcial", () => {
-    const { estado } = rodar(def, cenario(repetir(4, () => agachamento({ fundo: 130 }))));
+  it("agachamento curto demais (130°) vira parcial: aparece no feedback e não soma", () => {
+    const { estado, eventos } = rodar(def, cenario(repetir(4, () => agachamento({ fundo: 130 }))));
+    expect(estado.repsValidas).toBe(0);
+    expect(estado.repsParciais).toBe(4);
+    expect(dosTipo(eventos, "rep_parcial")[0].feedback).toBe("Desça mais");
+  });
+
+  it("flexão leve do joelho (150°) não é rep nem parcial", () => {
+    const { estado } = rodar(def, cenario(repetir(4, () => agachamento({ fundo: 150 }))));
     expect(estado.repsValidas).toBe(0);
     expect(estado.repsParciais).toBe(0);
   });
@@ -76,11 +85,22 @@ describe("agachamento livre", () => {
       ),
     );
     expect(estado.repsValidas).toBe(4);
-    const erros = dosTipo(eventos, "erro");
+    const erros = dosTipo(eventos, "erro").filter((e) => e.id === "valgo");
     expect(erros.length).toBe(2);
     expect(erros[0]).toMatchObject({ id: "valgo", feedback: "Joelhos para fora" });
     expect(kpis.indice_tecnico).toBe(0.5);
     expect(kpis.erros.valgo).toBe(2);
+  });
+
+  it("joelhos para dentro só é checado com os tornozelos bem visíveis (evita falso positivo)", () => {
+    const { estado, eventos } = rodar(def, cenario(repetir(3, () => agachamento({ valgo: 0.06, extra: { visibilidadePes: 0.55 } }))));
+    expect(estado.repsValidas).toBe(3);
+    expect(dosTipo(eventos, "erro").filter((e) => e.id === "valgo")).toHaveLength(0);
+  });
+
+  it("conta mesmo com os pés fora da imagem", () => {
+    const { estado } = rodar(def, cenario(repetir(4, () => agachamento({ extra: { visibilidadePes: 0.1 } }))));
+    expect(estado.repsValidas).toBe(4);
   });
 
   it("ignora frames com pontos pouco visíveis sem contar errado", () => {
@@ -129,9 +149,9 @@ describe("agachamento livre", () => {
   it("calcula os KPIs do bloco", () => {
     const { kpis } = rodar(def, cenario(repetir(10, () => agachamento({ fundo: 90 }))));
     expect(kpis.reps_validas).toBe(10);
-    // Fundo a 90 graus: metade do caminho entre o mínimo aceito (100) e o ideal (80).
-    expect(kpis.amplitude_media).toBeGreaterThan(0.35);
-    expect(kpis.amplitude_media).toBeLessThan(0.65);
+    // Fundo a 90 graus, entre o mínimo aceito (120) e o ideal (85): cerca de 0,86.
+    expect(kpis.amplitude_media).toBeGreaterThan(0.75);
+    expect(kpis.amplitude_media).toBeLessThan(0.95);
     // Descida de 0,7 s e subida de 0,6 s (menos a folga das fases).
     expect(kpis.tempo_excentrico).toBeGreaterThan(0.5);
     expect(kpis.tempo_excentrico).toBeLessThan(1.0);

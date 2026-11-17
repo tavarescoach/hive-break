@@ -22,17 +22,23 @@ describe("polichinelo", () => {
     expect(Math.abs(estado.repsValidas - 20)).toBeLessThanOrEqual(1);
   });
 
-  it("braços que não passam da cabeça: não conta e avisa", () => {
-    const { estado, eventos } = rodar(def, cenario(repetir(6, () => polichinelo({ bracos: 90 }))));
+  it("braços abaixo dos ombros: não conta e pede para subir", () => {
+    const { estado, eventos } = rodar(def, cenario(repetir(6, () => polichinelo({ bracos: 60 }))));
     expect(estado.repsValidas).toBe(0);
     expect(estado.repsParciais).toBe(6);
     const parciais = dosTipo(eventos, "rep_parcial");
-    expect(parciais[0].feedback).toBe("Braços acima da cabeça");
+    expect(parciais[0].feedback).toBe("Suba os braços");
     expect(parciais[0].rep.motivo).toBe("bracos_baixos");
   });
 
+  it("braços acima dos ombros mas abaixo da cabeça: conta, com o aviso", () => {
+    const { estado, eventos } = rodar(def, cenario(repetir(5, () => polichinelo({ bracos: 100 }))));
+    expect(estado.repsValidas).toBe(5);
+    expect(dosTipo(eventos, "erro").filter((e) => e.id === "bracos_meio")[0].feedback).toBe("Braços acima da cabeça");
+  });
+
   it("pernas pouco abertas viram parcial", () => {
-    const { estado, eventos } = rodar(def, cenario(repetir(5, () => polichinelo({ abertura: 0.24 }))));
+    const { estado, eventos } = rodar(def, cenario(repetir(5, () => polichinelo({ abertura: 0.22 }))));
     expect(estado.repsValidas).toBe(0);
     expect(estado.repsParciais).toBe(5);
     expect(dosTipo(eventos, "rep_parcial")[0].feedback).toBe("Abra mais as pernas");
@@ -49,7 +55,7 @@ describe("polichinelo", () => {
       def,
       cenario(
         repetir(4, () => polichinelo()),
-        repetir(2, () => polichinelo({ bracos: 80 })),
+        repetir(2, () => polichinelo({ bracos: 50 })),
         repetir(4, () => polichinelo()),
       ),
     );

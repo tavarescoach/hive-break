@@ -7,14 +7,14 @@
   "pontos_obrigatorios": [
     "ombro",
     "quadril",
-    "tornozelo"
+    "joelho"
   ],
   "medida_principal": {
     "tipo": "angulo",
     "pontos": [
       "ombro",
       "quadril",
-      "tornozelo"
+      "joelho"
     ],
     "lado": "visivel",
     "espaco": "2d"
@@ -31,7 +31,7 @@
   },
   "histerese": 4,
   "sustentacao": {
-    "condicao": "medida > 165 e tronco > 55",
+    "condicao": "medida > 155 e tronco > 45",
     "feedback_perda": "Alinhe o quadril",
     "controle": {
       "ponto": "quadril",
@@ -40,7 +40,8 @@
         "quadril"
       ],
       "oscilacao_maxima": 0.06
-    }
+    },
+    "histerese": 6
   },
   "erros": [],
   "kpis": [

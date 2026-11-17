@@ -6,13 +6,14 @@ import { abrirCameraFrontal, fecharCamera } from "@/camera/camera";
 import { desenharEsqueleto } from "@/camera/desenhar-esqueleto";
 import { criarDetector, type Detector } from "@/camera/pose";
 import { botaoPrimario, botaoSecundario, cartao } from "@/componentes/estilos";
+import { VISIBILIDADE_MINIMA_PADRAO } from "@/motor/motor";
 import { indicesDoPonto } from "@/motor/pontos";
 
 type Etapa = "guia" | "abrindo" | "ao_vivo" | "negada";
 
 /** Pontos que precisam aparecer para o enquadramento valer: da cabeça aos pés. */
 const CORPO_INTEIRO = ["nariz", "ombro", "quadril", "joelho", "tornozelo"].flatMap(indicesDoPonto);
-const VISIBILIDADE_MINIMA = 0.6;
+const VISIBILIDADE_MINIMA = VISIBILIDADE_MINIMA_PADRAO;
 
 const DICAS = [
   "Apoie o celular em pé num móvel, na altura da cintura, ou encostado na parede.",

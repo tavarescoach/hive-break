@@ -22,7 +22,7 @@
   "histerese": 0.1,
   "fase_minima_ms": 500,
   "sustentacao": {
-    "condicao": "medida < 0.35",
+    "condicao": "medida < 0.45",
     "feedback_perda": "Fique parado e respire"
   },
   "erros": [],
