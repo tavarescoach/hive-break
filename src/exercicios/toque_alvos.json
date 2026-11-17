@@ -4,6 +4,7 @@
   "modalidade": "precisao",
   "camera": "frontal",
   "formato": "precisao",
+  "seg_por_rep": 2.5,
   "pontos_obrigatorios": [
     "ombro_e",
     "ombro_d",

@@ -4,22 +4,53 @@
   "modalidade": "equilibrio",
   "camera": "frontal",
   "formato": "equilibrio",
-  "pontos_obrigatorios": ["ombro_e", "ombro_d", "quadril_e", "quadril_d", "tornozelo_e", "tornozelo_d"],
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "quadril_e",
+    "quadril_d",
+    "tornozelo_e",
+    "tornozelo_d"
+  ],
   "medida_principal": {
     "tipo": "altura",
-    "pontos": ["tornozelo_d", "tornozelo_e"],
-    "normalizar_por": ["ombro", "quadril"]
+    "pontos": [
+      "tornozelo_d",
+      "tornozelo_e"
+    ],
+    "normalizar_por": [
+      "ombro",
+      "quadril"
+    ]
   },
   "histerese": 0.04,
   "fase_minima_ms": 150,
   "sustentacao": {
     "condicao": "abs(medida) > 0.15",
     "feedback_perda": "Pé tocou o chão",
-    "lado": { "medida": "medida", "positivo": "e", "negativo": "d" },
-    "controle": { "ponto": "quadril", "normalizar_por": ["ombro", "quadril"], "oscilacao_maxima": 0.08 }
+    "lado": {
+      "medida": "medida",
+      "positivo": "e",
+      "negativo": "d"
+    },
+    "controle": {
+      "ponto": "quadril",
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ],
+      "oscilacao_maxima": 0.08
+    }
   },
   "erros": [],
-  "kpis": ["tempo_valido_s", "tempo_valido_e_s", "tempo_valido_d_s", "oscilacao", "estabilidade", "simetria"],
+  "kpis": [
+    "tempo_valido_s",
+    "tempo_valido_e_s",
+    "tempo_valido_d_s",
+    "oscilacao",
+    "estabilidade",
+    "simetria"
+  ],
   "variacao_facil": "apoio_uma_perna_com_toque",
   "alternativas": {},
   "instrucoes": [

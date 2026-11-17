@@ -4,6 +4,7 @@
   "modalidade": "mobilidade",
   "camera": "frontal",
   "formato": "repeticoes",
+  "seg_por_rep": 4,
   "pontos_obrigatorios": [
     "quadril_e",
     "quadril_d",

@@ -1,12 +1,16 @@
 // Gera supabase/seed_trilha.sql: os 19 exercícios do catálogo (seção 7), as 24
 // unidades (3 por nível) e os desafios de cada unidade, seguindo a ordem
-// fisiológica da seção 6.2. Rode com: npm run seed:trilha
+// fisiológica da seção 6.2, cada um com o seu método (docs/METODOS.md). Rode com: npm run seed:trilha
 //
 // O conteúdo é um RASCUNHO para revisão do Luan: nomes das unidades, escolha
 // dos exercícios e durações. Séries, repetições e escala por dificuldade
 // entram na Fase 3.
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import {
+  DURACAO_MAXIMA_S, montarLinhaDoTempo, segundosPorExercicio, validarMetodo,
+  type ExercicioMetodo, type Item, type Metodo,
+} from "../src/dominio/metodos";
 
 const raiz = path.resolve(__dirname, "..");
 
@@ -102,12 +106,172 @@ function posicoesDoNivel(nivel: number): Posicao[] {
   return MODELO.filter((p) => (total === 8 ? !p.opcionalEm8 && !p.extraEm12 : total === 10 ? !p.extraEm12 : true));
 }
 
-export function gerarSeedTrilha(): string {
+const SUSTENTACAO = new Set(["isometria", "postura", "equilibrio", "respiracao"]);
+
+function paraMetodo(e: Exercicio): ExercicioMetodo {
+  const def = JSON.parse(readFileSync(path.join(raiz, "src", "exercicios", `${e.id}.json`), "utf8")) as { seg_por_rep?: number };
+  return { nome: e.nome, sustentacao: SUSTENTACAO.has(e.formato), segPorRep: def.seg_por_rep ?? 3 };
+}
+
+/** Repetições que levam cerca de `segundos` no ritmo de referência (par, para os alternados). */
+const repsPara = (segundos: number, ex: ExercicioMetodo) => Math.min(60, Math.max(4, Math.round(segundos / ex.segPorRep / 2) * 2));
+
+/** Item de circuito: segundos para sustentação, repetições para o resto. */
+const item = (ex: ExercicioMetodo, segundos: number): Item => (ex.sustentacao ? { segundos } : { reps: repsPara(segundos, ex) });
+
+/**
+ * Método de cada posição da unidade (docs/METODOS.md, seção 3). A progressão
+ * entre níveis segue volume → densidade: mais reps ou segundos, menos descanso.
+ */
+function escolherMetodo(p: Posicao, nivel: number, unidade: number, ex: ExercicioMetodo[]): Metodo {
+  const pr = Math.min(3, Math.floor((nivel - 1) / 2));
+  const todosSust = ex.every((e) => e.sustentacao);
+  const algumSust = ex.some((e) => e.sustentacao);
+  const n = ex.length;
+  switch (p.modalidade) {
+    case "aquecimento":
+      return {
+        tipo: "intervalado", trabalho_s: 30, descanso_s: 10, series: 3 * n,
+        meta: algumSust ? { tipo: "amrap" } : {
+          tipo: "faixa",
+          por_exercicio: ex.map((e) => ({ min: Math.round((30 / e.segPorRep) * 0.6), max: Math.round((30 / e.segPorRep) * 0.9) })),
+        },
+      };
+    case "mobilidade":
+      return { tipo: "circuito", rodadas: 2, descanso_s: 15, itens: ex.map((e) => (e.sustentacao ? { segundos: [20, 25, 30, 30][pr] } : { reps: [6, 8, 8, 10][pr] })) };
+    case "equilibrio":
+      return todosSust
+        ? { tipo: "intervalado", trabalho_s: [20, 25, 30, 40][pr], descanso_s: 10, series: 4, meta: { tipo: "sustentar" } }
+        : { tipo: "circuito", rodadas: 2, descanso_s: 10, itens: ex.map((e) => item(e, 25)) };
+    case "precisao":
+      return { tipo: "intervalado", trabalho_s: [30, 30, 40, 40][pr], descanso_s: 15, series: 4, meta: { tipo: "amrap" } };
+    case "forca": {
+      if (algumSust) return { tipo: "circuito", rodadas: 3, descanso_s: 30, itens: ex.map((e) => item(e, 30)) };
+      const tronco = p.titulo.includes("tronco");
+      // Terceira unidade de cada seção: EMOM, para variar o estímulo de força.
+      if (unidade === 2) return { tipo: "emom", minutos: 4, reps: Math.min(...ex.map((e) => repsPara([20, 25, 30, 30][pr], e))) };
+      return {
+        tipo: "series",
+        series: n === 1 ? 3 : 2,
+        reps: (tronco ? [6, 8, 10, 12] : [8, 10, 12, 15])[pr],
+        descanso_s: [60, 45, 45, 30][pr],
+      };
+    }
+    case "core":
+      if (todosSust) return { tipo: "intervalado", trabalho_s: [20, 30, 40, 45][pr], descanso_s: 20, series: 3, meta: { tipo: "sustentar" } };
+      if (algumSust) return { tipo: "circuito", rodadas: 3, descanso_s: 20, itens: ex.map((e) => item(e, [20, 30, 40, 45][pr])) };
+      return { tipo: "emom", minutos: 4, reps: Math.min(...ex.map((e) => repsPara([20, 25, 30, 35][pr], e))) };
+    case "condicionamento":
+      return unidade % 2 === 0
+        ? { tipo: "circuito", rodadas: 3, descanso_s: 20, itens: ex.map((e) => (e.sustentacao ? { segundos: 25 } : { segundos: [20, 25, 30, 30][pr] })) }
+        : { tipo: "intervalado", trabalho_s: [30, 40, 40, 45][pr], descanso_s: [20, 20, 15, 15][pr], series: 6, meta: { tipo: "amrap" } };
+    case "hiit":
+      return { tipo: "tabata", rounds: 8, trabalho_s: 20, descanso_s: 10 };
+    case "yoga":
+      return todosSust
+        ? { tipo: "intervalado", trabalho_s: [30, 30, 40, 45][pr], descanso_s: 10, series: 2 * n, meta: { tipo: "sustentar" } }
+        : { tipo: "circuito", rodadas: 2, descanso_s: 10, itens: ex.map((e) => item(e, 30)) };
+    case "respiracao": {
+      const resp = ex.findIndex((e) => e.nome.startsWith("Respiração"));
+      return { tipo: "circuito", rodadas: 1, descanso_s: 0, itens: ex.map((e, i) => ({ segundos: i === resp ? (n === 1 ? 240 : 180) : 60 })) };
+    }
+    case "desafio_final": {
+      if (unidade === 0) return { tipo: "contra_relogio", teto_s: 240, itens: ex.map((e) => item(e, [30, 35, 40, 45][pr])) };
+      const alvo = ex.findIndex((e) => !e.sustentacao);
+      if (unidade === 1 && n === 1 && alvo === 0) {
+        const fator = ex[0].segPorRep < 1.5 ? 2 : 1;
+        return { tipo: "escada", teto_s: 240, degraus: [[2, 4, 6, 8], [2, 4, 6, 8, 10], [4, 6, 8, 10, 12], [4, 8, 12, 16, 20]][pr].map((d) => d * fator) };
+      }
+      return { tipo: "circuito", rodadas: 3, descanso_s: 20, itens: ex.map((e) => item(e, [20, 25, 30, 30][pr])) };
+    }
+  }
+  throw new Error(`Posição sem método: ${p.modalidade}`);
+}
+
+/** Reduz o volume até o desafio caber em 5 minutos, contando os descansos. */
+function encaixar(m: Metodo, ex: ExercicioMetodo[]): Metodo {
+  let atual = m;
+  for (let i = 0; i < 40 && montarLinhaDoTempo(atual, ex).duracaoEstimadaS > DURACAO_MAXIMA_S; i++) {
+    const a = structuredClone(atual);
+    switch (a.tipo) {
+      case "intervalado":
+        if (a.series > 2) a.series--;
+        else a.trabalho_s = Math.max(10, a.trabalho_s - 5);
+        break;
+      case "series":
+        if (a.reps > 6) a.reps -= 2;
+        else if (a.series > 1) a.series--;
+        else a.descanso_s = Math.max(15, a.descanso_s - 15);
+        break;
+      case "circuito":
+        if (a.rodadas > 1) a.rodadas--;
+        else a.itens = a.itens.map((it) => ("reps" in it ? { reps: Math.max(4, it.reps - 2) } : { segundos: Math.max(10, it.segundos - 10) }));
+        break;
+      case "emom":
+        a.minutos--;
+        break;
+      default:
+        throw new Error(`Não consegui encaixar ${a.tipo} em 5 min`);
+    }
+    atual = a;
+  }
+  return atual;
+}
+
+export interface DesafioGerado {
+  id: string;
+  nivel: number;
+  unidade: string;
+  ordem: number;
+  posicao: Posicao;
+  tipo: "desafio" | "final";
+  exercicios: Exercicio[];
+  metodo: Metodo;
+  duracaoS: number;
+  segundosPorExercicio: number[];
+  equipamento: string | null;
+}
+
+/** Todo o conteúdo da trilha, já com métodos validados e dentro dos 5 minutos. */
+export function conteudoTrilha(): DesafioGerado[] {
   const porId = new Map(EXERCICIOS.map((e) => [e.id, e]));
+  const lista: DesafioGerado[] = [];
+  for (const nivel of Object.keys(UNIDADES).map(Number)) {
+    UNIDADES[nivel].forEach((_, iu) => {
+      const unidade = `n${nivel}u${iu + 1}`;
+      const itens = [...posicoesDoNivel(nivel).map((p) => ({ p, tipo: "desafio" as const })), { p: FINAL, tipo: "final" as const }];
+      itens.forEach(({ p, tipo }, i) => {
+        const ordem = i + 1;
+        const id = tipo === "final" ? `${unidade}final` : `${unidade}d${String(ordem).padStart(2, "0")}`;
+        const opcoes = p.opcoes(nivel);
+        let escolhidos = opcoes[(iu + nivel) % opcoes.length].map((e) => porId.get(e)!);
+        // Desafio da segunda unidade: escada com o primeiro exercício de repetição.
+        if (tipo === "final" && iu === 1) escolhidos = [escolhidos.find((e) => !SUSTENTACAO.has(e.formato))!];
+        const ex = escolhidos.map(paraMetodo);
+        const metodo = encaixar(escolherMetodo(p, nivel, iu, ex), ex);
+        const problemas = validarMetodo(metodo, ex);
+        if (problemas.length) throw new Error(`${id}: ${problemas.join("; ")}`);
+        const linha = montarLinhaDoTempo(metodo, ex);
+        const equipamento = escolhidos.some((e) => e.equipamento === "cabo_vassoura")
+          ? "cabo_vassoura"
+          : escolhidos.some((e) => e.equipamento === "tapete" || (e.chao && nivel >= 5))
+            ? "tapete"
+            : null;
+        lista.push({
+          id, nivel, unidade, ordem, posicao: p, tipo, exercicios: escolhidos, metodo,
+          duracaoS: Math.max(30, linha.duracaoEstimadaS), segundosPorExercicio: segundosPorExercicio(linha, ex), equipamento,
+        });
+      });
+    });
+  }
+  return lista;
+}
+
+export function gerarSeedTrilha(): string {
   const linhas: string[] = [
     "-- Hive Break · Seed da trilha: exercícios, unidades, desafios e blocos.",
     "-- GERADO por scripts/gerar-seed-trilha.ts: não edite à mão. Pode ser rodado",
-    "-- mais de uma vez (atualiza o que já existe).",
+    "-- mais de uma vez (atualiza o que já existe). Precisa da migração 0008 (coluna metodo).",
     "",
     "insert into public.exercises (id, nome, modalidade, camera, definicao, equipamento) values",
   ];
@@ -122,37 +286,23 @@ export function gerarSeedTrilha(): string {
   );
 
   const unidades: string[] = [];
-  const desafios: string[] = [];
-  const blocos: string[] = [];
   for (const nivel of Object.keys(UNIDADES).map(Number)) {
     UNIDADES[nivel].forEach(([titulo, descricao], iu) => {
-      const unidade = `n${nivel}u${iu + 1}`;
-      unidades.push(`  (${txt(unidade)}, ${nivel}, ${iu + 1}, ${txt(titulo)}, ${txt(descricao)})`);
-      const itens = [...posicoesDoNivel(nivel).map((p) => ({ p, tipo: "desafio" })), { p: FINAL, tipo: "final" }];
-      itens.forEach(({ p, tipo }, i) => {
-        const ordem = i + 1;
-        const id = tipo === "final" ? `${unidade}final` : `${unidade}d${String(ordem).padStart(2, "0")}`;
-        const opcoes = p.opcoes(nivel);
-        const escolhidos = opcoes[(iu + nivel) % opcoes.length].map((e) => porId.get(e)!);
-        const equipamento = escolhidos.some((e) => e.equipamento === "cabo_vassoura")
-          ? "cabo_vassoura"
-          : escolhidos.some((e) => e.equipamento === "tapete" || (e.chao && nivel >= 5))
-            ? "tapete"
-            : null;
-        desafios.push(
-          `  (${txt(id)}, ${nivel}, ${txt(unidade)}, ${ordem}, ${txt(p.titulo)}, ${txt(p.modalidade)}, ${p.duracao}, ${txt(p.intensidade)}, ${txt(equipamento)}, ${!!p.opcionalEm8}, ${!!p.extraEm12}, ${txt(tipo)})`,
-        );
-        // O tempo do desafio é dividido igualmente entre os exercícios, em múltiplos de 5 s.
-        const segundos = Math.floor(p.duracao / escolhidos.length / 5) * 5;
-        escolhidos.forEach((e, ib) => {
-          const formato = p.modalidade === "hiit" ? "intervalado" : p.modalidade === "condicionamento" ? "amrap" : e.formato;
-          const ultimo = ib === escolhidos.length - 1;
-          const duracao = ultimo ? p.duracao - segundos * (escolhidos.length - 1) : segundos;
-          blocos.push(
-            `  (${txt(`${id}b${ib + 1}`)}, ${txt(id)}, ${ib + 1}, ${txt(e.id)}, ${txt(formato)}, 1, ${txt(JSON.stringify({ padrao: { segundos: duracao } }))}::jsonb, 0)`,
-          );
-        });
-      });
+      unidades.push(`  (${txt(`n${nivel}u${iu + 1}`)}, ${nivel}, ${iu + 1}, ${txt(titulo)}, ${txt(descricao)})`);
+    });
+  }
+  const desafios: string[] = [];
+  const blocos: string[] = [];
+  for (const d of conteudoTrilha()) {
+    const p = d.posicao;
+    desafios.push(
+      `  (${txt(d.id)}, ${d.nivel}, ${txt(d.unidade)}, ${d.ordem}, ${txt(p.titulo)}, ${txt(p.modalidade)}, ${d.duracaoS}, ${txt(p.intensidade)}, ${txt(d.equipamento)}, ${!!p.opcionalEm8}, ${!!p.extraEm12}, ${txt(d.tipo)}, ${txt(JSON.stringify(d.metodo))}::jsonb)`,
+    );
+    d.exercicios.forEach((e, ib) => {
+      const formato = d.metodo.tipo === "tabata" || d.metodo.tipo === "intervalado" ? "intervalado" : e.formato;
+      blocos.push(
+        `  (${txt(`${d.id}b${ib + 1}`)}, ${txt(d.id)}, ${ib + 1}, ${txt(e.id)}, ${txt(formato)}, 1, ${txt(JSON.stringify({ padrao: { segundos: d.segundosPorExercicio[ib] } }))}::jsonb, 0)`,
+      );
     });
   }
 
@@ -160,9 +310,9 @@ export function gerarSeedTrilha(): string {
     "insert into public.units (id, level_id, ordem, titulo, descricao) values",
     unidades.join(",\n") + "\non conflict (id) do update set titulo = excluded.titulo, descricao = excluded.descricao, ordem = excluded.ordem;",
     "",
-    "insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, equipamento, opcional_em_8, extra_em_12, tipo) values",
+    "insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, equipamento, opcional_em_8, extra_em_12, tipo, metodo) values",
     desafios.join(",\n") +
-      "\non conflict (id) do update set ordem = excluded.ordem, titulo = excluded.titulo, modalidade = excluded.modalidade,\n  duracao_s = excluded.duracao_s, intensidade = excluded.intensidade, equipamento = excluded.equipamento, tipo = excluded.tipo;",
+      "\non conflict (id) do update set ordem = excluded.ordem, titulo = excluded.titulo, modalidade = excluded.modalidade,\n  duracao_s = excluded.duracao_s, intensidade = excluded.intensidade, equipamento = excluded.equipamento, tipo = excluded.tipo,\n  metodo = excluded.metodo;",
     "",
     "insert into public.challenge_blocks (id, challenge_id, ordem, exercise_id, formato, series, parametros_por_dificuldade, descanso_s) values",
     blocos.join(",\n") +

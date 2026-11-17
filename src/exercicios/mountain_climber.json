@@ -4,6 +4,7 @@
   "modalidade": "condicionamento",
   "camera": "lateral",
   "formato": "alternado",
+  "seg_por_rep": 0.7,
   "pontos_obrigatorios": [
     "ombro",
     "quadril",
