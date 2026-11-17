@@ -47,7 +47,9 @@ export async function finalizarDesafio(id: string, modo: "camera" | "manual", bl
       ok: false,
       erro: error.message.includes("desafio_bloqueado")
         ? "Este desafio ainda está bloqueado. Volte à trilha e faça os anteriores."
-        : "Não consegui registrar. Confira a internet e tente de novo.",
+        : /could not find the function|PGRST202|não existe/i.test(error.message)
+          ? "O banco de dados ainda não foi atualizado para esta versão. Falta rodar a migração 20261117000700_finalizar_desafio.sql no Supabase."
+          : "Não consegui registrar. Confira a internet e tente de novo.",
     };
   }
   revalidatePath("/trilha");

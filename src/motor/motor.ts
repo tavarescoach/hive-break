@@ -191,7 +191,9 @@ export class Motor {
           quase: quase ? analisar(quase) : null,
           ativa: false,
           desde: 0,
-          armado: true,
+          // Só conta depois de ver a pessoa em repouso: quem já começa com o
+          // joelho no alto não ganha uma repetição de graça.
+          armado: false,
           quaseAtiva: false,
           tentou: false,
         });
@@ -637,7 +639,7 @@ export class Motor {
     for (const fase of this.fases) fase.ativa = false;
     for (const erro of this.errosDurante) erro.ativa = false;
     this.sustAtiva = false;
-    for (const l of this.lados) Object.assign(l, { ativa: false, armado: true, quaseAtiva: false, tentou: false });
+    for (const l of this.lados) Object.assign(l, { ativa: false, armado: false, quaseAtiva: false, tentou: false });
     this.alvo = null;
     this.poseAnterior = null;
     if (this.naPosicao) this.encerrarPosicao(this.tUltimoValido ?? t, undefined, eventos);

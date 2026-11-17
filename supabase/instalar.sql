@@ -1141,7 +1141,7 @@ grant execute on all functions in schema public to service_role;
 -- >>> migrations/20261117000700_finalizar_desafio.sql
 -- Hive Break · Desafio com câmera e regras novas de XP (17/11/2026)
 --
--- finalizar_desafio substitui concluir_desafio_provisorio. Recebe só números
+-- finalizar_desafio passa a ser usada no lugar de concluir_desafio_provisorio. Recebe só números
 -- (repetições, tempos, KPIs); nenhuma imagem, vídeo ou ponto do corpo.
 --
 -- XP (decisões do Luan):
@@ -1154,7 +1154,8 @@ grant execute on all functions in schema public to service_role;
 
 alter table public.challenge_attempts add column refeito boolean not null default false;
 
-drop function public.concluir_desafio_provisorio(text);
+-- concluir_desafio_provisorio continua existindo por enquanto, para a versão
+-- antiga do app não quebrar entre rodar este SQL e publicar o código novo.
 
 create function public.finalizar_desafio(p_challenge_id text, p_modo text, p_blocos jsonb) returns jsonb
 language plpgsql security definer
@@ -1389,6 +1390,7 @@ grant execute on function public.concluir_onboarding() to authenticated;
 grant execute on function public.convite_publico(text) to anon, authenticated;
 grant execute on function public.ler_trilha() to authenticated;
 grant execute on function public.finalizar_desafio(text, text, jsonb) to authenticated;
+grant execute on function public.concluir_desafio_provisorio(text) to authenticated;
 grant execute on function public.registrar_dor(text, text, text) to authenticated;
 grant execute on function public.abrir_bau(text, integer) to authenticated;
 grant execute on function public.pular_para_secao(integer) to authenticated;

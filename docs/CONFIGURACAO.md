@@ -19,6 +19,13 @@ ordem:
 1. [`supabase/migrations/20261117000600_trilha_unidades.sql`](../supabase/migrations/20261117000600_trilha_unidades.sql)
 2. [`supabase/seed_trilha.sql`](../supabase/seed_trilha.sql) (exercícios, unidades e desafios; pode ser rodado de novo sempre que o conteúdo mudar)
 
+### Desafios com câmera (17/11/2026)
+
+Quem já tinha a trilha em unidades precisa colar mais dois arquivos, nesta ordem:
+
+1. [`supabase/migrations/20261117000700_finalizar_desafio.sql`](../supabase/migrations/20261117000700_finalizar_desafio.sql) (obrigatório: sem ele o botão "Concluí" avisa que o banco não foi atualizado)
+2. [`supabase/seed_trilha.sql`](../supabase/seed_trilha.sql) de novo (atualiza as regras dos 19 exercícios guardadas no banco)
+
 Quem ainda não instalou nada usa só o `instalar.sql`, que já inclui tudo.
 
 Nas próximas fases eu aviso quais arquivos novos de `supabase/migrations/` precisam ser

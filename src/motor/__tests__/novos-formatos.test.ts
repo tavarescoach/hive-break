@@ -45,6 +45,15 @@ describe("exercícios alternados (skipping e marcha)", () => {
     expect(rodar(definicao("skipping"), segurando).estado.repsValidas).toBe(1);
   });
 
+  it("começar já com o joelho no alto não dá repetição de graça", () => {
+    const parada = gerarSequencia([parado(4, { joelhoAltoE: 1 })]);
+    expect(rodar(definicao("skipping"), parada).estado.repsValidas).toBe(0);
+    expect(rodar(definicao("marcha_estacionaria"), parada).estado.repsValidas).toBe(0);
+    // Depois de baixar e subir de novo, conta normalmente.
+    const depois = gerarSequencia([parado(1, { joelhoAltoE: 1 }), parado(0.5), ...passos(4, 1), parado(1)]);
+    expect(rodar(definicao("skipping"), depois).estado.repsValidas).toBe(4);
+  });
+
   it("simetria cai quando um lado trabalha menos", () => {
     const frames = gerarSequencia([parado(1), ...repetir(6, () => [...passo("e", 1), ...passo("e", 1), ...passo("d", 1)]), parado(1)]);
     const { kpis } = rodar(definicao("skipping"), frames);

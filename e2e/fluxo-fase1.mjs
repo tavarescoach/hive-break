@@ -45,7 +45,9 @@ async function fazerDesafio(pagina, id) {
 async function abrirComCamera(pagina) {
   await pagina.getByRole("button", { name: "Começar com a câmera" }).click();
   // Com a câmera falsa de padrão colorido ninguém aparece: começa pelo botão.
-  await pagina.getByRole("button", { name: "Começar agora" }).click({ timeout: 60000 }).catch(() => {});
+  const botao = pagina.getByRole("button", { name: "Começar agora" });
+  await pagina.getByRole("timer").or(botao).first().waitFor({ timeout: 60000 });
+  await botao.click({ timeout: 1500 }).catch(() => {});
   await pagina.getByRole("timer").waitFor({ timeout: 60000 });
 }
 

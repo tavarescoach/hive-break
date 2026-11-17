@@ -4,8 +4,10 @@ Jogo de atividade física no navegador, estilo Duolingo, com validação de movi
 câmera frontal do celular. Especificação em [`docs/ESPECIFICACAO.md`](docs/ESPECIFICACAO.md)
 e decisões em [`docs/DECISOES.md`](docs/DECISOES.md).
 
-**Estado atual: Fase 1 (fundação).** Login com Google, banco com RLS, primeiro acesso
-completo, perfil e convite. A Fase 0 (teste técnico da câmera) continua em `/teste-tecnico`.
+**Estado atual:** login com Google, banco com RLS, primeiro acesso, perfil, convite, trilha
+em seções e unidades e desafios validados pela câmera (19 exercícios; 3 calibrados com
+pessoas). O teste técnico da câmera continua em `/teste-tecnico`. Orientação de produto em
+[`docs/REFERENCIAS_PRODUTO.md`](docs/REFERENCIAS_PRODUTO.md).
 
 Para ligar o Supabase, o Google e a Vercel, siga [`docs/CONFIGURACAO.md`](docs/CONFIGURACAO.md).
 
