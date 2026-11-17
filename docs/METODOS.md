@@ -1,6 +1,6 @@
-# Hive Break — Métodos dos desafios (proposta para decisão)
+# Hive Break — Métodos dos desafios
 
-Proposta de 17/11/2026, a partir das diretrizes do Luan. Objetivo: todo desafio é
+Definido em 17 e 18/11/2026, a partir das diretrizes do Luan. Objetivo: todo desafio é
 descrito por **dados** (método + parâmetros), e um único motor de linha do tempo roda
 qualquer método. A câmera conta e mede dentro de cada fase.
 
@@ -91,9 +91,22 @@ difícil do exercício, depois equipamento.
   na tela de preparação.
 - **"Concluí" não encerra mais o desafio**: passa para o próximo exercício.
 
-## 5. Decisões em aberto
+## 5. Decisões do Luan (18/11/2026)
 
-1. Quais métodos novos entram já (EMOM, circuito, cadência, escada, contra o relógio).
-2. Cor do trabalho: amarelo-mel (identidade) ou verde.
-3. Séries e repetições: se a pessoa não completa as reps, a série tem teto de tempo?
-4. O limite de 5 min inclui os descansos?
+1. **Métodos no MVP:** intervalado por tempo (AMRAP, faixa de reps ou sustentar), Tabata,
+   séries e repetições, circuito, EMOM, escada e contra o relógio. Cadência controlada
+   fica para depois.
+2. **Cor do trabalho:** amarelo-mel. Descanso em cinza; preparo e transição em branco.
+3. **Séries e repetições sem teto:** a série espera a pessoa completar as reps (ou tocar em
+   "Pular").
+4. **Limite de 5 min inclui os descansos.** Como a série espera a pessoa, o limite vale para
+   a duração **planejada**, calculada com um ritmo de referência por exercício
+   (`seg_por_rep` em cada JSON de exercício). Quem for mais devagar pode passar um pouco.
+
+## 6. Onde está no código
+
+- `src/dominio/metodos.ts`: tipos dos métodos, `montarLinhaDoTempo` (método → fases),
+  `SessaoTreino` (percorre as fases) e `resumirMetodo` (resultado por método).
+- `src/exercicios/gabaritos.ts` e `src/componentes/Gabarito.tsx`: figuras das posições.
+- `src/app/desafio/[id]/Execucao.tsx`: a tela, com ou sem câmera.
+- `scripts/gerar-seed-trilha.ts`: escolhe o método de cada desafio da trilha.

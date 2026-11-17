@@ -3,15 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 
-/** Números de um exercício do desafio, medidos no aparelho. Nunca imagem ou vídeo. */
-export interface BlocoEnviado {
-  ordem: number;
-  reps_validas: number;
-  reps_parciais: number;
-  tempo_valido_s: number;
-  fora_quadro_pct: number;
-  kpis: Record<string, number | null>;
-}
+import type { BlocoEnviado } from "@/dominio/agregar";
+
+export type { BlocoEnviado };
 
 export interface ResultadoDesafio {
   ok: boolean;
