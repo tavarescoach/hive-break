@@ -28,6 +28,11 @@ const config: NextConfig = {
         ],
       },
       {
+        // O service worker precisa ser conferido a cada visita para atualizar sem atraso.
+        source: "/sw.js",
+        headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }],
+      },
+      {
         // WASM e modelos de pose mudam só quando a versão do pacote muda.
         source: "/mediapipe/:caminho*",
         headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=2592000" }],

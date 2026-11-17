@@ -28,5 +28,5 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Tudo, menos arquivos estáticos, o MediaPipe e o teste técnico (que não usa login).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|mediapipe/|teste-tecnico|.*\\.(?:svg|png|jpg|jpeg|webp|ico|json|txt)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|mediapipe/|teste-tecnico|.*\\.(?:svg|png|jpg|jpeg|webp|ico|json|txt|webmanifest)$).*)"],
 };

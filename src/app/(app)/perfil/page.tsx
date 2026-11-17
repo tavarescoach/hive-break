@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Avatar } from "@/componentes/Avatar";
 import { botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
 import { Formulario } from "@/componentes/Formulario";
+import { InstalarApp } from "@/componentes/InstalarApp";
 import {
   EQUIPAMENTOS, ESTILOS_MUSICA, faixaEtaria, idade, imc, LIMITACOES, METAS_DIARIAS, NIVEIS_ATIVIDADE, OBJETIVOS, rotuloDe, SEXOS,
 } from "@/dominio/perfil";
@@ -97,6 +98,8 @@ export default async function PaginaPerfil() {
           ))}
         </dl>
       </section>
+
+      <InstalarApp />
 
       <div className="flex flex-col gap-3">
         <Link href="/perfil/config" className={botaoSecundario}>
