@@ -7,7 +7,8 @@
  *   3. node e2e/fluxo-fase1.mjs
  *
  * Variáveis: APP (endereço do app), SUPABASE (servidor falso), CAMERA_FALSA
- * (arquivo .mjpeg usado como câmera) e CAPTURAS (pasta para as telas).
+ * (arquivo .mjpeg usado como câmera), CAPTURAS (pasta para as telas) e CHROMIUM
+ * (caminho de um Chrome já instalado, no lugar do Chromium do Playwright).
  */
 import { createRequire } from "node:module";
 import assert from "node:assert/strict";
@@ -166,7 +167,7 @@ async function cadastro(pagina, { apelido, nascimento, triagemSim = false, prefi
   await captura(pagina, `${prefixo}-trilha`, false);
 }
 
-const navegador = await chromium.launch({ args: argumentos });
+const navegador = await chromium.launch({ args: argumentos, executablePath: process.env.CHROMIUM || undefined });
 try {
   // ---------------------------------------------------------------- visitante
   console.log("1. Visitante sem login é mandado para /entrar");
@@ -386,6 +387,27 @@ try {
   await ana.pagina.getByText("Bruno", { exact: true }).waitFor();
   await ana.pagina.getByText("1 pessoa entrou pelo seu link").waitFor();
   await captura(ana.pagina, "ana-amigos-com-bruno");
+
+  console.log("6b. Liga: sem desafio com câmera não há grupo; no grupo, só pódio, a pessoa e quem está acima");
+  // A câmera falsa não mostra movimento, então os desafios da Ana valeram como modo manual.
+  await ana.pagina.goto(APP + "/liga");
+  await ana.pagina.getByText("Bora entrar na liga da semana?").waitFor();
+  await captura(ana.pagina, "ana-liga-sem-grupo");
+  const [grupoAna] = await sql(
+    "insert into public.leagues (divisao, semana_inicio, semana_fim) values ('bronze', public.liga_semana_inicio(), public.liga_semana_inicio() + 6) returning id as league_id");
+  await sql("insert into public.league_members (league_id, user_id, pontos) values ($1, $2, 50)", [grupoAna.league_id, perfilAna.id]);
+  // Completa o grupo com mais 9 pessoas, algumas na frente e algumas atrás da Ana.
+  for (const [i, pontos] of [120, 95, 80, 60, 40, 30, 3, 2, 1].entries()) {
+    const [u] = await sql("insert into auth.users (email, raw_user_meta_data) values ($1, $2) returning id",
+      [`liga${i}@exemplo.com`, JSON.stringify({ full_name: `Pessoa ${i}` })]);
+    await sql("update public.profiles set apelido = $2, onboarding_concluido_em = now() where id = $1", [u.id, ["Duda", "Leo", "Mari", "Rafa", "Gabi", "Tati", "Nina", "Beto", "Iara"][i]]);
+    await sql("insert into public.league_members (league_id, user_id, pontos) values ($1, $2, $3)", [grupoAna.league_id, u.id, pontos]);
+  }
+  await ana.pagina.reload();
+  await ana.pagina.getByText("10 pessoas · sobem 2", { exact: true }).waitFor();
+  await ana.pagina.getByText("Você", { exact: true }).waitFor();
+  assert.equal(await ana.pagina.getByText("Iara").count(), 0, "os últimos do grupo não aparecem");
+  await captura(ana.pagina, "ana-liga");
 
   console.log("7. Menor de 18 anos é barrado; sair e entrar de novo volta para onde parou");
   const caio = await novaPessoa(navegador, { nome: "Caio Nunes", email: "caio@exemplo.com" });
