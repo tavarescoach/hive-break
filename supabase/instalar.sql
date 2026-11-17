@@ -1,4 +1,4 @@
--- Hive Break · instalação inicial do banco (Fase 1).
+-- Hive Break · instalação inicial do banco.
 -- GERADO por scripts/juntar-sql.mjs: não edite. Cole inteiro no SQL Editor do
 -- Supabase, num projeto novo, e clique em Run. Só pode ser rodado uma vez.
 
@@ -801,6 +801,343 @@ grant execute on function public.concluir_onboarding() to authenticated;
 grant execute on function public.convite_publico(text) to anon, authenticated;
 grant execute on all functions in schema public to service_role;
 
+-- >>> migrations/20261117000600_trilha_unidades.sql
+-- Hive Break · Trilha em unidades (pedido do Luan em 17/11/2026)
+--
+-- Estrutura nova: Nível (seção) -> Unidade temática -> Desafios.
+-- Cada unidade tem de 8 a 12 desafios e termina no "Desafio da unidade".
+-- A cada 4 desafios há um baú de XP.
+--
+-- Enquanto a câmera não entra nos desafios, a conclusão é pelo modo
+-- provisório (timer + "Concluí"). XP, ofensiva e liberação continuam sendo
+-- calculados aqui, no servidor.
+
+create table public.units (
+  id text primary key,
+  level_id smallint not null references public.levels (id) on delete cascade,
+  ordem smallint not null,
+  titulo text not null,
+  descricao text,
+  unique (level_id, ordem)
+);
+
+alter table public.challenges
+  add column unit_id text not null references public.units (id) on delete cascade,
+  add column tipo text not null default 'desafio' check (tipo in ('desafio', 'final')),
+  drop constraint challenges_level_id_ordem_key,
+  add constraint challenges_unit_ordem_key unique (unit_id, ordem);
+
+alter table public.user_challenge_progress add column concluido_em timestamptz;
+
+-- Baús de XP já abertos (um a cada 4 desafios da unidade).
+create table public.user_chests (
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  unit_id text not null references public.units (id) on delete cascade,
+  posicao smallint not null check (posicao > 0 and posicao % 4 = 0),
+  aberto_em timestamptz not null default now(),
+  primary key (user_id, unit_id, posicao)
+);
+
+alter table public.units enable row level security;
+alter table public.user_chests enable row level security;
+revoke all on public.units, public.user_chests from anon, authenticated;
+grant select on public.units to anon, authenticated;
+grant select on public.user_chests to authenticated;
+grant all on public.units, public.user_chests to service_role;
+create policy "conteudo: todos leem" on public.units for select to anon, authenticated using (true);
+create policy "baus: dono le" on public.user_chests for select to authenticated using (user_id = (select auth.uid()));
+
+-- XP de cada tipo de item da trilha.
+create function public.xp_do_desafio(p_tipo text) returns integer
+language sql immutable
+set search_path = public, pg_temp
+as $$ select case p_tipo when 'final' then 20 else 10 end $$;
+
+-- Estado de cada desafio para um usuário:
+--   concluido  = já fez
+--   travado    = intensidade média ou alta e a pessoa não está liberada (triagem)
+--   disponivel = seção liberada e nada pendente antes dele na seção
+--   bloqueado  = ainda há desafio pendente antes, ou a seção não foi liberada
+-- Desafios travados não seguram a fila: quem está limitado a baixa
+-- intensidade segue pelos desafios que pode fazer.
+create function public.trilha_estados(p_user uuid)
+returns table (challenge_id text, level_id smallint, unit_id text, ordem smallint, seq integer, estado text)
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  with base as (
+    select c.id, c.level_id, c.unit_id, c.ordem,
+           row_number() over (partition by c.level_id order by u.ordem, c.ordem)::int as seq,
+           (p.concluido_em is not null) as feito,
+           (pf.liberado_alta_intensidade or c.intensidade = 'baixa') as permitido,
+           coalesce(lp.liberado, false) as secao_liberada
+    from public.challenges c
+    join public.units u on u.id = c.unit_id
+    cross join (select liberado_alta_intensidade from public.profiles where id = p_user) pf
+    left join public.user_challenge_progress p on p.user_id = p_user and p.challenge_id = c.id
+    left join public.user_level_progress lp on lp.user_id = p_user and lp.level_id = c.level_id
+  ),
+  marcado as (
+    select *,
+           coalesce(bool_or(permitido and not feito) over (
+             partition by level_id order by seq rows between unbounded preceding and 1 preceding
+           ), false) as pendente_antes
+    from base
+  )
+  select id, level_id, unit_id, ordem, seq,
+         case
+           when feito then 'concluido'
+           when not permitido then 'travado'
+           when secao_liberada and not pendente_antes then 'disponivel'
+           else 'bloqueado'
+         end
+  from marcado;
+$$;
+
+-- Tudo o que a tela Trilha precisa, numa chamada só.
+create function public.ler_trilha() returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  p public.profiles;
+  s public.streaks;
+  v_hoje date;
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  select * into p from public.profiles where id = v_user;
+  select * into s from public.streaks where user_id = v_user;
+  v_hoje := (now() at time zone p.fuso_horario)::date;
+
+  return jsonb_build_object(
+    'nivel_atual', p.nivel_atual,
+    'liberado_alta_intensidade', p.liberado_alta_intensidade,
+    -- Ofensiva só vale se o último dia ativo foi hoje ou ontem.
+    'ofensiva', case when s.ultimo_dia_ativo >= v_hoje - 1 then s.atual else 0 end,
+    'fez_hoje', coalesce(s.ultimo_dia_ativo = v_hoje, false),
+    'xp_hoje', (select coalesce(sum(valor), 0) from public.xp_events
+                where user_id = v_user and (criado_em at time zone p.fuso_horario)::date = v_hoje),
+    'meta_xp', coalesce(p.meta_desafios_dia, 1) * 10,
+    'niveis', (select jsonb_agg(jsonb_build_object(
+                 'id', l.id, 'ordem', l.ordem, 'tema', l.tema, 'equipamentos', l.equipamentos_necessarios,
+                 'liberado', coalesce(lp.liberado, false), 'concluido', lp.concluido_em is not null) order by l.ordem)
+               from public.levels l
+               left join public.user_level_progress lp on lp.user_id = v_user and lp.level_id = l.id),
+    'unidades', (select jsonb_agg(jsonb_build_object(
+                   'id', u.id, 'level_id', u.level_id, 'ordem', u.ordem, 'titulo', u.titulo, 'descricao', u.descricao)
+                   order by u.level_id, u.ordem)
+                 from public.units u),
+    'desafios', (select jsonb_agg(jsonb_build_object(
+                   'id', c.id, 'unit_id', c.unit_id, 'level_id', c.level_id, 'ordem', c.ordem, 'titulo', c.titulo,
+                   'modalidade', c.modalidade, 'duracao_s', c.duracao_s, 'intensidade', c.intensidade,
+                   'equipamento', c.equipamento, 'tipo', c.tipo, 'xp', public.xp_do_desafio(c.tipo), 'estado', e.estado)
+                   order by c.level_id, e.seq)
+                 from public.challenges c join public.trilha_estados(v_user) e on e.challenge_id = c.id),
+    'baus_abertos', (select coalesce(jsonb_agg(jsonb_build_object('unit_id', unit_id, 'posicao', posicao)), '[]'::jsonb)
+                     from public.user_chests where user_id = v_user)
+  );
+end;
+$$;
+
+-- Modo provisório: a pessoa fez o desafio com o timer e tocou em "Concluí".
+-- Dá o XP cheio (10, ou 20 no desafio da unidade, +5 no primeiro do dia),
+-- conta o dia na ofensiva e libera o próximo. Sem nota, estrelas nem liga.
+-- Refazer o mesmo desafio no mesmo dia não dá XP de novo.
+create function public.concluir_desafio_provisorio(p_challenge_id text) returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  p public.profiles;
+  c public.challenges;
+  v_estado text;
+  v_hoje date;
+  v_repetido boolean;
+  v_primeiro boolean;
+  v_xp integer := 0;
+  v_ja_tinha_feito boolean;
+  v_unidade_concluida boolean := false;
+  v_nivel_concluido boolean := false;
+  v_proximo smallint;
+  v_ofensiva integer;
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  select * into p from public.profiles where id = v_user;
+  if p.onboarding_concluido_em is null then
+    raise exception 'cadastro_incompleto' using errcode = '22023';
+  end if;
+  select * into c from public.challenges where id = p_challenge_id;
+  if c.id is null then
+    raise exception 'desafio_inexistente' using errcode = '22023';
+  end if;
+  select estado into v_estado from public.trilha_estados(v_user) where challenge_id = c.id;
+  if v_estado in ('bloqueado', 'travado') then
+    raise exception 'desafio_bloqueado' using errcode = '22023';
+  end if;
+  v_ja_tinha_feito := v_estado = 'concluido';
+
+  v_hoje := (now() at time zone p.fuso_horario)::date;
+  select exists (
+    select 1 from public.challenge_attempts
+    where user_id = v_user and challenge_id = c.id and status = 'concluido'
+      and (concluido_em at time zone p.fuso_horario)::date = v_hoje
+  ) into v_repetido;
+  select not exists (
+    select 1 from public.challenge_attempts
+    where user_id = v_user and status = 'concluido'
+      and (concluido_em at time zone p.fuso_horario)::date = v_hoje
+  ) into v_primeiro;
+
+  if not v_repetido then
+    v_xp := public.xp_do_desafio(c.tipo) + case when v_primeiro then 5 else 0 end;
+  end if;
+
+  with nova as (
+    insert into public.challenge_attempts
+      (user_id, challenge_id, dificuldade, modo, status, concluido_em, xp, valido_para_liga)
+    values (v_user, c.id, p.dificuldade_atual, 'manual', 'concluido', now(), v_xp, false)
+    returning id
+  )
+  insert into public.xp_events (user_id, tipo, valor, attempt_id)
+  select v_user, t.tipo, t.valor, nova.id
+  from nova, (values ('desafio', public.xp_do_desafio(c.tipo)), ('primeiro_do_dia', 5)) as t (tipo, valor)
+  where not v_repetido and (t.tipo = 'desafio' or v_primeiro);
+
+  insert into public.user_challenge_progress (user_id, challenge_id, liberado, tentativas, concluido_em)
+  values (v_user, c.id, true, 1, now())
+  on conflict (user_id, challenge_id) do update
+    set tentativas = public.user_challenge_progress.tentativas + 1,
+        concluido_em = coalesce(public.user_challenge_progress.concluido_em, now());
+
+  -- Ofensiva: versão simples (dias seguidos). Protetor, recuperação, marcos e
+  -- a virada do dia por cron entram na Fase 4.
+  insert into public.streak_days (user_id, dia, tipo) values (v_user, v_hoje, 'feito')
+  on conflict (user_id, dia) do nothing;
+  update public.streaks
+  set atual = case
+        when ultimo_dia_ativo = v_hoje then atual
+        when ultimo_dia_ativo = v_hoje - 1 then atual + 1
+        else 1
+      end,
+      ultimo_dia_ativo = v_hoje
+  where user_id = v_user;
+  update public.streaks set recorde = greatest(recorde, atual) where user_id = v_user
+  returning atual into v_ofensiva;
+
+  if not v_ja_tinha_feito then
+    select not exists (
+      select 1 from public.trilha_estados(v_user) where unit_id = c.unit_id and estado in ('disponivel', 'bloqueado')
+    ) into v_unidade_concluida;
+    select not exists (
+      select 1 from public.trilha_estados(v_user) where level_id = c.level_id and estado in ('disponivel', 'bloqueado')
+    ) into v_nivel_concluido;
+  end if;
+
+  if v_nivel_concluido then
+    update public.user_level_progress set concluido_em = now()
+    where user_id = v_user and level_id = c.level_id and concluido_em is null;
+    if found then
+      insert into public.xp_events (user_id, tipo, valor) values (v_user, 'nivel_concluido', 30);
+      v_xp := v_xp + 30;
+      select id into v_proximo from public.levels where ordem = (select ordem + 1 from public.levels where id = c.level_id);
+      if v_proximo is not null then
+        insert into public.user_level_progress (user_id, level_id, liberado) values (v_user, v_proximo, true)
+        on conflict (user_id, level_id) do update set liberado = true;
+        update public.profiles set nivel_atual = v_proximo where id = v_user and nivel_atual = c.level_id;
+      end if;
+    else
+      v_nivel_concluido := false;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'xp', v_xp, 'primeiro_do_dia', v_primeiro and not v_repetido, 'repetido', v_repetido,
+    'ofensiva', v_ofensiva, 'unidade_concluida', v_unidade_concluida,
+    'nivel_concluido', v_nivel_concluido, 'proximo_nivel', v_proximo
+  );
+end;
+$$;
+
+-- Baú de XP: abre uma vez, quando tudo até ele na seção já foi feito.
+create function public.abrir_bau(p_unit_id text, p_posicao integer) returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_level smallint;
+  v_seq integer;
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  select e.level_id, e.seq into v_level, v_seq
+  from public.trilha_estados(v_user) e
+  join public.challenges c on c.id = e.challenge_id
+  where e.unit_id = p_unit_id and e.ordem = p_posicao and c.tipo = 'desafio' and p_posicao % 4 = 0;
+  if v_seq is null then
+    raise exception 'bau_inexistente' using errcode = '22023';
+  end if;
+  if exists (
+    select 1 from public.trilha_estados(v_user)
+    where level_id = v_level and seq <= v_seq and estado in ('disponivel', 'bloqueado')
+  ) then
+    raise exception 'bau_bloqueado' using errcode = '22023';
+  end if;
+  begin
+    insert into public.user_chests (user_id, unit_id, posicao) values (v_user, p_unit_id, p_posicao);
+  exception when unique_violation then
+    raise exception 'bau_ja_aberto' using errcode = '22023';
+  end;
+  insert into public.xp_events (user_id, tipo, valor) values (v_user, 'bau', 10);
+  return jsonb_build_object('xp', 10);
+end;
+$$;
+
+-- "Pular para cá": libera a seção escolhida sem fazer as anteriores (decisão
+-- do Luan). Quem não tem liberação médica continua limitado a baixa intensidade.
+create function public.pular_para_secao(p_level_id integer) returns void
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  if not exists (select 1 from public.levels where id = p_level_id) then
+    raise exception 'secao_inexistente' using errcode = '22023';
+  end if;
+  if (select onboarding_concluido_em from public.profiles where id = v_user) is null then
+    raise exception 'cadastro_incompleto' using errcode = '22023';
+  end if;
+  insert into public.user_level_progress (user_id, level_id, liberado) values (v_user, p_level_id, true)
+  on conflict (user_id, level_id) do update set liberado = true;
+  update public.profiles set nivel_atual = p_level_id where id = v_user;
+end;
+$$;
+
+-- Privilégios: retira tudo e concede função por função (ver migração 0005).
+revoke execute on all functions in schema public from public, anon, authenticated;
+grant execute on function public.minhas_ligas() to authenticated;
+grant execute on function public.registrar_triagem(jsonb) to authenticated;
+grant execute on function public.declarar_liberacao_medica() to authenticated;
+grant execute on function public.definir_compromisso(integer) to authenticated;
+grant execute on function public.registrar_convite(text) to authenticated;
+grant execute on function public.concluir_onboarding() to authenticated;
+grant execute on function public.convite_publico(text) to anon, authenticated;
+grant execute on function public.ler_trilha() to authenticated;
+grant execute on function public.concluir_desafio_provisorio(text) to authenticated;
+grant execute on function public.abrir_bau(text, integer) to authenticated;
+grant execute on function public.pular_para_secao(integer) to authenticated;
+grant execute on all functions in schema public to service_role;
+
 -- >>> seed.sql
 -- Hive Break · Seed de conteúdo fixo.
 -- Fase 1: os 8 níveis (seção 6.1) e as 12 conquistas (seção 9.6).
@@ -836,5 +1173,917 @@ insert into public.achievements (id, nome, descricao, criterio) values
   ('nivelamento_melhor', 'Evolução comprovada', 'Refez o nivelamento com melhora.', '{"tipo": "nivelamento_melhora", "valor": 1}')
 on conflict (id) do update
   set nome = excluded.nome, descricao = excluded.descricao, criterio = excluded.criterio;
+
+-- >>> seed_trilha.sql
+-- Hive Break · Seed da trilha: exercícios, unidades, desafios e blocos.
+-- GERADO por scripts/gerar-seed-trilha.ts: não edite à mão. Pode ser rodado
+-- mais de uma vez (atualiza o que já existe).
+
+insert into public.exercises (id, nome, modalidade, camera, definicao, equipamento) values
+  ('agachamento_livre', 'Agachamento livre', 'forca', 'frontal', '{"id":"agachamento_livre","nome":"Agachamento livre","modalidade":"forca","camera":"frontal","formato":"repeticoes","pontos_obrigatorios":["quadril_e","quadril_d","joelho_e","joelho_d","tornozelo_e","tornozelo_d"],"medida_principal":{"tipo":"angulo","pontos":["quadril","joelho","tornozelo"],"lado":"media","espaco":"3d"},"medidas":{"joelho_2d":{"tipo":"angulo","pontos":["quadril","joelho","tornozelo"],"lado":"media","espaco":"2d"},"joelhos_tornozelos":{"tipo":"distancia","pontos":["joelho_e","joelho_d"],"normalizar_por":["tornozelo_e","tornozelo_d"]}},"histerese":5,"fases":[{"nome":"topo","condicao":"medida > 160"},{"nome":"fundo","condicao":"medida < 100"}],"repeticao":["topo","fundo","topo"],"parcial_se":"min_medida < 120","parcial_feedback":"Desça um pouco mais","amplitude":{"extremo":"min","minimo_aceito":100,"ideal":80},"duracao_minima_ms":500,"fase_minima_ms":150,"erros":[{"id":"valgo","condicao":"dist(joelhos) < 0.8 * dist(tornozelos)","fase":"fundo","feedback":"Joelhos para fora"}],"kpis":["reps_validas","reps_parciais","amplitude_media","tempo_excentrico","tempo_concentrico","cadencia"],"variacao_facil":"agachamento_parcial_cadeira","alternativas":{"joelho":"ponte_gluteo"},"instrucoes":["Fique de frente para o celular, com o corpo inteiro na tela.","Pés na largura dos ombros.","Desça até as coxas ficarem paralelas ao chão e suba até estender os joelhos."]}'::jsonb, null),
+  ('afundo_alternado', 'Afundo alternado', 'forca', 'lateral', '{"id":"afundo_alternado","pendente":true}'::jsonb, null),
+  ('flexao_braco', 'Flexão de braço', 'forca', 'lateral', '{"id":"flexao_braco","pendente":true}'::jsonb, null),
+  ('ponte_gluteo', 'Ponte de glúteo', 'forca', 'lateral', '{"id":"ponte_gluteo","pendente":true}'::jsonb, null),
+  ('prancha', 'Prancha', 'core', 'lateral', '{"id":"prancha","pendente":true}'::jsonb, null),
+  ('polichinelo', 'Polichinelo', 'cardio', 'frontal', '{"id":"polichinelo","nome":"Polichinelo","modalidade":"cardio","camera":"frontal","formato":"repeticoes","pontos_obrigatorios":["ombro_e","ombro_d","quadril_e","quadril_d","tornozelo_e","tornozelo_d"],"medida_principal":{"tipo":"distancia","pontos":["tornozelo_e","tornozelo_d"],"normalizar_por":["ombro_e","ombro_d"]},"medidas":{"maos_cabeca":{"tipo":"altura","pontos":["nariz","punho"],"lado":"min","normalizar_por":["ombro_e","ombro_d"]},"maos_ombro":{"tipo":"altura","pontos":["ombro","punho"],"lado":"max","normalizar_por":["ombro_e","ombro_d"]}},"histerese":0.1,"fases":[{"nome":"fechado","condicao":"medida < 1.0 e maos_ombro < 0"},{"nome":"aberto","condicao":"medida > 1.5"}],"repeticao":["fechado","aberto","fechado"],"parcial_se":"max_medida > 1.15","parcial_feedback":"Abra mais as pernas","amplitude":{"extremo":"max","minimo_aceito":1.5,"ideal":2},"duracao_minima_ms":400,"fase_minima_ms":150,"erros":[{"id":"bracos_baixos","quando":"fim_rep","condicao":"max_maos_cabeca < 0","invalida":true,"feedback":"Braços acima da cabeça"}],"kpis":["reps_validas","reps_parciais","cadencia","regularidade"],"variacao_facil":"polichinelo_sem_salto","alternativas":{"joelho":"marcha_estacionaria"},"instrucoes":["Fique de frente para o celular, com o corpo inteiro na tela, inclusive as mãos no alto.","Comece com os pés juntos e os braços ao lado do corpo.","Abra as pernas além da largura dos ombros e leve as mãos acima da cabeça."]}'::jsonb, null),
+  ('skipping', 'Skipping (elevação de joelhos)', 'cardio', 'frontal', '{"id":"skipping","pendente":true}'::jsonb, null),
+  ('mountain_climber', 'Mountain climber', 'condicionamento', 'lateral', '{"id":"mountain_climber","pendente":true}'::jsonb, null),
+  ('elevacao_bracos_y', 'Elevação de braços em Y', 'mobilidade', 'frontal', '{"id":"elevacao_bracos_y","pendente":true}'::jsonb, null),
+  ('alongamento_posterior', 'Alongamento de posterior em pé', 'alongamento', 'lateral', '{"id":"alongamento_posterior","pendente":true}'::jsonb, null),
+  ('marcha_estacionaria', 'Marcha estacionária com braços', 'aquecimento', 'frontal', '{"id":"marcha_estacionaria","pendente":true}'::jsonb, null),
+  ('guerreiro_2', 'Guerreiro II', 'yoga', 'frontal', '{"id":"guerreiro_2","pendente":true}'::jsonb, null),
+  ('postura_arvore', 'Postura da árvore', 'yoga', 'frontal', '{"id":"postura_arvore","pendente":true}'::jsonb, null),
+  ('cachorro_olhando_baixo', 'Cachorro olhando para baixo', 'yoga', 'lateral', '{"id":"cachorro_olhando_baixo","pendente":true}'::jsonb, 'tapete'),
+  ('apoio_uma_perna', 'Apoio em uma perna', 'equilibrio', 'frontal', '{"id":"apoio_uma_perna","nome":"Apoio em uma perna","modalidade":"equilibrio","camera":"frontal","formato":"equilibrio","pontos_obrigatorios":["ombro_e","ombro_d","quadril_e","quadril_d","tornozelo_e","tornozelo_d"],"medida_principal":{"tipo":"altura","pontos":["tornozelo_d","tornozelo_e"],"normalizar_por":["ombro","quadril"]},"histerese":0.04,"fase_minima_ms":150,"sustentacao":{"condicao":"abs(medida) > 0.15","feedback_perda":"Pé tocou o chão","lado":{"medida":"medida","positivo":"e","negativo":"d"},"controle":{"ponto":"quadril","normalizar_por":["ombro","quadril"],"oscilacao_maxima":0.08}},"erros":[],"kpis":["tempo_valido_s","tempo_valido_e_s","tempo_valido_d_s","oscilacao","estabilidade","simetria"],"variacao_facil":"apoio_uma_perna_com_toque","alternativas":{},"instrucoes":["Fique de frente para o celular, com o corpo inteiro na tela.","Tire um pé do chão e segure. Pode ser qualquer perna.","O tempo só corre enquanto o pé estiver no ar."]}'::jsonb, null),
+  ('toque_alvos', 'Toque nos alvos', 'precisao', 'frontal', '{"id":"toque_alvos","pendente":true}'::jsonb, null),
+  ('respiracao_guiada', 'Respiração guiada', 'respiracao', 'frontal', '{"id":"respiracao_guiada","pendente":true}'::jsonb, null),
+  ('agachamento_bastao', 'Agachamento com bastão acima da cabeça', 'mobilidade', 'frontal', '{"id":"agachamento_bastao","pendente":true}'::jsonb, 'cabo_vassoura'),
+  ('bom_dia_bastao', 'Bom-dia com bastão', 'forca', 'lateral', '{"id":"bom_dia_bastao","pendente":true}'::jsonb, 'cabo_vassoura')
+on conflict (id) do update set nome = excluded.nome, modalidade = excluded.modalidade, camera = excluded.camera,
+  definicao = excluded.definicao, equipamento = excluded.equipamento;
+
+insert into public.units (id, level_id, ordem, titulo, descricao) values
+  ('n1u1', 1, 1, 'Acordando o corpo', 'Os primeiros movimentos, sem pressa.'),
+  ('n1u2', 1, 2, 'Pernas firmes', 'A base de tudo: agachar e sustentar.'),
+  ('n1u3', 1, 3, 'Fôlego novo', 'Um pouco mais de ritmo a cada dia.'),
+  ('n2u1', 2, 1, 'Agachar bem', 'Técnica antes de quantidade.'),
+  ('n2u2', 2, 2, 'Tronco estável', 'Centro do corpo forte e alinhado.'),
+  ('n2u3', 2, 3, 'Ritmo constante', 'Manter o passo do começo ao fim.'),
+  ('n3u1', 3, 1, 'Um pé de cada vez', 'Equilíbrio em uma perna.'),
+  ('n3u2', 3, 2, 'Centro forte', 'CORE para segurar qualquer movimento.'),
+  ('n3u3', 3, 3, 'Controle total', 'Devagar e bem feito.'),
+  ('n4u1', 4, 1, 'Passo marcado', 'Cadência e coordenação.'),
+  ('n4u2', 4, 2, 'Coração acelerado', 'Condicionamento em blocos curtos.'),
+  ('n4u3', 4, 3, 'Sem perder o compasso', 'Ritmo com técnica.'),
+  ('n5u1', 5, 1, 'No tapete', 'Hora de ir para o chão.'),
+  ('n5u2', 5, 2, 'Prancha e ponte', 'Força de tronco e glúteos.'),
+  ('n5u3', 5, 3, 'Força de chão', 'Empurrar o próprio peso.'),
+  ('n6u1', 6, 1, 'Explosão', 'Mais velocidade, mesma qualidade.'),
+  ('n6u2', 6, 2, 'Empurrar e subir', 'Braços e pernas trabalhando juntos.'),
+  ('n6u3', 6, 3, 'Motor ligado', 'Sessões longas de fôlego.'),
+  ('n7u1', 7, 1, 'Com o bastão', 'O cabo de vassoura entra no treino.'),
+  ('n7u2', 7, 2, 'Ombros livres', 'Amplitude acima da cabeça.'),
+  ('n7u3', 7, 3, 'Quadril solto', 'Mobilidade de posterior e quadril.'),
+  ('n8u1', 8, 1, 'Tudo junto', 'Todos os movimentos numa sessão.'),
+  ('n8u2', 8, 2, 'No limite', 'Seu melhor em cada desafio.'),
+  ('n8u3', 8, 3, 'Colmeia completa', 'A última unidade da trilha.')
+on conflict (id) do update set titulo = excluded.titulo, descricao = excluded.descricao, ordem = excluded.ordem;
+
+insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, equipamento, opcional_em_8, extra_em_12, tipo) values
+  ('n1u1d01', 1, 'n1u1', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n1u1d02', 1, 'n1u1', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n1u1d03', 1, 'n1u1', 3, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n1u1d04', 1, 'n1u1', 4, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n1u1d05', 1, 'n1u1', 5, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n1u1d06', 1, 'n1u1', 6, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n1u1d07', 1, 'n1u1', 7, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n1u1d08', 1, 'n1u1', 8, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n1u1final', 1, 'n1u1', 9, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n1u2d01', 1, 'n1u2', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n1u2d02', 1, 'n1u2', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n1u2d03', 1, 'n1u2', 3, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n1u2d04', 1, 'n1u2', 4, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n1u2d05', 1, 'n1u2', 5, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n1u2d06', 1, 'n1u2', 6, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n1u2d07', 1, 'n1u2', 7, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n1u2d08', 1, 'n1u2', 8, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n1u2final', 1, 'n1u2', 9, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n1u3d01', 1, 'n1u3', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n1u3d02', 1, 'n1u3', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n1u3d03', 1, 'n1u3', 3, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n1u3d04', 1, 'n1u3', 4, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n1u3d05', 1, 'n1u3', 5, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n1u3d06', 1, 'n1u3', 6, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n1u3d07', 1, 'n1u3', 7, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n1u3d08', 1, 'n1u3', 8, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n1u3final', 1, 'n1u3', 9, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n2u1d01', 2, 'n2u1', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n2u1d02', 2, 'n2u1', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n2u1d03', 2, 'n2u1', 3, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n2u1d04', 2, 'n2u1', 4, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n2u1d05', 2, 'n2u1', 5, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n2u1d06', 2, 'n2u1', 6, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n2u1d07', 2, 'n2u1', 7, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n2u1d08', 2, 'n2u1', 8, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n2u1final', 2, 'n2u1', 9, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n2u2d01', 2, 'n2u2', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n2u2d02', 2, 'n2u2', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n2u2d03', 2, 'n2u2', 3, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n2u2d04', 2, 'n2u2', 4, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n2u2d05', 2, 'n2u2', 5, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n2u2d06', 2, 'n2u2', 6, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n2u2d07', 2, 'n2u2', 7, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n2u2d08', 2, 'n2u2', 8, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n2u2final', 2, 'n2u2', 9, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n2u3d01', 2, 'n2u3', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n2u3d02', 2, 'n2u3', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n2u3d03', 2, 'n2u3', 3, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n2u3d04', 2, 'n2u3', 4, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n2u3d05', 2, 'n2u3', 5, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n2u3d06', 2, 'n2u3', 6, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n2u3d07', 2, 'n2u3', 7, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n2u3d08', 2, 'n2u3', 8, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n2u3final', 2, 'n2u3', 9, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n3u1d01', 3, 'n3u1', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n3u1d02', 3, 'n3u1', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n3u1d03', 3, 'n3u1', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n3u1d04', 3, 'n3u1', 4, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n3u1d05', 3, 'n3u1', 5, 'Força de tronco e braços', 'forca', 300, 'media', null, true, false, 'desafio'),
+  ('n3u1d06', 3, 'n3u1', 6, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n3u1d07', 3, 'n3u1', 7, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n3u1d08', 3, 'n3u1', 8, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n3u1d09', 3, 'n3u1', 9, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n3u1d10', 3, 'n3u1', 10, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n3u1final', 3, 'n3u1', 11, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n3u2d01', 3, 'n3u2', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n3u2d02', 3, 'n3u2', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n3u2d03', 3, 'n3u2', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n3u2d04', 3, 'n3u2', 4, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n3u2d05', 3, 'n3u2', 5, 'Força de tronco e braços', 'forca', 300, 'media', null, true, false, 'desafio'),
+  ('n3u2d06', 3, 'n3u2', 6, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n3u2d07', 3, 'n3u2', 7, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n3u2d08', 3, 'n3u2', 8, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n3u2d09', 3, 'n3u2', 9, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n3u2d10', 3, 'n3u2', 10, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n3u2final', 3, 'n3u2', 11, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n3u3d01', 3, 'n3u3', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n3u3d02', 3, 'n3u3', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n3u3d03', 3, 'n3u3', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n3u3d04', 3, 'n3u3', 4, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n3u3d05', 3, 'n3u3', 5, 'Força de tronco e braços', 'forca', 300, 'media', null, true, false, 'desafio'),
+  ('n3u3d06', 3, 'n3u3', 6, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n3u3d07', 3, 'n3u3', 7, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n3u3d08', 3, 'n3u3', 8, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n3u3d09', 3, 'n3u3', 9, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n3u3d10', 3, 'n3u3', 10, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n3u3final', 3, 'n3u3', 11, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n4u1d01', 4, 'n4u1', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n4u1d02', 4, 'n4u1', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n4u1d03', 4, 'n4u1', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n4u1d04', 4, 'n4u1', 4, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n4u1d05', 4, 'n4u1', 5, 'Força de tronco e braços', 'forca', 300, 'media', null, true, false, 'desafio'),
+  ('n4u1d06', 4, 'n4u1', 6, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n4u1d07', 4, 'n4u1', 7, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n4u1d08', 4, 'n4u1', 8, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n4u1d09', 4, 'n4u1', 9, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n4u1d10', 4, 'n4u1', 10, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n4u1final', 4, 'n4u1', 11, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n4u2d01', 4, 'n4u2', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n4u2d02', 4, 'n4u2', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n4u2d03', 4, 'n4u2', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n4u2d04', 4, 'n4u2', 4, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n4u2d05', 4, 'n4u2', 5, 'Força de tronco e braços', 'forca', 300, 'media', null, true, false, 'desafio'),
+  ('n4u2d06', 4, 'n4u2', 6, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n4u2d07', 4, 'n4u2', 7, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n4u2d08', 4, 'n4u2', 8, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n4u2d09', 4, 'n4u2', 9, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n4u2d10', 4, 'n4u2', 10, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n4u2final', 4, 'n4u2', 11, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n4u3d01', 4, 'n4u3', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n4u3d02', 4, 'n4u3', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n4u3d03', 4, 'n4u3', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n4u3d04', 4, 'n4u3', 4, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n4u3d05', 4, 'n4u3', 5, 'Força de tronco e braços', 'forca', 300, 'media', null, true, false, 'desafio'),
+  ('n4u3d06', 4, 'n4u3', 6, 'CORE', 'core', 270, 'media', null, false, false, 'desafio'),
+  ('n4u3d07', 4, 'n4u3', 7, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n4u3d08', 4, 'n4u3', 8, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n4u3d09', 4, 'n4u3', 9, 'Yoga e alongamento', 'yoga', 300, 'baixa', null, false, false, 'desafio'),
+  ('n4u3d10', 4, 'n4u3', 10, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n4u3final', 4, 'n4u3', 11, 'Desafio da unidade', 'desafio_final', 300, 'media', null, false, false, 'final'),
+  ('n5u1d01', 5, 'n5u1', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n5u1d02', 5, 'n5u1', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n5u1d03', 5, 'n5u1', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n5u1d04', 5, 'n5u1', 4, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n5u1d05', 5, 'n5u1', 5, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n5u1d06', 5, 'n5u1', 6, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n5u1d07', 5, 'n5u1', 7, 'Condicionamento', 'condicionamento', 300, 'alta', 'tapete', false, false, 'desafio'),
+  ('n5u1d08', 5, 'n5u1', 8, 'HIIT', 'hiit', 270, 'alta', 'tapete', false, false, 'desafio'),
+  ('n5u1d09', 5, 'n5u1', 9, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n5u1d10', 5, 'n5u1', 10, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n5u1final', 5, 'n5u1', 11, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n5u2d01', 5, 'n5u2', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n5u2d02', 5, 'n5u2', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n5u2d03', 5, 'n5u2', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n5u2d04', 5, 'n5u2', 4, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n5u2d05', 5, 'n5u2', 5, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n5u2d06', 5, 'n5u2', 6, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n5u2d07', 5, 'n5u2', 7, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n5u2d08', 5, 'n5u2', 8, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n5u2d09', 5, 'n5u2', 9, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n5u2d10', 5, 'n5u2', 10, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n5u2final', 5, 'n5u2', 11, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n5u3d01', 5, 'n5u3', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n5u3d02', 5, 'n5u3', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n5u3d03', 5, 'n5u3', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n5u3d04', 5, 'n5u3', 4, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n5u3d05', 5, 'n5u3', 5, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n5u3d06', 5, 'n5u3', 6, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n5u3d07', 5, 'n5u3', 7, 'Condicionamento', 'condicionamento', 300, 'alta', 'tapete', false, false, 'desafio'),
+  ('n5u3d08', 5, 'n5u3', 8, 'HIIT', 'hiit', 270, 'alta', 'tapete', false, false, 'desafio'),
+  ('n5u3d09', 5, 'n5u3', 9, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n5u3d10', 5, 'n5u3', 10, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n5u3final', 5, 'n5u3', 11, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n6u1d01', 6, 'n6u1', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n6u1d02', 6, 'n6u1', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n6u1d03', 6, 'n6u1', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n6u1d04', 6, 'n6u1', 4, 'Precisão', 'precisao', 210, 'media', null, false, true, 'desafio'),
+  ('n6u1d05', 6, 'n6u1', 5, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n6u1d06', 6, 'n6u1', 6, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n6u1d07', 6, 'n6u1', 7, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n6u1d08', 6, 'n6u1', 8, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n6u1d09', 6, 'n6u1', 9, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n6u1d10', 6, 'n6u1', 10, 'Mobilidade dinâmica', 'mobilidade', 270, 'baixa', null, false, true, 'desafio'),
+  ('n6u1d11', 6, 'n6u1', 11, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n6u1d12', 6, 'n6u1', 12, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n6u1final', 6, 'n6u1', 13, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n6u2d01', 6, 'n6u2', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n6u2d02', 6, 'n6u2', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n6u2d03', 6, 'n6u2', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n6u2d04', 6, 'n6u2', 4, 'Precisão', 'precisao', 210, 'media', null, false, true, 'desafio'),
+  ('n6u2d05', 6, 'n6u2', 5, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n6u2d06', 6, 'n6u2', 6, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n6u2d07', 6, 'n6u2', 7, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n6u2d08', 6, 'n6u2', 8, 'Condicionamento', 'condicionamento', 300, 'alta', 'tapete', false, false, 'desafio'),
+  ('n6u2d09', 6, 'n6u2', 9, 'HIIT', 'hiit', 270, 'alta', 'tapete', false, false, 'desafio'),
+  ('n6u2d10', 6, 'n6u2', 10, 'Mobilidade dinâmica', 'mobilidade', 270, 'baixa', null, false, true, 'desafio'),
+  ('n6u2d11', 6, 'n6u2', 11, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n6u2d12', 6, 'n6u2', 12, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n6u2final', 6, 'n6u2', 13, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n6u3d01', 6, 'n6u3', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n6u3d02', 6, 'n6u3', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', null, false, false, 'desafio'),
+  ('n6u3d03', 6, 'n6u3', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n6u3d04', 6, 'n6u3', 4, 'Precisão', 'precisao', 210, 'media', null, false, true, 'desafio'),
+  ('n6u3d05', 6, 'n6u3', 5, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n6u3d06', 6, 'n6u3', 6, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n6u3d07', 6, 'n6u3', 7, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n6u3d08', 6, 'n6u3', 8, 'Condicionamento', 'condicionamento', 300, 'alta', 'tapete', false, false, 'desafio'),
+  ('n6u3d09', 6, 'n6u3', 9, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n6u3d10', 6, 'n6u3', 10, 'Mobilidade dinâmica', 'mobilidade', 270, 'baixa', null, false, true, 'desafio'),
+  ('n6u3d11', 6, 'n6u3', 11, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n6u3d12', 6, 'n6u3', 12, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n6u3final', 6, 'n6u3', 13, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n7u1d01', 7, 'n7u1', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n7u1d02', 7, 'n7u1', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, false, 'desafio'),
+  ('n7u1d03', 7, 'n7u1', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n7u1d04', 7, 'n7u1', 4, 'Precisão', 'precisao', 210, 'media', null, false, true, 'desafio'),
+  ('n7u1d05', 7, 'n7u1', 5, 'Força de pernas', 'forca', 300, 'media', 'cabo_vassoura', false, false, 'desafio'),
+  ('n7u1d06', 7, 'n7u1', 6, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n7u1d07', 7, 'n7u1', 7, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n7u1d08', 7, 'n7u1', 8, 'Condicionamento', 'condicionamento', 300, 'alta', 'tapete', false, false, 'desafio'),
+  ('n7u1d09', 7, 'n7u1', 9, 'HIIT', 'hiit', 270, 'alta', 'tapete', false, false, 'desafio'),
+  ('n7u1d10', 7, 'n7u1', 10, 'Mobilidade dinâmica', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, true, 'desafio'),
+  ('n7u1d11', 7, 'n7u1', 11, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n7u1d12', 7, 'n7u1', 12, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n7u1final', 7, 'n7u1', 13, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n7u2d01', 7, 'n7u2', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n7u2d02', 7, 'n7u2', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, false, 'desafio'),
+  ('n7u2d03', 7, 'n7u2', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n7u2d04', 7, 'n7u2', 4, 'Precisão', 'precisao', 210, 'media', null, false, true, 'desafio'),
+  ('n7u2d05', 7, 'n7u2', 5, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n7u2d06', 7, 'n7u2', 6, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n7u2d07', 7, 'n7u2', 7, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n7u2d08', 7, 'n7u2', 8, 'Condicionamento', 'condicionamento', 300, 'alta', 'tapete', false, false, 'desafio'),
+  ('n7u2d09', 7, 'n7u2', 9, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n7u2d10', 7, 'n7u2', 10, 'Mobilidade dinâmica', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, true, 'desafio'),
+  ('n7u2d11', 7, 'n7u2', 11, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n7u2d12', 7, 'n7u2', 12, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n7u2final', 7, 'n7u2', 13, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n7u3d01', 7, 'n7u3', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n7u3d02', 7, 'n7u3', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, false, 'desafio'),
+  ('n7u3d03', 7, 'n7u3', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n7u3d04', 7, 'n7u3', 4, 'Precisão', 'precisao', 210, 'media', null, false, true, 'desafio'),
+  ('n7u3d05', 7, 'n7u3', 5, 'Força de pernas', 'forca', 300, 'media', 'cabo_vassoura', false, false, 'desafio'),
+  ('n7u3d06', 7, 'n7u3', 6, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n7u3d07', 7, 'n7u3', 7, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n7u3d08', 7, 'n7u3', 8, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n7u3d09', 7, 'n7u3', 9, 'HIIT', 'hiit', 270, 'alta', 'tapete', false, false, 'desafio'),
+  ('n7u3d10', 7, 'n7u3', 10, 'Mobilidade dinâmica', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, true, 'desafio'),
+  ('n7u3d11', 7, 'n7u3', 11, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n7u3d12', 7, 'n7u3', 12, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n7u3final', 7, 'n7u3', 13, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n8u1d01', 8, 'n8u1', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n8u1d02', 8, 'n8u1', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, false, 'desafio'),
+  ('n8u1d03', 8, 'n8u1', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n8u1d04', 8, 'n8u1', 4, 'Precisão', 'precisao', 210, 'media', null, false, true, 'desafio'),
+  ('n8u1d05', 8, 'n8u1', 5, 'Força de pernas', 'forca', 300, 'media', null, false, false, 'desafio'),
+  ('n8u1d06', 8, 'n8u1', 6, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n8u1d07', 8, 'n8u1', 7, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n8u1d08', 8, 'n8u1', 8, 'Condicionamento', 'condicionamento', 300, 'alta', 'tapete', false, false, 'desafio'),
+  ('n8u1d09', 8, 'n8u1', 9, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n8u1d10', 8, 'n8u1', 10, 'Mobilidade dinâmica', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, true, 'desafio'),
+  ('n8u1d11', 8, 'n8u1', 11, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n8u1d12', 8, 'n8u1', 12, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n8u1final', 8, 'n8u1', 13, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n8u2d01', 8, 'n8u2', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n8u2d02', 8, 'n8u2', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, false, 'desafio'),
+  ('n8u2d03', 8, 'n8u2', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n8u2d04', 8, 'n8u2', 4, 'Precisão', 'precisao', 210, 'media', null, false, true, 'desafio'),
+  ('n8u2d05', 8, 'n8u2', 5, 'Força de pernas', 'forca', 300, 'media', 'cabo_vassoura', false, false, 'desafio'),
+  ('n8u2d06', 8, 'n8u2', 6, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n8u2d07', 8, 'n8u2', 7, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n8u2d08', 8, 'n8u2', 8, 'Condicionamento', 'condicionamento', 300, 'alta', null, false, false, 'desafio'),
+  ('n8u2d09', 8, 'n8u2', 9, 'HIIT', 'hiit', 270, 'alta', 'tapete', false, false, 'desafio'),
+  ('n8u2d10', 8, 'n8u2', 10, 'Mobilidade dinâmica', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, true, 'desafio'),
+  ('n8u2d11', 8, 'n8u2', 11, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n8u2d12', 8, 'n8u2', 12, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n8u2final', 8, 'n8u2', 13, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final'),
+  ('n8u3d01', 8, 'n8u3', 1, 'Aquecimento', 'aquecimento', 210, 'baixa', null, false, false, 'desafio'),
+  ('n8u3d02', 8, 'n8u3', 2, 'Mobilidade articular', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, false, 'desafio'),
+  ('n8u3d03', 8, 'n8u3', 3, 'Equilíbrio', 'equilibrio', 210, 'baixa', null, true, false, 'desafio'),
+  ('n8u3d04', 8, 'n8u3', 4, 'Precisão', 'precisao', 210, 'media', null, false, true, 'desafio'),
+  ('n8u3d05', 8, 'n8u3', 5, 'Força de pernas', 'forca', 300, 'media', 'cabo_vassoura', false, false, 'desafio'),
+  ('n8u3d06', 8, 'n8u3', 6, 'Força de tronco e braços', 'forca', 300, 'media', 'tapete', true, false, 'desafio'),
+  ('n8u3d07', 8, 'n8u3', 7, 'CORE', 'core', 270, 'media', 'tapete', false, false, 'desafio'),
+  ('n8u3d08', 8, 'n8u3', 8, 'Condicionamento', 'condicionamento', 300, 'alta', 'tapete', false, false, 'desafio'),
+  ('n8u3d09', 8, 'n8u3', 9, 'HIIT', 'hiit', 270, 'alta', null, false, false, 'desafio'),
+  ('n8u3d10', 8, 'n8u3', 10, 'Mobilidade dinâmica', 'mobilidade', 270, 'baixa', 'cabo_vassoura', false, true, 'desafio'),
+  ('n8u3d11', 8, 'n8u3', 11, 'Yoga e alongamento', 'yoga', 300, 'baixa', 'tapete', false, false, 'desafio'),
+  ('n8u3d12', 8, 'n8u3', 12, 'Volta à calma e respiração', 'respiracao', 270, 'baixa', null, false, false, 'desafio'),
+  ('n8u3final', 8, 'n8u3', 13, 'Desafio da unidade', 'desafio_final', 300, 'media', 'tapete', false, false, 'final')
+on conflict (id) do update set ordem = excluded.ordem, titulo = excluded.titulo, modalidade = excluded.modalidade,
+  duracao_s = excluded.duracao_s, intensidade = excluded.intensidade, equipamento = excluded.equipamento, tipo = excluded.tipo;
+
+insert into public.challenge_blocks (id, challenge_id, ordem, exercise_id, formato, series, parametros_por_dificuldade, descanso_s) values
+  ('n1u1d01b1', 'n1u1d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n1u1d01b2', 'n1u1d01', 2, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n1u1d02b1', 'n1u1d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u1d02b2', 'n1u1d02', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u1d03b1', 'n1u1d03', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":300}}'::jsonb, 0),
+  ('n1u1d04b1', 'n1u1d04', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u1d04b2', 'n1u1d04', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u1d05b1', 'n1u1d05', 1, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u1d05b2', 'n1u1d05', 2, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u1d06b1', 'n1u1d06', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n1u1d06b2', 'n1u1d06', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n1u1d06b3', 'n1u1d06', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n1u1d07b1', 'n1u1d07', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u1d07b2', 'n1u1d07', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u1d07b3', 'n1u1d07', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u1d08b1', 'n1u1d08', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n1u1finalb1', 'n1u1final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u1finalb2', 'n1u1final', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u1finalb3', 'n1u1final', 3, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u2d01b1', 'n1u2d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n1u2d01b2', 'n1u2d01', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n1u2d02b1', 'n1u2d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u2d02b2', 'n1u2d02', 2, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u2d03b1', 'n1u2d03', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u2d03b2', 'n1u2d03', 2, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u2d04b1', 'n1u2d04', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u2d04b2', 'n1u2d04', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u2d05b1', 'n1u2d05', 1, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u2d05b2', 'n1u2d05', 2, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u2d06b1', 'n1u2d06', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n1u2d06b2', 'n1u2d06', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n1u2d06b3', 'n1u2d06', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n1u2d07b1', 'n1u2d07', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u2d07b2', 'n1u2d07', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u2d07b3', 'n1u2d07', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u2d08b1', 'n1u2d08', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u2d08b2', 'n1u2d08', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u2finalb1', 'n1u2final', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u2finalb2', 'n1u2final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u2finalb3', 'n1u2final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u3d01b1', 'n1u3d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n1u3d01b2', 'n1u3d01', 2, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n1u3d02b1', 'n1u3d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u3d02b2', 'n1u3d02', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u3d03b1', 'n1u3d03', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u3d03b2', 'n1u3d03', 2, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u3d04b1', 'n1u3d04', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u3d04b2', 'n1u3d04', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n1u3d05b1', 'n1u3d05', 1, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u3d05b2', 'n1u3d05', 2, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n1u3d06b1', 'n1u3d06', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n1u3d06b2', 'n1u3d06', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n1u3d06b3', 'n1u3d06', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n1u3d07b1', 'n1u3d07', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u3d07b2', 'n1u3d07', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u3d07b3', 'n1u3d07', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u3d08b1', 'n1u3d08', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n1u3finalb1', 'n1u3final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u3finalb2', 'n1u3final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n1u3finalb3', 'n1u3final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u1d01b1', 'n2u1d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n2u1d01b2', 'n2u1d01', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n2u1d02b1', 'n2u1d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u1d02b2', 'n2u1d02', 2, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u1d03b1', 'n2u1d03', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u1d03b2', 'n2u1d03', 2, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u1d04b1', 'n2u1d04', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u1d04b2', 'n2u1d04', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u1d05b1', 'n2u1d05', 1, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u1d05b2', 'n2u1d05', 2, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u1d06b1', 'n2u1d06', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n2u1d06b2', 'n2u1d06', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n2u1d06b3', 'n2u1d06', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n2u1d07b1', 'n2u1d07', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u1d07b2', 'n2u1d07', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u1d07b3', 'n2u1d07', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u1d08b1', 'n2u1d08', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u1d08b2', 'n2u1d08', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u1finalb1', 'n2u1final', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u1finalb2', 'n2u1final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u1finalb3', 'n2u1final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u2d01b1', 'n2u2d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n2u2d01b2', 'n2u2d01', 2, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n2u2d02b1', 'n2u2d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u2d02b2', 'n2u2d02', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u2d03b1', 'n2u2d03', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u2d03b2', 'n2u2d03', 2, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u2d04b1', 'n2u2d04', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u2d04b2', 'n2u2d04', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u2d05b1', 'n2u2d05', 1, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u2d05b2', 'n2u2d05', 2, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u2d06b1', 'n2u2d06', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n2u2d06b2', 'n2u2d06', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n2u2d06b3', 'n2u2d06', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n2u2d07b1', 'n2u2d07', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u2d07b2', 'n2u2d07', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u2d07b3', 'n2u2d07', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u2d08b1', 'n2u2d08', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n2u2finalb1', 'n2u2final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u2finalb2', 'n2u2final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u2finalb3', 'n2u2final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u3d01b1', 'n2u3d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n2u3d01b2', 'n2u3d01', 2, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n2u3d02b1', 'n2u3d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u3d02b2', 'n2u3d02', 2, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u3d03b1', 'n2u3d03', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":300}}'::jsonb, 0),
+  ('n2u3d04b1', 'n2u3d04', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u3d04b2', 'n2u3d04', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u3d05b1', 'n2u3d05', 1, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u3d05b2', 'n2u3d05', 2, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n2u3d06b1', 'n2u3d06', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n2u3d06b2', 'n2u3d06', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n2u3d06b3', 'n2u3d06', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n2u3d07b1', 'n2u3d07', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u3d07b2', 'n2u3d07', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u3d07b3', 'n2u3d07', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u3d08b1', 'n2u3d08', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u3d08b2', 'n2u3d08', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n2u3finalb1', 'n2u3final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u3finalb2', 'n2u3final', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n2u3finalb3', 'n2u3final', 3, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u1d01b1', 'n3u1d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u1d01b2', 'n3u1d01', 2, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u1d02b1', 'n3u1d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u1d02b2', 'n3u1d02', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u1d03b1', 'n3u1d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n3u1d04b1', 'n3u1d04', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u1d04b2', 'n3u1d04', 2, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u1d05b1', 'n3u1d05', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u1d05b2', 'n3u1d05', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u1d06b1', 'n3u1d06', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u1d06b2', 'n3u1d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u1d07b1', 'n3u1d07', 1, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u1d07b2', 'n3u1d07', 2, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u1d08b1', 'n3u1d08', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n3u1d08b2', 'n3u1d08', 2, 'mountain_climber', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n3u1d08b3', 'n3u1d08', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n3u1d09b1', 'n3u1d09', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u1d09b2', 'n3u1d09', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u1d09b3', 'n3u1d09', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u1d10b1', 'n3u1d10', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n3u1finalb1', 'n3u1final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u1finalb2', 'n3u1final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u1finalb3', 'n3u1final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u2d01b1', 'n3u2d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u2d01b2', 'n3u2d01', 2, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u2d02b1', 'n3u2d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u2d02b2', 'n3u2d02', 2, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u2d03b1', 'n3u2d03', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u2d03b2', 'n3u2d03', 2, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u2d04b1', 'n3u2d04', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":300}}'::jsonb, 0),
+  ('n3u2d05b1', 'n3u2d05', 1, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u2d05b2', 'n3u2d05', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u2d06b1', 'n3u2d06', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u2d06b2', 'n3u2d06', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u2d07b1', 'n3u2d07', 1, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u2d07b2', 'n3u2d07', 2, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u2d08b1', 'n3u2d08', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n3u2d08b2', 'n3u2d08', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n3u2d08b3', 'n3u2d08', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n3u2d09b1', 'n3u2d09', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u2d09b2', 'n3u2d09', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u2d09b3', 'n3u2d09', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u2d10b1', 'n3u2d10', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u2d10b2', 'n3u2d10', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u2finalb1', 'n3u2final', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u2finalb2', 'n3u2final', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u2finalb3', 'n3u2final', 3, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u3d01b1', 'n3u3d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u3d01b2', 'n3u3d01', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u3d02b1', 'n3u3d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u3d02b2', 'n3u3d02', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u3d03b1', 'n3u3d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u3d03b2', 'n3u3d03', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n3u3d04b1', 'n3u3d04', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u3d04b2', 'n3u3d04', 2, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u3d05b1', 'n3u3d05', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u3d05b2', 'n3u3d05', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u3d06b1', 'n3u3d06', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u3d06b2', 'n3u3d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n3u3d07b1', 'n3u3d07', 1, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u3d07b2', 'n3u3d07', 2, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n3u3d08b1', 'n3u3d08', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n3u3d08b2', 'n3u3d08', 2, 'mountain_climber', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n3u3d08b3', 'n3u3d08', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n3u3d09b1', 'n3u3d09', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u3d09b2', 'n3u3d09', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u3d09b3', 'n3u3d09', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u3d10b1', 'n3u3d10', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n3u3finalb1', 'n3u3final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u3finalb2', 'n3u3final', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n3u3finalb3', 'n3u3final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u1d01b1', 'n4u1d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u1d01b2', 'n4u1d01', 2, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u1d02b1', 'n4u1d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u1d02b2', 'n4u1d02', 2, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u1d03b1', 'n4u1d03', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u1d03b2', 'n4u1d03', 2, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u1d04b1', 'n4u1d04', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":300}}'::jsonb, 0),
+  ('n4u1d05b1', 'n4u1d05', 1, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u1d05b2', 'n4u1d05', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u1d06b1', 'n4u1d06', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u1d06b2', 'n4u1d06', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u1d07b1', 'n4u1d07', 1, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u1d07b2', 'n4u1d07', 2, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u1d08b1', 'n4u1d08', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n4u1d08b2', 'n4u1d08', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n4u1d08b3', 'n4u1d08', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n4u1d09b1', 'n4u1d09', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u1d09b2', 'n4u1d09', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u1d09b3', 'n4u1d09', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u1d10b1', 'n4u1d10', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u1d10b2', 'n4u1d10', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u1finalb1', 'n4u1final', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u1finalb2', 'n4u1final', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u1finalb3', 'n4u1final', 3, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u2d01b1', 'n4u2d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u2d01b2', 'n4u2d01', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u2d02b1', 'n4u2d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u2d02b2', 'n4u2d02', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u2d03b1', 'n4u2d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u2d03b2', 'n4u2d03', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u2d04b1', 'n4u2d04', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u2d04b2', 'n4u2d04', 2, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u2d05b1', 'n4u2d05', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u2d05b2', 'n4u2d05', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u2d06b1', 'n4u2d06', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u2d06b2', 'n4u2d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u2d07b1', 'n4u2d07', 1, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u2d07b2', 'n4u2d07', 2, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u2d08b1', 'n4u2d08', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n4u2d08b2', 'n4u2d08', 2, 'mountain_climber', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n4u2d08b3', 'n4u2d08', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n4u2d09b1', 'n4u2d09', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u2d09b2', 'n4u2d09', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u2d09b3', 'n4u2d09', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u2d10b1', 'n4u2d10', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n4u2finalb1', 'n4u2final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u2finalb2', 'n4u2final', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u2finalb3', 'n4u2final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u3d01b1', 'n4u3d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u3d01b2', 'n4u3d01', 2, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n4u3d02b1', 'n4u3d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u3d02b2', 'n4u3d02', 2, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u3d03b1', 'n4u3d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n4u3d04b1', 'n4u3d04', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u3d04b2', 'n4u3d04', 2, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u3d05b1', 'n4u3d05', 1, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u3d05b2', 'n4u3d05', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u3d06b1', 'n4u3d06', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u3d06b2', 'n4u3d06', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u3d07b1', 'n4u3d07', 1, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u3d07b2', 'n4u3d07', 2, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n4u3d08b1', 'n4u3d08', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n4u3d08b2', 'n4u3d08', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n4u3d08b3', 'n4u3d08', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n4u3d09b1', 'n4u3d09', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u3d09b2', 'n4u3d09', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u3d09b3', 'n4u3d09', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u3d10b1', 'n4u3d10', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u3d10b2', 'n4u3d10', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n4u3finalb1', 'n4u3final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u3finalb2', 'n4u3final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n4u3finalb3', 'n4u3final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u1d01b1', 'n5u1d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u1d01b2', 'n5u1d01', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u1d02b1', 'n5u1d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u1d02b2', 'n5u1d02', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u1d03b1', 'n5u1d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u1d03b2', 'n5u1d03', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u1d04b1', 'n5u1d04', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u1d04b2', 'n5u1d04', 2, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u1d05b1', 'n5u1d05', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u1d05b2', 'n5u1d05', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u1d06b1', 'n5u1d06', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u1d06b2', 'n5u1d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u1d07b1', 'n5u1d07', 1, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u1d07b2', 'n5u1d07', 2, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u1d08b1', 'n5u1d08', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n5u1d08b2', 'n5u1d08', 2, 'mountain_climber', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n5u1d08b3', 'n5u1d08', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n5u1d09b1', 'n5u1d09', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u1d09b2', 'n5u1d09', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u1d09b3', 'n5u1d09', 3, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u1d10b1', 'n5u1d10', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n5u1finalb1', 'n5u1final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u1finalb2', 'n5u1final', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u1finalb3', 'n5u1final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u2d01b1', 'n5u2d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u2d01b2', 'n5u2d01', 2, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u2d02b1', 'n5u2d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u2d02b2', 'n5u2d02', 2, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u2d03b1', 'n5u2d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n5u2d04b1', 'n5u2d04', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u2d04b2', 'n5u2d04', 2, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u2d05b1', 'n5u2d05', 1, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u2d05b2', 'n5u2d05', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u2d06b1', 'n5u2d06', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u2d06b2', 'n5u2d06', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u2d07b1', 'n5u2d07', 1, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u2d07b2', 'n5u2d07', 2, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u2d08b1', 'n5u2d08', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n5u2d08b2', 'n5u2d08', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n5u2d08b3', 'n5u2d08', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n5u2d09b1', 'n5u2d09', 1, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u2d09b2', 'n5u2d09', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u2d09b3', 'n5u2d09', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u2d10b1', 'n5u2d10', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u2d10b2', 'n5u2d10', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u2finalb1', 'n5u2final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u2finalb2', 'n5u2final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u2finalb3', 'n5u2final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u3d01b1', 'n5u3d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u3d01b2', 'n5u3d01', 2, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u3d02b1', 'n5u3d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u3d02b2', 'n5u3d02', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u3d03b1', 'n5u3d03', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u3d03b2', 'n5u3d03', 2, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n5u3d04b1', 'n5u3d04', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":300}}'::jsonb, 0),
+  ('n5u3d05b1', 'n5u3d05', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u3d05b2', 'n5u3d05', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u3d06b1', 'n5u3d06', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u3d06b2', 'n5u3d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n5u3d07b1', 'n5u3d07', 1, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u3d07b2', 'n5u3d07', 2, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n5u3d08b1', 'n5u3d08', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n5u3d08b2', 'n5u3d08', 2, 'mountain_climber', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n5u3d08b3', 'n5u3d08', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n5u3d09b1', 'n5u3d09', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u3d09b2', 'n5u3d09', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u3d09b3', 'n5u3d09', 3, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u3d10b1', 'n5u3d10', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n5u3finalb1', 'n5u3final', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u3finalb2', 'n5u3final', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n5u3finalb3', 'n5u3final', 3, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u1d01b1', 'n6u1d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u1d01b2', 'n6u1d01', 2, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u1d02b1', 'n6u1d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u1d02b2', 'n6u1d02', 2, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u1d03b1', 'n6u1d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n6u1d04b1', 'n6u1d04', 1, 'toque_alvos', 'precisao', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n6u1d05b1', 'n6u1d05', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u1d05b2', 'n6u1d05', 2, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u1d06b1', 'n6u1d06', 1, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u1d06b2', 'n6u1d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u1d07b1', 'n6u1d07', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u1d07b2', 'n6u1d07', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u1d08b1', 'n6u1d08', 1, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u1d08b2', 'n6u1d08', 2, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u1d09b1', 'n6u1d09', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n6u1d09b2', 'n6u1d09', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n6u1d09b3', 'n6u1d09', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n6u1d10b1', 'n6u1d10', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u1d10b2', 'n6u1d10', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u1d11b1', 'n6u1d11', 1, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u1d11b2', 'n6u1d11', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u1d11b3', 'n6u1d11', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u1d12b1', 'n6u1d12', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u1d12b2', 'n6u1d12', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u1finalb1', 'n6u1final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u1finalb2', 'n6u1final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u1finalb3', 'n6u1final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u2d01b1', 'n6u2d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u2d01b2', 'n6u2d01', 2, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u2d02b1', 'n6u2d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u2d02b2', 'n6u2d02', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u2d03b1', 'n6u2d03', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u2d03b2', 'n6u2d03', 2, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u2d04b1', 'n6u2d04', 1, 'toque_alvos', 'precisao', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n6u2d05b1', 'n6u2d05', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":300}}'::jsonb, 0),
+  ('n6u2d06b1', 'n6u2d06', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u2d06b2', 'n6u2d06', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u2d07b1', 'n6u2d07', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u2d07b2', 'n6u2d07', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u2d08b1', 'n6u2d08', 1, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u2d08b2', 'n6u2d08', 2, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u2d09b1', 'n6u2d09', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n6u2d09b2', 'n6u2d09', 2, 'mountain_climber', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n6u2d09b3', 'n6u2d09', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n6u2d10b1', 'n6u2d10', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u2d10b2', 'n6u2d10', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u2d11b1', 'n6u2d11', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u2d11b2', 'n6u2d11', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u2d11b3', 'n6u2d11', 3, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u2d12b1', 'n6u2d12', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n6u2finalb1', 'n6u2final', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u2finalb2', 'n6u2final', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u2finalb3', 'n6u2final', 3, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u3d01b1', 'n6u3d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u3d01b2', 'n6u3d01', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u3d02b1', 'n6u3d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u3d02b2', 'n6u3d02', 2, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u3d03b1', 'n6u3d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u3d03b2', 'n6u3d03', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n6u3d04b1', 'n6u3d04', 1, 'toque_alvos', 'precisao', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n6u3d05b1', 'n6u3d05', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u3d05b2', 'n6u3d05', 2, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u3d06b1', 'n6u3d06', 1, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u3d06b2', 'n6u3d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u3d07b1', 'n6u3d07', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u3d07b2', 'n6u3d07', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u3d08b1', 'n6u3d08', 1, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u3d08b2', 'n6u3d08', 2, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n6u3d09b1', 'n6u3d09', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n6u3d09b2', 'n6u3d09', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n6u3d09b3', 'n6u3d09', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n6u3d10b1', 'n6u3d10', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u3d10b2', 'n6u3d10', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u3d11b1', 'n6u3d11', 1, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u3d11b2', 'n6u3d11', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u3d11b3', 'n6u3d11', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u3d12b1', 'n6u3d12', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u3d12b2', 'n6u3d12', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n6u3finalb1', 'n6u3final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u3finalb2', 'n6u3final', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n6u3finalb3', 'n6u3final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u1d01b1', 'n7u1d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u1d01b2', 'n7u1d01', 2, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u1d02b1', 'n7u1d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u1d02b2', 'n7u1d02', 2, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u1d03b1', 'n7u1d03', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u1d03b2', 'n7u1d03', 2, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u1d04b1', 'n7u1d04', 1, 'toque_alvos', 'precisao', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n7u1d05b1', 'n7u1d05', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u1d05b2', 'n7u1d05', 2, 'bom_dia_bastao', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u1d06b1', 'n7u1d06', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u1d06b2', 'n7u1d06', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u1d07b1', 'n7u1d07', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u1d07b2', 'n7u1d07', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u1d08b1', 'n7u1d08', 1, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u1d08b2', 'n7u1d08', 2, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u1d09b1', 'n7u1d09', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n7u1d09b2', 'n7u1d09', 2, 'mountain_climber', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n7u1d09b3', 'n7u1d09', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n7u1d10b1', 'n7u1d10', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u1d10b2', 'n7u1d10', 2, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u1d11b1', 'n7u1d11', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u1d11b2', 'n7u1d11', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u1d11b3', 'n7u1d11', 3, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u1d12b1', 'n7u1d12', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n7u1finalb1', 'n7u1final', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u1finalb2', 'n7u1final', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u1finalb3', 'n7u1final', 3, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u2d01b1', 'n7u2d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u2d01b2', 'n7u2d01', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u2d02b1', 'n7u2d02', 1, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u2d02b2', 'n7u2d02', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u2d03b1', 'n7u2d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u2d03b2', 'n7u2d03', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u2d04b1', 'n7u2d04', 1, 'toque_alvos', 'precisao', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n7u2d05b1', 'n7u2d05', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u2d05b2', 'n7u2d05', 2, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u2d06b1', 'n7u2d06', 1, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u2d06b2', 'n7u2d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u2d07b1', 'n7u2d07', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u2d07b2', 'n7u2d07', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u2d08b1', 'n7u2d08', 1, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u2d08b2', 'n7u2d08', 2, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u2d09b1', 'n7u2d09', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n7u2d09b2', 'n7u2d09', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n7u2d09b3', 'n7u2d09', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n7u2d10b1', 'n7u2d10', 1, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u2d10b2', 'n7u2d10', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u2d11b1', 'n7u2d11', 1, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u2d11b2', 'n7u2d11', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u2d11b3', 'n7u2d11', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u2d12b1', 'n7u2d12', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u2d12b2', 'n7u2d12', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u2finalb1', 'n7u2final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u2finalb2', 'n7u2final', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u2finalb3', 'n7u2final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u3d01b1', 'n7u3d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u3d01b2', 'n7u3d01', 2, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n7u3d02b1', 'n7u3d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u3d02b2', 'n7u3d02', 2, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u3d03b1', 'n7u3d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n7u3d04b1', 'n7u3d04', 1, 'toque_alvos', 'precisao', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n7u3d05b1', 'n7u3d05', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u3d05b2', 'n7u3d05', 2, 'bom_dia_bastao', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u3d06b1', 'n7u3d06', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u3d06b2', 'n7u3d06', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u3d07b1', 'n7u3d07', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u3d07b2', 'n7u3d07', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u3d08b1', 'n7u3d08', 1, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u3d08b2', 'n7u3d08', 2, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n7u3d09b1', 'n7u3d09', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n7u3d09b2', 'n7u3d09', 2, 'mountain_climber', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n7u3d09b3', 'n7u3d09', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n7u3d10b1', 'n7u3d10', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u3d10b2', 'n7u3d10', 2, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n7u3d11b1', 'n7u3d11', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u3d11b2', 'n7u3d11', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u3d11b3', 'n7u3d11', 3, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u3d12b1', 'n7u3d12', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n7u3finalb1', 'n7u3final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u3finalb2', 'n7u3final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n7u3finalb3', 'n7u3final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u1d01b1', 'n8u1d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u1d01b2', 'n8u1d01', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u1d02b1', 'n8u1d02', 1, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u1d02b2', 'n8u1d02', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u1d03b1', 'n8u1d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u1d03b2', 'n8u1d03', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u1d04b1', 'n8u1d04', 1, 'toque_alvos', 'precisao', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n8u1d05b1', 'n8u1d05', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u1d05b2', 'n8u1d05', 2, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u1d06b1', 'n8u1d06', 1, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u1d06b2', 'n8u1d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u1d07b1', 'n8u1d07', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u1d07b2', 'n8u1d07', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u1d08b1', 'n8u1d08', 1, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u1d08b2', 'n8u1d08', 2, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u1d09b1', 'n8u1d09', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n8u1d09b2', 'n8u1d09', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n8u1d09b3', 'n8u1d09', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n8u1d10b1', 'n8u1d10', 1, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u1d10b2', 'n8u1d10', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u1d11b1', 'n8u1d11', 1, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u1d11b2', 'n8u1d11', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u1d11b3', 'n8u1d11', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u1d12b1', 'n8u1d12', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u1d12b2', 'n8u1d12', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u1finalb1', 'n8u1final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u1finalb2', 'n8u1final', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u1finalb3', 'n8u1final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u2d01b1', 'n8u2d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u2d01b2', 'n8u2d01', 2, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u2d02b1', 'n8u2d02', 1, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u2d02b2', 'n8u2d02', 2, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u2d03b1', 'n8u2d03', 1, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n8u2d04b1', 'n8u2d04', 1, 'toque_alvos', 'precisao', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n8u2d05b1', 'n8u2d05', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u2d05b2', 'n8u2d05', 2, 'bom_dia_bastao', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u2d06b1', 'n8u2d06', 1, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u2d06b2', 'n8u2d06', 2, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u2d07b1', 'n8u2d07', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u2d07b2', 'n8u2d07', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u2d08b1', 'n8u2d08', 1, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u2d08b2', 'n8u2d08', 2, 'polichinelo', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u2d09b1', 'n8u2d09', 1, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n8u2d09b2', 'n8u2d09', 2, 'mountain_climber', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n8u2d09b3', 'n8u2d09', 3, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n8u2d10b1', 'n8u2d10', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u2d10b2', 'n8u2d10', 2, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u2d11b1', 'n8u2d11', 1, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u2d11b2', 'n8u2d11', 2, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u2d11b3', 'n8u2d11', 3, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u2d12b1', 'n8u2d12', 1, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":270}}'::jsonb, 0),
+  ('n8u2finalb1', 'n8u2final', 1, 'agachamento_livre', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u2finalb2', 'n8u2final', 2, 'prancha', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u2finalb3', 'n8u2final', 3, 'polichinelo', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u3d01b1', 'n8u3d01', 1, 'marcha_estacionaria', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u3d01b2', 'n8u3d01', 2, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u3d02b1', 'n8u3d02', 1, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u3d02b2', 'n8u3d02', 2, 'elevacao_bracos_y', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u3d03b1', 'n8u3d03', 1, 'postura_arvore', 'postura', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u3d03b2', 'n8u3d03', 2, 'apoio_uma_perna', 'equilibrio', 1, '{"padrao":{"segundos":105}}'::jsonb, 0),
+  ('n8u3d04b1', 'n8u3d04', 1, 'toque_alvos', 'precisao', 1, '{"padrao":{"segundos":210}}'::jsonb, 0),
+  ('n8u3d05b1', 'n8u3d05', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u3d05b2', 'n8u3d05', 2, 'bom_dia_bastao', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u3d06b1', 'n8u3d06', 1, 'flexao_braco', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u3d06b2', 'n8u3d06', 2, 'ponte_gluteo', 'repeticoes', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u3d07b1', 'n8u3d07', 1, 'prancha', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u3d07b2', 'n8u3d07', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u3d08b1', 'n8u3d08', 1, 'mountain_climber', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u3d08b2', 'n8u3d08', 2, 'skipping', 'amrap', 1, '{"padrao":{"segundos":150}}'::jsonb, 0),
+  ('n8u3d09b1', 'n8u3d09', 1, 'polichinelo', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n8u3d09b2', 'n8u3d09', 2, 'agachamento_livre', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n8u3d09b3', 'n8u3d09', 3, 'skipping', 'intervalado', 1, '{"padrao":{"segundos":90}}'::jsonb, 0),
+  ('n8u3d10b1', 'n8u3d10', 1, 'agachamento_bastao', 'mobilidade', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u3d10b2', 'n8u3d10', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u3d11b1', 'n8u3d11', 1, 'cachorro_olhando_baixo', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u3d11b2', 'n8u3d11', 2, 'guerreiro_2', 'postura', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u3d11b3', 'n8u3d11', 3, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u3d12b1', 'n8u3d12', 1, 'alongamento_posterior', 'isometria', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u3d12b2', 'n8u3d12', 2, 'respiracao_guiada', 'respiracao', 1, '{"padrao":{"segundos":135}}'::jsonb, 0),
+  ('n8u3finalb1', 'n8u3final', 1, 'afundo_alternado', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u3finalb2', 'n8u3final', 2, 'mountain_climber', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0),
+  ('n8u3finalb3', 'n8u3final', 3, 'skipping', 'repeticoes', 1, '{"padrao":{"segundos":100}}'::jsonb, 0)
+on conflict (id) do update set exercise_id = excluded.exercise_id, formato = excluded.formato,
+  parametros_por_dificuldade = excluded.parametros_por_dificuldade;
 
 commit;

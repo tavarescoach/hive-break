@@ -31,6 +31,7 @@ preview da Vercel.
 | `npm test` | Testes unitários: motor, regras do perfil e RLS do banco (Vitest) |
 | `npm run e2e` | Fluxo completo no navegador contra um Supabase falso (ver `e2e/README.md`) |
 | `npm run sql` | Regera `supabase/instalar.sql` a partir das migrações |
+| `npm run seed:trilha` | Regera `supabase/seed_trilha.sql` (exercícios, unidades e desafios) |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | Checagem de tipos |
 | `npm run fixtures` | Regera as fixtures sintéticas em `fixtures/sinteticas` |

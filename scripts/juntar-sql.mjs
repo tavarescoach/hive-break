@@ -12,9 +12,11 @@ export function juntarSql() {
     .filter((nome) => nome.endsWith(".sql"))
     .sort()
     .map((nome) => `-- >>> migrations/${nome}\n${readFileSync(path.join(pasta, nome), "utf8").trim()}\n`);
-  partes.push(`-- >>> seed.sql\n${readFileSync(path.join(supabase, "seed.sql"), "utf8").trim()}\n`);
+  for (const nome of ["seed.sql", "seed_trilha.sql"]) {
+    partes.push(`-- >>> ${nome}\n${readFileSync(path.join(supabase, nome), "utf8").trim()}\n`);
+  }
   return [
-    "-- Hive Break · instalação inicial do banco (Fase 1).",
+    "-- Hive Break · instalação inicial do banco.",
     "-- GERADO por scripts/juntar-sql.mjs: não edite. Cole inteiro no SQL Editor do",
     "-- Supabase, num projeto novo, e clique em Run. Só pode ser rodado uma vez.",
     "",

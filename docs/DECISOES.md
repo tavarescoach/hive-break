@@ -159,3 +159,56 @@ com pessoas reais.
 - A seção 11.3 fala em 12 conquistas, mas a seção 9.6 lista 13. Cadastrei as 13.
 - Vídeo curto da landing (seção 3.1): ainda não existe. A landing está só com texto.
 - Apelido não é único (duas pessoas podem se chamar "Ana"). Mantenho assim?
+
+## Trilha em unidades, no modelo do Duolingo (17/11/2026)
+
+Pedido do Luan. Muda a estrutura da seção 6 da especificação.
+
+### Respondidas pelo Luan
+
+39. **Estrutura: Nível (seção) → Unidade temática → Desafios**, com **3 unidades por
+    nível** (24 unidades). Cada unidade tem de 8 a 12 desafios na ordem fisiológica da
+    seção 6.2 (8 nos níveis 1 e 2; 10 nos níveis 3 a 5; 12 nos níveis 6 a 8) e termina no
+    "Desafio da unidade". A "sessão completa de 40 a 60 min" passa a ser a unidade.
+40. **Modo provisório dá XP cheio.** Enquanto a câmera não confere os exercícios, o
+    desafio é um timer com o botão "Concluí": 10 XP (+5 no primeiro do dia), conta para a
+    ofensiva, sem nota, estrelas nem pontos de liga. Quando a câmera entrar, esse caminho
+    vira o "modo manual" da seção 3.5 (50% do XP).
+41. **"Pular para cá" libera a seção** sem fazer as anteriores, e a pessoa passa a
+    continuar dela. As anteriores seguem disponíveis.
+42. **Baú de XP vale 10; "Desafio da unidade" vale 20.** Há um baú a cada 4 desafios.
+
+### Decididas na implementação
+
+43. **Liberação em fila dentro da seção.** Um desafio fica disponível quando a seção está
+    liberada e não há nada pendente antes dele. Concluir todos os desafios da seção
+    conclui o nível (+30 XP, seção 9.2) e libera a seguinte.
+44. **Quem está limitado pela triagem não fica preso.** Desafios de intensidade média ou
+    alta aparecem como "travados por segurança" e não seguram a fila: a pessoa segue pelos
+    de baixa intensidade (aquecimento, mobilidade, equilíbrio, yoga, volta à calma) e
+    fecha a unidade por eles. Ao declarar liberação, os travados voltam a ser pendentes.
+    O aquecimento foi classificado como baixa intensidade (revisar).
+45. **Refazer no mesmo dia não soma XP de novo.** Como o modo provisório não tem
+    validação por câmera, isso evita acumular XP só tocando em "Concluí".
+46. **Ofensiva em versão simples.** Concluir um desafio marca o dia e soma dias seguidos
+    no fuso da pessoa; a tela mostra zero quando o último dia ativo foi antes de ontem.
+    Protetor, recuperação, marcos, semana perfeita e a virada do dia por cron continuam
+    na Fase 4.
+47. **Meta de XP do dia segue o perfil** (10 × desafios por dia: 10, 20 ou 30), como na
+    seção 9.2. O pedido citava "x/30"; quem escolheu 3 desafios vê exatamente isso.
+48. **Conteúdo gerado por script** (`scripts/gerar-seed-trilha.ts` → `supabase/seed_trilha.sql`):
+    os 19 exercícios, nomes das 24 unidades, exercícios de cada desafio e durações. É um
+    rascunho para revisão técnica. Só 3 exercícios têm definição para o motor; os outros
+    16 entram na Fase 2. Séries, repetições e escala por dificuldade entram na Fase 3.
+49. **Tabelas novas:** `units` e `user_chests` (o banco passa a ter 32 tabelas);
+    `challenges` ganhou `unit_id` e `tipo`; `user_challenge_progress` ganhou `concluido_em`.
+50. **O banner amarelo mostra a unidade que ocupa o meio da tela**, e a tela rola sozinha
+    até o desafio atual ao abrir e depois de pular de seção.
+
+### Pendências desta mudança
+
+- Progresso do compromisso de ofensiva (seção 10.2) saiu da Trilha no redesenho; volta
+  com a tela de ofensiva na Fase 4.
+- Pular para uma seção que pede equipamento que a pessoa não tem só mostra um aviso; a
+  troca por alternativas sem equipamento (seção 3.3) é da Fase 3.
+- "Nível completo numa única sessão" (+50 XP) precisa ser redefinido para a unidade.

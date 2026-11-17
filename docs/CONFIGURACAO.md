@@ -7,9 +7,19 @@ Nenhuma chave secreta entra no repositório.
 
 1. Crie um projeto em supabase.com (região São Paulo).
 2. Abra **SQL Editor**, cole o conteúdo inteiro de [`supabase/instalar.sql`](../supabase/instalar.sql)
-   e clique em **Run**. Isso cria as 30 tabelas, a RLS, as funções e o conteúdo inicial
-   (8 níveis e conquistas). Esse arquivo só roda uma vez, num projeto novo.
+   e clique em **Run**. Isso cria as tabelas, a RLS, as funções e o conteúdo inicial
+   (8 níveis, 24 unidades, desafios e conquistas). Esse arquivo só roda uma vez, num projeto novo.
 3. Confira em **Table Editor** que a tabela `levels` tem 8 linhas.
+
+### Se o banco já foi instalado antes da trilha em unidades (17/11/2026)
+
+Quem rodou o `instalar.sql` antigo precisa colar mais dois arquivos no SQL Editor, nesta
+ordem:
+
+1. [`supabase/migrations/20261117000600_trilha_unidades.sql`](../supabase/migrations/20261117000600_trilha_unidades.sql)
+2. [`supabase/seed_trilha.sql`](../supabase/seed_trilha.sql) (exercícios, unidades e desafios; pode ser rodado de novo sempre que o conteúdo mudar)
+
+Quem ainda não instalou nada usa só o `instalar.sql`, que já inclui tudo.
 
 Nas próximas fases eu aviso quais arquivos novos de `supabase/migrations/` precisam ser
 colados no SQL Editor, na ordem do nome.
