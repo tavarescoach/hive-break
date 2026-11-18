@@ -6,13 +6,19 @@ import { Opcoes } from "@/componentes/Opcoes";
 import { DIAS_SEMANA, EQUIPAMENTOS, ESTILOS_MUSICA, LIMITACOES, METAS_DIARIAS, OBJETIVOS } from "@/dominio/perfil";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 import { salvarConfiguracoes } from "../acoes";
+import { Lembretes, type PreferenciasLembrete } from "./Lembretes";
 
 export const metadata: Metadata = { title: "Configurações · Hive Break" };
 
 const rotulo = "mb-2 block text-sm font-semibold text-apagado";
 
 export default async function Configuracoes() {
-  const { perfil } = await exigirCadastroCompleto();
+  const { perfil, supabase, usuarioId } = await exigirCadastroCompleto();
+  const { data: prefs } = await supabase
+    .from("notification_preferences")
+    .select("lembrete,ofensiva,amigos,liga,resumo_semanal,email_ativo,push_ativo")
+    .eq("user_id", usuarioId)
+    .maybeSingle();
   return (
     <main className="flex flex-col gap-5 px-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
       <header>
@@ -82,15 +88,19 @@ export default async function Configuracoes() {
           <label>
             <span className={rotulo}>Horário do lembrete (opcional)</span>
             <input type="time" name="horario_lembrete" defaultValue={perfil.horario_lembrete?.slice(0, 5) ?? ""} className={campoTexto} />
+            <span className="mt-1.5 block text-sm text-apagado">
+              Vale até o seu primeiro treino. Depois, o lembrete segue o horário em que você costuma treinar.
+            </span>
           </label>
           <Link href="/camera" className={botaoSecundario}>
             Reposicionar a câmera
           </Link>
           <p className="text-sm leading-relaxed text-apagado">
-            Avisos por push e e-mail, exportar dados e excluir a conta entram nas próximas versões do teste.
+            Exportar dados e excluir a conta entram nas próximas versões do teste.
           </p>
         </div>
       </Formulario>
+      {prefs && <Lembretes inicial={prefs as PreferenciasLembrete} />}
     </main>
   );
 }

@@ -72,6 +72,17 @@ Quem ainda não instalou nada usa só o `instalar.sql`, que já inclui tudo.
 Nas próximas fases eu aviso quais arquivos novos de `supabase/migrations/` precisam ser
 colados no SQL Editor, na ordem do nome.
 
+### Lembretes (20/11/2026)
+
+Rode, nesta ordem (veja a seção 6 para o resto da configuração):
+
+1. [`supabase/migrations/20261120000100_lembretes_base.sql`](../supabase/migrations/20261120000100_lembretes_base.sql)
+2. [`supabase/migrations/20261120000200_lembretes_motor.sql`](../supabase/migrations/20261120000200_lembretes_motor.sql)
+3. [`supabase/migrations/20261120000300_lembretes_textos.sql`](../supabase/migrations/20261120000300_lembretes_textos.sql) (pode rodar de novo sempre que os textos mudarem)
+4. [`supabase/migrations/20261120000400_lembretes_app.sql`](../supabase/migrations/20261120000400_lembretes_app.sql)
+
+Os lembretes começam em **modo simulação**: o banco grava o que mandaria, mas não manda nada.
+
 ## 2. Login com Google
 
 1. No Google Cloud Console, crie um projeto e, em **APIs e serviços > Tela de consentimento
@@ -116,3 +127,103 @@ Não use a chave `service_role` em nenhuma variável `NEXT_PUBLIC_`.
 2. Toque em **Começar**, entre com Google e siga o cadastro até a trilha.
 3. No Supabase, a tabela `profiles` deve ter a sua linha, com `onboarding_concluido_em`
    preenchido.
+
+## 6. Lembretes (n8n, e-mail e push)
+
+Quem faz o quê: o **banco** decide quem recebe o quê e com qual texto; o **n8n** chama o
+banco a cada 15 min, envia os e-mails pelo Gmail e pede ao app para mandar os push; o
+**app** manda o push, mostra a página de desativar e avisa o n8n das ações imediatas.
+Regras e textos: FUNIL_LEMBRETES.md.
+
+### 6.1 Configuração no banco (SQL Editor)
+
+Gere um segredo longo (ex.: `openssl rand -hex 32`). Ele vai igual no banco e na Vercel.
+
+```sql
+-- 1. Segredo compartilhado (o mesmo de LEMBRETES_SEGREDO na Vercel e no n8n)
+update public.lembretes_config set valor = to_jsonb('COLE-O-SEGREDO'::text) where chave = 'LEMBRETES_SEGREDO';
+-- 2. Endereço do app nos links (sem barra no fim)
+update public.lembretes_config set valor = '"https://hive-break.vercel.app"' where chave = 'APP_URL';
+-- 3. Quem acessa /admin/lembretes
+update public.lembretes_config set valor = (select jsonb_agg(id) from auth.users where email = 'SEU-EMAIL')
+where chave = 'ADMINS';
+-- 4. Senha do usuário do n8n
+alter role n8n_lembretes with password 'OUTRA-SENHA-LONGA';
+```
+
+Outras chaves de `lembretes_config`: `LIMITE_EMAIL_DIA` (1), `LIMITE_PUSH_DIA` (3) e
+`R0_AB_12H_PCT` (0): a porcentagem de pessoas no grupo "12h" do teste A/B do lembrete
+diário.
+
+Quando tudo estiver testado, **desligue a simulação**:
+
+```sql
+update public.lembretes_config set valor = 'false' where chave = 'LEMBRETES_SIMULAR';
+```
+
+### 6.2 Conexão do n8n com o banco
+
+No Supabase, **Connect > Connection string > Session pooler** mostra o host e a porta do
+seu projeto. Monte a credencial **Postgres** do n8n assim:
+
+| Campo | Valor |
+| --- | --- |
+| Host | o do pooler, ex.: `aws-0-sa-east-1.pooler.supabase.com` (copie do painel: o prefixo `aws-0`/`aws-1` e a região mudam por projeto) |
+| Port | `5432` (session pooler). O transaction pooler (`6543`) também funciona, mas o session aceita tudo o que o nó Postgres do n8n faz |
+| Database | `postgres` |
+| User | `n8n_lembretes.SEU-PROJECT-REF` (o ref é o `xxxx` de `https://xxxx.supabase.co`) |
+| Password | a senha do passo 4 acima |
+| SSL | `require` |
+
+Como string: `postgresql://n8n_lembretes.SEU-PROJECT-REF:SENHA@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require`
+
+Esse usuário só pode executar `lembretes_pendentes()` e `lembrete_imediato()` e marcar
+`status`, `enviado_em` e `erro` em `notification_log`. Não lê nenhum outro dado.
+
+### 6.3 Workflows do n8n (contrato)
+
+**A cada 15 min**: `select * from public.lembretes_pendentes();`
+**Webhook** `POST /webhook/hive-lembrete-imediato` (confira o header `x-lembretes-segredo`):
+`select * from public.lembrete_imediato($1::uuid, $2, $3::jsonb);` com `user_id`, `gatilho`
+e `dados` do corpo.
+
+As duas devolvem uma linha por envio, já reservada: `log_id, user_id, canal, gatilho, email,
+nome, assunto, preheader, titulo, texto, cta_texto, url, link_desativar`. Para cada linha:
+
+- `canal = 'email'`: nó Gmail para `email`, com `assunto`; no HTML, `preheader` escondido,
+  `titulo` como manchete, cada linha de `texto` (separadas por `\n`) como um parágrafo, um
+  botão `cta_texto` → `url` e, no rodapé, "Desativar lembretes" → `link_desativar`.
+- `canal = 'push'`: `POST https://SEU-APP/api/lembretes/push` com o header
+  `x-lembretes-segredo` e o corpo `{ "log_id": 123 }`. 200 = entregue.
+
+Depois do envio:
+`update public.notification_log set status = 'enviado', enviado_em = now() where id = $1;`
+Na falha:
+`update public.notification_log set status = 'falhou', erro = $2 where id = $1;`
+
+Se o n8n cair entre a reserva e o envio, a linha fica `reservado` e **não** é reenviada
+(melhor perder um lembrete que mandar dois).
+
+### 6.4 Variáveis na Vercel
+
+| Nome | Valor |
+| --- | --- |
+| `LEMBRETES_SEGREDO` | o mesmo segredo do passo 1 |
+| `N8N_WEBHOOK_URL` | ex.: `https://SEU-N8N/webhook/hive-lembrete-imediato` |
+| `VAPID_PUBLIC_KEY` | chave pública VAPID |
+| `VAPID_PRIVATE_KEY` | chave privada VAPID (nunca em `NEXT_PUBLIC_`) |
+| `VAPID_SUBJECT` | `mailto:contatohivebreak@gmail.com` |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | a mesma chave pública |
+
+Para gerar um par novo de chaves VAPID: `npx web-push generate-vapid-keys`. Trocar as
+chaves invalida todos os aparelhos inscritos (cada pessoa precisa aceitar de novo).
+Depois de criar as variáveis, faça um **Redeploy**.
+
+### 6.5 Conferir
+
+1. Entre com o seu usuário e abra `/admin/lembretes`. Escolha um gatilho e toque em
+   **Disparar**: o disparo de teste ignora a simulação, os limites e as preferências.
+2. Para receber push, conclua um desafio e aceite "Te aviso amanhã às…" (no iPhone, com o
+   app instalado na tela inicial), ou ligue em **Perfil > Configurações > Lembretes**.
+3. Com a simulação ligada, a lista do admin mostra o que o motor mandaria (`simulado`).
+
