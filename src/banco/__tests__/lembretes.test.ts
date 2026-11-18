@@ -538,6 +538,10 @@ describe("funções do app", () => {
       "insert into public.challenge_attempts (user_id, challenge_id, dificuldade, modo, status, concluido_em) values ($1, 'n1u1d01', 1, 'camera', 'concluido', now())",
       [fred],
     );
+    // Os dois entraram em grupos ao terminar o cadastro; aqui ficam juntos num grupo só.
+    await db.query(
+      `delete from public.league_members m using public.leagues l
+       where m.league_id = l.id and m.user_id in ($1, $2) and l.semana_inicio = public.liga_semana_inicio()`, [fred, gabi]);
     const { rows } = await db.query<{ id: string }>(
       "insert into public.leagues (divisao, semana_inicio, semana_fim) values ('bronze', public.liga_semana_inicio(), public.liga_semana_inicio() + 6) returning id",
     );

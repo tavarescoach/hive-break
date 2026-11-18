@@ -1,7 +1,7 @@
 /**
  * Modelo da tela Liga (seção 9.3). Os números vêm prontos do servidor
- * (função ler_liga), que já esconde quem não deve aparecer: o pódio, a
- * pessoa e quem está logo acima dela. Aqui só se escrevem os textos.
+ * (função ler_liga): todo mundo do grupo que treinou na semana, mais você;
+ * quem está com 0 XP vem só como contagem. Aqui só se escrevem os textos.
  */
 
 export type Divisao = "bronze" | "prata" | "ouro" | "safira" | "diamante";
@@ -51,6 +51,8 @@ export type DadosLiga =
       descem: number;
       posicao: number;
       pontos: number;
+      /** Pessoas do grupo (fora você) que ainda não fizeram XP na semana. */
+      sem_treino: number;
       zona: Zona;
       faltam_para_subir: number | null;
       faltam_para_ficar: number | null;
@@ -87,4 +89,10 @@ export function textoRegra(d: Extract<DadosLiga, { no_grupo: true }>): string {
   if (d.sobem > 0) partes.push(`${d.sobem === 1 ? "sobe" : "sobem"} ${d.sobem}`);
   if (d.descem > 0) partes.push(`${d.descem === 1 ? "desce" : "descem"} ${d.descem}`);
   return partes.join(" · ");
+}
+
+/** Linha do fim da lista para quem ainda não treinou na semana. */
+export function textoSemTreino(n: number): string | null {
+  if (n <= 0) return null;
+  return n === 1 ? "+1 pessoa do grupo ainda não treinou esta semana" : `+${n} pessoas do grupo ainda não treinaram esta semana`;
 }

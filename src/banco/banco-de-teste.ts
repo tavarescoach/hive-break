@@ -32,12 +32,14 @@ const AMBIENTE_SUPABASE = `
   alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 `;
 
-export async function criarBanco(): Promise<PGlite> {
+/** `ate`: para antes desta migração (para testar uma migração sobre dados antigos). */
+export async function criarBanco(opcoes: { ate?: string } = {}): Promise<PGlite> {
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(AMBIENTE_SUPABASE);
   const pasta = path.join(PASTA_SUPABASE, "migrations");
   for (const arquivo of readdirSync(pasta).sort()) {
     if (!arquivo.endsWith(".sql")) continue;
+    if (opcoes.ate && arquivo >= opcoes.ate) break;
     try {
       await db.exec(readFileSync(path.join(pasta, arquivo), "utf8"));
     } catch (erro) {
@@ -48,6 +50,11 @@ export async function criarBanco(): Promise<PGlite> {
     await db.exec(readFileSync(path.join(PASTA_SUPABASE, seed), "utf8"));
   }
   return db;
+}
+
+/** Roda uma migração de supabase/migrations num banco já criado. */
+export async function rodarMigracao(db: PGlite, arquivo: string) {
+  await db.exec(readFileSync(path.join(PASTA_SUPABASE, "migrations", arquivo), "utf8"));
 }
 
 export interface Papel {

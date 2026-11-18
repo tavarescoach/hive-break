@@ -67,6 +67,13 @@ Supabase tiver o pg_cron (vem em todos os projetos), ele agenda o fechamento par
 segunda às 00h01; senão, a semana fecha sozinha na primeira visita à Liga. Sem esse
 arquivo, a aba Liga mostra "Não consegui carregar a liga".
 
+### Liga para todos (17/11/2026, noite)
+
+Rode [`supabase/migrations/20261120001000_liga_todos.sql`](../supabase/migrations/20261120001000_liga_todos.sql)
+depois do `20261119002000_liga.sql`. Ele põe todo mundo com cadastro completo num grupo de até
+15, conta a respiração e os convites, ativa os convites de quem já treinou e refaz a semana atual
+com os pontos recalculados.
+
 Quem ainda não instalou nada usa só o `instalar.sql`, que já inclui tudo.
 
 Nas próximas fases eu aviso quais arquivos novos de `supabase/migrations/` precisam ser

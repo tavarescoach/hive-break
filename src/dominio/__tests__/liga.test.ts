@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { textoRegra, textoSemanaPassada, textoZona, type DadosLiga } from "../liga";
+import { textoRegra, textoSemanaPassada, textoSemTreino, textoZona, type DadosLiga } from "../liga";
 
 type NoGrupo = Extract<DadosLiga, { no_grupo: true }>;
 const dados = (extra: Partial<NoGrupo>): NoGrupo => ({
   divisao: "prata", semana_fim: "2026-11-22", semana_passada: null, no_grupo: true,
-  tamanho: 15, sobem: 4, descem: 3, posicao: 6, pontos: 50, zona: "meio",
+  tamanho: 15, sobem: 4, descem: 3, posicao: 6, pontos: 50, sem_treino: 0, zona: "meio",
   faltam_para_subir: 21, faltam_para_ficar: null, linhas: [], ...extra,
 });
 
@@ -29,5 +29,11 @@ describe("textos da liga", () => {
   it("semana passada nunca fala em último", () => {
     expect(textoSemanaPassada({ divisao: "bronze", posicao: 1, resultado: "subiu" })).toBe("Você subiu para a Prata! Fechou a semana em 1º no Bronze.");
     expect(textoSemanaPassada({ divisao: "ouro", posicao: 9, resultado: "desceu" })).not.toMatch(/9|último|caiu/);
+  });
+
+  it("contagem de quem não treinou", () => {
+    expect(textoSemTreino(0)).toBeNull();
+    expect(textoSemTreino(1)).toBe("+1 pessoa do grupo ainda não treinou esta semana");
+    expect(textoSemTreino(4)).toBe("+4 pessoas do grupo ainda não treinaram esta semana");
   });
 });

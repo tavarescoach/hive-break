@@ -388,25 +388,28 @@ try {
   await ana.pagina.getByText("1 pessoa entrou pelo seu link").waitFor();
   await captura(ana.pagina, "ana-amigos-com-bruno");
 
-  console.log("6b. Liga: sem desafio com câmera não há grupo; no grupo, só pódio, a pessoa e quem está acima");
-  // A câmera falsa não mostra movimento, então os desafios da Ana valeram como modo manual.
+  console.log("6b. Liga: todo mundo com cadastro está num grupo; aparece quem treinou, quem tem 0 XP vira contagem");
+  // A câmera falsa não mostra movimento: os desafios da Ana valeram como modo manual (0 XP de liga).
   await ana.pagina.goto(APP + "/liga");
-  await ana.pagina.getByText("Bora entrar na liga da semana?").waitFor();
-  await captura(ana.pagina, "ana-liga-sem-grupo");
+  await ana.pagina.getByText("Seus pontos na semana").waitFor();
   const [grupoAna] = await sql(
-    "insert into public.leagues (divisao, semana_inicio, semana_fim) values ('bronze', public.liga_semana_inicio(), public.liga_semana_inicio() + 6) returning id as league_id");
-  await sql("insert into public.league_members (league_id, user_id, pontos) values ($1, $2, 50)", [grupoAna.league_id, perfilAna.id]);
-  // Completa o grupo com mais 9 pessoas, algumas na frente e algumas atrás da Ana.
-  for (const [i, pontos] of [120, 95, 80, 60, 40, 30, 3, 2, 1].entries()) {
+    `select m.league_id from public.league_members m join public.leagues l on l.id = m.league_id
+     where m.user_id = $1 and l.semana_inicio = public.liga_semana_inicio()`, [perfilAna.id]);
+  assert.ok(grupoAna, "Ana entrou num grupo ao terminar o cadastro");
+  await sql("update public.league_members set pontos = 50 where league_id = $1 and user_id = $2", [grupoAna.league_id, perfilAna.id]);
+  // Mais 10 pessoas terminam o cadastro e caem no grupo dela; uma não treina.
+  const nomes = ["Duda", "Leo", "Mari", "Rafa", "Gabi", "Tati", "Nina", "Beto", "Iara", "Zeca"];
+  for (const [i, pontos] of [120, 95, 80, 60, 40, 30, 3, 2, 1, 0].entries()) {
     const [u] = await sql("insert into auth.users (email, raw_user_meta_data) values ($1, $2) returning id",
       [`liga${i}@exemplo.com`, JSON.stringify({ full_name: `Pessoa ${i}` })]);
-    await sql("update public.profiles set apelido = $2, onboarding_concluido_em = now() where id = $1", [u.id, ["Duda", "Leo", "Mari", "Rafa", "Gabi", "Tati", "Nina", "Beto", "Iara"][i]]);
-    await sql("insert into public.league_members (league_id, user_id, pontos) values ($1, $2, $3)", [grupoAna.league_id, u.id, pontos]);
+    await sql("update public.profiles set apelido = $2, onboarding_concluido_em = now() where id = $1", [u.id, nomes[i]]);
+    await sql("update public.league_members set pontos = $2 where user_id = $1", [u.id, pontos]);
   }
   await ana.pagina.reload();
-  await ana.pagina.getByText("10 pessoas · sobem 2", { exact: true }).waitFor();
   await ana.pagina.getByText("Você", { exact: true }).waitFor();
-  assert.equal(await ana.pagina.getByText("Iara").count(), 0, "os últimos do grupo não aparecem");
+  await ana.pagina.getByText("Iara").waitFor(); // quem treinou aparece, mesmo lá embaixo
+  assert.equal(await ana.pagina.getByText("Zeca").count(), 0, "quem tem 0 XP não aparece pelo nome");
+  await ana.pagina.getByText(/ainda não trein/).waitFor();
   await captura(ana.pagina, "ana-liga");
 
   console.log("7. Menor de 18 anos é barrado; sair e entrar de novo volta para onde parou");

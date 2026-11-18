@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Fragment } from "react";
 import { Avatar } from "@/componentes/Avatar";
 import { cartao, sobrelinha } from "@/componentes/estilos";
-import { NOMES_DIVISAO, textoRegra, textoSemanaPassada, textoZona, type DadosLiga } from "@/dominio/liga";
+import { NOMES_DIVISAO, textoRegra, textoSemanaPassada, textoSemTreino, textoZona, type DadosLiga } from "@/dominio/liga";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 
 export const metadata: Metadata = { title: "Liga · Hive Break" };
@@ -36,10 +36,9 @@ export default async function Liga() {
         </section>
       ) : !dados.no_grupo ? (
         <section className={cartao}>
-          <p className="text-lg font-bold leading-tight">Bora entrar na liga da semana?</p>
+          <p className="text-lg font-bold leading-tight">Seu grupo da semana já já aparece</p>
           <p className="mt-1 text-[15px] leading-relaxed text-apagado">
-            Faça um desafio com a câmera e você entra num grupo de até 30 pessoas da sua divisão. Cada XP ganho com a
-            câmera vira ponto.
+            Termine o cadastro e você entra num grupo de até 15 pessoas da sua divisão.
           </p>
         </section>
       ) : (
@@ -76,10 +75,14 @@ export default async function Liga() {
                 );
               })}
             </ol>
+            {textoSemTreino(dados.sem_treino) && (
+              <p className="mt-3 text-center text-[15px] text-apagado">{textoSemTreino(dados.sem_treino)}</p>
+            )}
           </section>
 
           <p className="pb-4 text-sm leading-relaxed text-apagado">
-            Contam os XP de desafios feitos com a câmera. Modo manual, respiração e convites não entram no ranking.
+            Contam os XP de desafios feitos com a câmera, da respiração guiada e dos amigos que você convidou e já
+            treinaram. Modo manual não entra no ranking.
           </p>
         </>
       )}

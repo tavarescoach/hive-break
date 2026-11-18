@@ -6,6 +6,7 @@ let db: PGlite;
 let ana: string;
 let bruno: string;
 let carla: string;
+let ligaId: string;
 
 const RESPOSTAS_NAO = { q1: false, q2: false, q3: false, q4: false, q5: false, q6: false, q7: false };
 
@@ -32,9 +33,11 @@ beforeAll(async () => {
   // Ana e Bruno são amigos e estão na mesma liga; Carla não.
   const [a, b] = [ana, bruno].sort();
   await db.query("insert into public.friendships (user_a, user_b, origem) values ($1, $2, 'convite')", [a, b]);
+  // Grupo da Prata: Carla (Bronze) nunca cai nele quando termina o cadastro.
   const liga = await db.query<{ id: string }>(
-    "insert into public.leagues (divisao, semana_inicio, semana_fim) values ('bronze', '2026-11-16', '2026-11-22') returning id",
+    "insert into public.leagues (divisao, semana_inicio, semana_fim) values ('prata', public.liga_semana_inicio(), public.liga_semana_inicio() + 6) returning id",
   );
+  ligaId = liga.rows[0].id;
   await db.query("insert into public.league_members (league_id, user_id, pontos) values ($1, $2, 80), ($1, $3, 120)", [liga.rows[0].id, ana, bruno]);
   await db.query("update public.profiles set onboarding_concluido_em = now() where id = $1", [ana]);
 });
@@ -305,9 +308,13 @@ describe("conclusão do onboarding", () => {
 
 describe("liga e conteúdo", () => {
   it("o ranking é visível só para quem está no mesmo grupo", async () => {
-    expect((await como(db, { usuario: ana }, (tx) => tx.query("select * from public.league_members"))).rows).toHaveLength(2);
-    expect((await como(db, { usuario: carla }, (tx) => tx.query("select * from public.league_members"))).rows).toHaveLength(0);
-    expect((await como(db, { usuario: carla }, (tx) => tx.query("select * from public.leagues"))).rows).toHaveLength(0);
+    const doGrupo = "select * from public.league_members where league_id = $1";
+    expect((await como(db, { usuario: ana }, (tx) => tx.query(doGrupo, [ligaId]))).rows).toHaveLength(2);
+    expect((await como(db, { usuario: carla }, (tx) => tx.query(doGrupo, [ligaId]))).rows).toHaveLength(0);
+    expect((await como(db, { usuario: carla }, (tx) => tx.query("select * from public.leagues where id = $1", [ligaId]))).rows).toHaveLength(0);
+    // Carla só vê o grupo dela, em que entrou ao terminar o cadastro.
+    const daCarla = await como(db, { usuario: carla }, (tx) => tx.query<{ user_id: string }>("select user_id from public.league_members"));
+    expect(daCarla.rows.map((r) => r.user_id)).not.toContain(ana);
   });
 
   it("qualquer pessoa lê o conteúdo: 8 níveis e as conquistas do seed", async () => {

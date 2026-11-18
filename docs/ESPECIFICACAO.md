@@ -153,7 +153,7 @@ O MVP tem 20 telas. A navegação principal usa uma barra inferior com 4 abas: T
 | 14 | Transição do nível completo | /nivel/\[id\]/sessao | Desafio concluído, próximo desafio, contagem de 30 a 60 s, progresso "4 de 10" | Seguir / Encerrar por hoje |
 | 15 | Resultado do desafio | /desafio/\[id\]/resultado | Score, estrelas, KPIs, XP, esforço percebido | Continuar |
 | 16 | Nível concluído | /nivel/\[id\]/concluido | Estrelas do nível, totais, próximo nível, aviso de equipamento, cartão de convite | Convidar / Continuar |
-| 17 | Liga | /liga | Ranking semanal de até 30 pessoas: pódio, você e quem está logo acima; zona de descida só para a própria pessoa | — |
+| 17 | Liga | /liga | Ranking semanal de até 15 pessoas: todos que treinaram na semana, quem tem 0 XP só como contagem; zona de descida só para a própria pessoa | — |
 | 18 | Amigos e convites | /amigos | Ranking da semana entre amigos, link de convite, convites enviados e ativados, protetores ganhos | Convidar |
 | 19 | Perfil e evolução | /perfil | Dados, estatísticas, gráfico de evolução, conquistas, equipamentos | Editar |
 | 20 | Configurações | /perfil/config | Lembrete, música e volume, voz, exportar e excluir dados | Salvar |
@@ -425,17 +425,19 @@ A meta diária de XP é 10 vezes o número de desafios por dia escolhido no perf
 
 ### 9.3 Liga semanal
 
-Revisada em 17/11/2026 (decisões do Luan).
+Revisada em 17/11/2026 (decisões do Luan; segunda revisão às 21h45).
 
 - **Semana da liga:** de segunda 00h00 a domingo 23h59, no horário de Brasília para todo mundo.
-- **Entrada:** a pessoa entra num grupo no 1º desafio válido da semana (não espera a segunda). Vai para o grupo aberto da divisão dela; quando ele chega a **30 pessoas**, abre outro. Quem não treina na semana não entra em grupo nenhum.
-- **Pontos de liga = XP da semana ganho em desafios com câmera:** XP do desafio, de refazer, do 1º desafio do dia, da unidade numa sessão e do nível concluído. **Não contam:** modo manual, respiração guiada (volta à calma), convites e nivelamento.
-- **Antifraude:** desafio com mais de 30% do tempo com o corpo fora do quadro não pontua na liga (seção 9.5).
+- **Todo mundo participa:** quem tem cadastro completo está num grupo toda semana, mesmo com 0 XP. Os grupos são montados na virada da semana (segunda, 00h01) com todos da divisão.
+- **Grupos de até 15 pessoas, do mesmo tamanho:** 20 pessoas viram 2 grupos de 10; 30 viram 2 de 15; 40 viram 3 grupos (14, 13 e 13). Grupos menores deixam mais gente perto do topo e fazem o convite pesar (hipótese de crescimento pelo social).
+- **Quem termina o cadastro no meio da semana** entra no grupo de quem o convidou (se for da mesma divisão e tiver vaga) ou no grupo menor da divisão; com todos cheios, abre outro.
+- **Pontos de liga = XP da semana que vale para a liga:** XP de desafios com câmera (desafio, refazer, 1º do dia, unidade numa sessão, nível concluído), da **respiração guiada** (com ou sem câmera) e dos **convites ativados** (20 XP quando o convidado conclui o 1º desafio). **Não contam:** modo manual, baú e nivelamento.
+- **Antifraude:** desafio com mais de 30% do tempo com o corpo fora do quadro não pontua na liga (seção 9.5). Não vale para a respiração.
 - **Empate:** fica na frente quem chegou primeiro àqueles pontos.
 - **Divisões do MVP:** Bronze, Prata, Ouro, Safira, Diamante.
-- **Fechamento (domingo, 23h59), proporcional ao tamanho do grupo:** sobem 7 em cada 30 e descem 5 em cada 30, arredondando (30 pessoas: 7 sobem e 5 descem; 15: 4 e 3; 10: 2 e 2; 5: 1 e 1). Grupo com **menos de 5** pessoas: só o 1º sobe e ninguém desce. **Bronze não desce; Diamante não sobe.**
-- **Ninguém é exposto:** a tela mostra o pódio (3 primeiros), a pessoa e quem está logo acima dela, nunca a lista inteira nem os últimos. A zona de descida aparece só para a própria pessoa, com aviso gentil ("Faltam 40 XP para você ficar na Prata").
-- **Fora do MVP:** agrupar por dificuldade parecida (com pouca gente esvazia os grupos e, como as metas já são pessoais, não é preciso).
+- **Fechamento (domingo, 23h59), proporcional ao tamanho do grupo:** sobem 7 em cada 30 e descem 5 em cada 30, arredondando (15 pessoas: 4 e 3; 10: 2 e 2; 5: 1 e 1). Grupo com **menos de 5** pessoas: só o 1º sobe e ninguém desce. **Só sobe quem fez pelo menos 1 XP.** **Bronze não desce; Diamante não sobe.**
+- **Tela:** mostra todo mundo do grupo que treinou na semana, com a posição e o XP. Quem está com 0 XP aparece só como contagem ("+4 pessoas do grupo ainda não treinaram esta semana"). A zona de descida e o quanto falta para ficar aparecem só para a própria pessoa.
+- **Fora do MVP:** agrupar por dificuldade parecida. Ranking entre amigos fica para o "friend streak" e a "friends hive", não para a liga.
 
 ### 9.4 Convites e amigos
 
@@ -686,7 +688,7 @@ O MVP está pronto para o grupo de teste quando todos os critérios abaixo passa
 - [ ] Ofensiva, protetor, recuperação, semana perfeita e ofensiva com amigo funcionam na virada do dia de cada fuso.
 - [ ] A régua de avisos dispara os gatilhos da seção 10.4, respeita limites, horário silencioso e pausa de 7 dias, e não repete texto em 7 dias.
 - [ ] Link de convite leva à landing personalizada, registra quem convidou e recompensa os dois na ativação.
-- [ ] Liga põe a pessoa num grupo no 1º desafio válido da semana, mostra ranking ao vivo e sobe e desce divisões no domingo (proporcional ao tamanho do grupo).
+- [ ] Liga põe todo mundo com cadastro completo num grupo de até 15, mostra ranking ao vivo e sobe e desce divisões no domingo (proporcional ao tamanho do grupo).
 - [ ] Nenhuma requisição de rede leva imagem ou vídeo (conferido no inspetor de rede).
 - [ ] Usuário consegue exportar e excluir os próprios dados e desligar cada tipo de aviso.
 - [ ] Um usuário não consegue ler dados de saúde de outro, nem de amigos (teste de RLS).
