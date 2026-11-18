@@ -21,12 +21,12 @@ No modo por tempo (AMRAP / intervalo), o tempo restante ("0:05") e as repetiçõ
 
 ## 3. Regra principal: um número grande por vez
 
-Cada exercício define, na própria definição JSON, qual dado é o **hero** daquela fase de trabalho:
-
-- `hero: "reps"` — o exercício é de repetições (força, cardio, condicionamento, etc.).
-- `hero: "tempo"` — o exercício é por tempo (AMRAP, intervalo, isometria sem meta de reps).
-
 Só o hero fica grande. O outro dado (quando existe) vira secundário, em forma e posição diferentes — nunca ao lado do hero, no mesmo tamanho.
+
+**Decisão de implementação (18/11/2026):** o hero não é um campo fixo no JSON do exercício — é decidido pela **fase/bloco** que está em curso (`FaseTrabalho` em `src/dominio/metodos.ts`), porque o mesmo exercício pode entrar num bloco de repetições num desafio e num bloco por tempo (AMRAP) em outro. A regra:
+
+- `fase.duracaoMs === undefined` (métodos `reps`, escada, contra o relógio) → **hero = "reps"**.
+- `fase.duracaoMs !== undefined` (AMRAP, isometria, Tabata, EMOM) → **hero = "tempo"**.
 
 ### 3.1 `hero = "reps"`
 
@@ -122,9 +122,11 @@ Tela de descanso, fundo **`#0E1726`** (sólido, sem câmera atrás):
 - **Aviso de técnica falado** junto com o aviso visual coral da seção 6 (reaproveita `avisar()` / `falar()` já existente em `Execucao.tsx`).
 - **Som diferente para rep inválida** (parcial): já existe `som.parcial()`, distinto de `som.valida()` — manter a distinção.
 
-## 10. Impacto em dados e config
+## 10. Impacto em dados e config (implementado em 18/11/2026)
 
-- **`DefinicaoExercicio`** (JSON em `src/exercicios/*.json` e tipo em `src/motor/tipos.ts`) ganha o campo `hero: "reps" | "tempo"`.
-  - Default sugerido: `reps` para `formato: "repeticoes"` e `precisao`; `tempo` para AMRAP, intervalado e isometria/sustentação sem meta de reps fixa. Exercícios com faixa de reps dentro de um tempo (ex.: AMRAP com reps secundárias) usam `hero: "tempo"` e mostram o hexágono de reps.
-- **Perfil** (`src/dominio/perfil.ts`, tabela `profiles`) ganha `estilo_progresso: "barra" | "moldura"`, default `"barra"`. Seletor em `/perfil/config`.
-- **Esqueleto por segmento com erro:** o motor (`src/motor/motor.ts`, `EventoMotor` em `src/motor/tipos.ts`) precisa expor **quais pontos/ligações** (não só que "há erro") estão associados ao erro ativo, para `desenharEsqueleto` colorir só o segmento certo.
+- **Hero por fase, não por exercício** (seção 3): calculado em `Execucao.tsx` a partir de `FaseTrabalho.duracaoMs`, sem campo novo no JSON do exercício. O hexágono de reps secundárias aparece quando o hero é "tempo" e a fase não é de sustentação (isometria/postura/equilíbrio/respiração não contam reps).
+- **Perfil** (`src/dominio/perfil.ts`, tabela `profiles`): `estilo_progresso: "barra" | "moldura"`, default `"barra"` (migração `20261121000300_perfil_estilo_progresso.sql`). Seletor em `/perfil/config`, salvo em `salvarConfiguracoes` e levado até `Execucao` via `carregarDesafio` → `Desafio`.
+- **Esqueleto por segmento com erro:** `DefinicaoErro` (`src/motor/tipos.ts`) ganhou o campo opcional `pontos?: string[]`. O motor expõe `EstadoMotor.segmentoErro: number[]` — a união dos pontos dos erros "durante" ativos, só quando **todos** têm `pontos` definido; senão fica vazio e `desenharEsqueleto` cai no esqueleto inteiro coral (compatível com erros sem segmento mapeado). Preenchido nos 9 erros "durante" mais relevantes do catálogo (valgo, quadril caído, cotovelo dobrado etc.); erros `fim_rep` (avaliados só ao fechar a rep, ex. `amplitude_curta`) não entram no esqueleto ao vivo.
+- **Cores:** esqueleto `#FFB81C` (antes `#FFC42E`), erro `#FF5A4E` (coral, antes `#FF4D4D`).
+- **Fontes:** Inter 900 (`--font-inter`) e Rubik (`--font-rubik`) carregadas em `layout.tsx` via `next/font/google`; classes utilitárias `.fonte-numero` e `.fonte-rotulo` em `globals.css`. O resto do app continua na fonte do sistema — só o HUD de treino usa Inter/Rubik.
+- **Áudio:** "faltam 10"/"faltam 5" falados uma vez por fase, quando o hero é "tempo" (`sessao.restanteMs` cruzando 10 000/5 000 ms). O bipe 3‑2‑1 já existia via `SessaoTreino.tick` (evento `contagem`) e não precisou de mudança. Voz pode ser silenciada pelo botão do overlay (`vozDesligadaRef`), sem alterar `src/camera/voz.ts`.

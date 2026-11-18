@@ -69,7 +69,8 @@
     {
       "id": "quadril_fora",
       "condicao": "vis(joelho) > 0.6 e alinhamento < 150",
-      "feedback": "Alinhe o quadril"
+      "feedback": "Alinhe o quadril",
+      "pontos": ["ombro_e", "ombro_d", "quadril_e", "quadril_d", "tornozelo_e", "tornozelo_d"]
     },
     {
       "id": "amplitude_curta",

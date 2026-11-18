@@ -14,6 +14,11 @@
   --color-ruim: #ff5c5c;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* HUD de treino (docs/HUD_TREINO.md): azul-noite, coral e o amarelo do esqueleto. */
+  --color-azul-noite: #0e1726;
+  --color-coral: #ff5a4e;
+  --color-esqueleto: #ffb81c;
 }
 
 html {
@@ -45,6 +50,17 @@ a {
   text-shadow:
     0 2px 0 rgb(0 0 0 / 0.55),
     0 0 24px rgb(0 0 0 / 0.65);
+}
+
+/* HUD de treino: Inter 900 nos números (hero, hexágono, timers), Rubik nos rótulos e avisos. */
+.fonte-numero {
+  font-family: var(--font-inter), var(--font-sans);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.fonte-rotulo {
+  font-family: var(--font-rubik), var(--font-sans);
 }
 
 @keyframes pulso-rep {

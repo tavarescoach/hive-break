@@ -105,6 +105,7 @@ export function validarDefinicao(def: DefinicaoExercicio): string[] {
   for (const erro of def.erros ?? []) {
     conferirCondicao(`erro ${erro.id}`, erro.condicao, erro.quando === "fim_rep");
     if (erro.invalida && erro.quando !== "fim_rep") problemas.push(`erro ${erro.id}: "invalida" só vale com quando = fim_rep`);
+    if (erro.pontos) tentar(`erro ${erro.id}: pontos`, () => erro.pontos!.forEach((n) => indicesDoPonto(n)));
   }
 
   return problemas;

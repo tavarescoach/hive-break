@@ -61,7 +61,8 @@
       "id": "joelhos_dobrados",
       "condicao": "vis(tornozelo) > 0.7 e joelho < 140",
       "fase": "fundo",
-      "feedback": "Joelhos quase estendidos"
+      "feedback": "Joelhos quase estendidos",
+      "pontos": ["joelho_e", "joelho_d"]
     },
     {
       "id": "amplitude_curta",

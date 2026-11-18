@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { EstadoFormulario } from "@/app/onboarding/acoes";
-import { ESTILOS_MUSICA, LIMITACOES, METAS_DIARIAS, validarCampo, validarInteiro, type CampoPerfil } from "@/dominio/perfil";
+import { ESTILOS_MUSICA, ESTILOS_PROGRESSO, LIMITACOES, METAS_DIARIAS, validarCampo, validarInteiro, type CampoPerfil } from "@/dominio/perfil";
 import { exigirSessao } from "@/lib/sessao";
 
 const FALHA = "Não consegui salvar. Confira a internet e tente de novo.";
@@ -40,9 +40,11 @@ export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulari
 
   const meta = METAS_DIARIAS.find((m) => String(m.valor) === formulario.get("meta_desafios_dia"))?.valor;
   const estilo = ESTILOS_MUSICA.find((e) => e.valor === formulario.get("musica_estilo"))?.valor;
+  const estiloProgresso = ESTILOS_PROGRESSO.find((e) => e.valor === formulario.get("estilo_progresso"))?.valor;
   const volumeMusica = validarInteiro(String(formulario.get("volume_musica")), 0, 100);
   const volumeVoz = validarInteiro(String(formulario.get("volume_voz")), 0, 100);
-  if (!meta || !estilo || volumeMusica === null || volumeVoz === null) return { erro: "Confira a meta, a música e os volumes." };
+  if (!meta || !estilo || !estiloProgresso || volumeMusica === null || volumeVoz === null)
+    return { erro: "Confira a meta, a música, o visual da tela de treino e os volumes." };
 
   // Contagem do pop-up "PREPARE-SE" (só existe depois da migração 0009).
   if (formulario.has("contagem_preparo_s")) {
@@ -59,6 +61,7 @@ export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulari
   Object.assign(dados, {
     meta_desafios_dia: meta,
     musica_estilo: estilo,
+    estilo_progresso: estiloProgresso,
     volume_musica: volumeMusica,
     volume_voz: volumeVoz,
     horario_lembrete: horario === "" ? null : horario,
