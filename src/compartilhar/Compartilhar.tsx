@@ -7,8 +7,9 @@ import {
   carregarFontes, desenharAdesivo, desenharCard, paraPng, TAMANHOS,
   type Formato, type Fundo, type Toggles,
 } from "./desenhar-card";
+import type { EstadoCardSalvo, OrigemFundo } from "./memoria";
 
-type Origem = "hive" | "selfie" | "galeria";
+type Origem = OrigemFundo;
 
 const NOME_CARD = "hive-break-treino.png";
 const NOME_ADESIVO = "hive-break-adesivo.png";
@@ -20,11 +21,23 @@ const botaoMenor =
  * galeria só passam pelo <canvas>; o PNG sai pelo menu de compartilhar do
  * celular ou pelo download. Nada é enviado ao servidor.
  */
-export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: () => void }) {
-  const [formato, setFormato] = useState<Formato>("9:16");
-  const [origem, setOrigem] = useState<Origem>("hive");
-  const [foto, setFoto] = useState<Fundo | null>(null);
-  const [toggles, setToggles] = useState<Toggles>({ recorde: true, hive: true, pse: false });
+export function Compartilhar({
+  dados, aoFechar, inicial, aoMudar,
+}: {
+  dados: DadosCard;
+  aoFechar: () => void;
+  /** Opções recuperadas depois de a página recarregar. */
+  inicial?: EstadoCardSalvo;
+  /** Guarda as opções para sobreviverem a um recarregamento. */
+  aoMudar?: (estado: Partial<EstadoCardSalvo>) => void;
+}) {
+  const [formato, setFormato] = useState<Formato>(inicial?.formato ?? "9:16");
+  const [origem, setOrigem] = useState<Origem>(inicial?.foto ? inicial.origem : "hive");
+  const [foto, setFotoEstado] = useState<Fundo | null>(null);
+  const [toggles, setToggles] = useState<Toggles>(inicial?.toggles ?? { recorde: true, hive: true, pse: false });
+  const [previa, setPrevia] = useState<{ url: string; nome: string } | null>(null);
+  // A tela só aparece depois de um toque (nunca no HTML do servidor).
+  const [ios] = useState(ehIOS);
   const [camera, setCamera] = useState(false);
   const [fontesProntas, setFontesProntas] = useState(false);
   const [card, setCard] = useState<{ blob: Blob; podeCompartilhar: boolean } | null>(null);
@@ -43,6 +56,68 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
   }, []);
 
   const fundo: Fundo = origem !== "hive" && foto ? foto : { tipo: "hive" };
+
+  // Guarda a foto reduzida para ela voltar se a página recarregar.
+  const setFoto = (f: Fundo, de: Origem) => {
+    setFotoEstado(f);
+    setOrigem(de);
+    if (f.tipo === "foto" && f.imagem instanceof HTMLCanvasElement) aoMudar?.({ origem: de, foto: comoJpeg(f.imagem) });
+  };
+
+  // Foto que estava escolhida antes de a página recarregar.
+  useEffect(() => {
+    if (!inicial?.foto) return;
+    let vivo = true;
+    const img = new Image();
+    img.onload = () => {
+      if (!vivo) return;
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      c.getContext("2d")?.drawImage(img, 0, 0);
+      setFotoEstado({ tipo: "foto", imagem: c, largura: c.width, altura: c.height });
+    };
+    img.src = inicial.foto;
+    return () => {
+      vivo = false;
+    };
+    // Só na abertura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    aoMudar?.({ formato, toggles, origem });
+    // aoMudar muda a cada render do pai; o que importa são as opções.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formato, toggles, origem]);
+
+  // Libera a prévia de salvar ao fechar.
+  useEffect(() => () => {
+    if (previa) URL.revokeObjectURL(previa.url);
+  }, [previa]);
+
+  /**
+   * Salva a imagem sem sair da página. No iPhone o <a download> pode trocar a
+   * página pela imagem (sem voltar), então lá usamos o menu de compartilhar
+   * (que tem "Salvar imagem") ou mostramos a imagem para tocar e segurar.
+   */
+  const salvar = async (blob: Blob, nome: string) => {
+    setAviso(null);
+    if (!ios) {
+      baixar(blob, nome);
+      return;
+    }
+    const file = new File([blob], nome, { type: "image/png" });
+    if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+        return;
+      } catch (e) {
+        if ((e as DOMException).name === "AbortError") return;
+      }
+    }
+    setPrevia({ url: URL.createObjectURL(blob), nome });
+  };
 
   // Redesenha e já deixa o PNG pronto: o navigator.share precisa ser chamado
   // logo no toque, sem esperar o toBlob (o Safari perde o gesto).
@@ -73,8 +148,7 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
     if (!f) return;
     setAviso(null);
     try {
-      setFoto(await carregarImagem(f));
-      setOrigem("galeria");
+      setFoto(await carregarImagem(f), "galeria");
     } catch {
       setAviso("Não consegui abrir essa imagem. Tente outra foto.");
     }
@@ -87,7 +161,7 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
     try {
       await navigator.share({ files: [file] });
     } catch (e) {
-      if ((e as DOMException).name !== "AbortError") baixar(card.blob, NOME_CARD);
+      if ((e as DOMException).name !== "AbortError") void salvar(card.blob, NOME_CARD);
     }
   };
 
@@ -115,8 +189,7 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
     return (
       <Selfie
         aoTirar={(f) => {
-          setFoto(f);
-          setOrigem("selfie");
+          setFoto(f, "selfie");
           setCamera(false);
         }}
         aoCancelar={(erro) => {
@@ -222,12 +295,12 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
         {card?.podeCompartilhar ? (
           <button onClick={compartilhar} className={botaoPrimario}>Compartilhar</button>
         ) : (
-          <button onClick={() => card && baixar(card.blob, NOME_CARD)} disabled={!card} className={botaoPrimario}>
-            {card ? "Baixar imagem" : "Montando o card…"}
+          <button onClick={() => card && void salvar(card.blob, NOME_CARD)} disabled={!card} className={botaoPrimario}>
+            {card ? (ios ? "Salvar imagem" : "Baixar imagem") : "Montando o card…"}
           </button>
         )}
         {card?.podeCompartilhar && (
-          <button onClick={() => baixar(card.blob, NOME_CARD)} className={botaoSecundario}>Baixar imagem</button>
+          <button onClick={() => void salvar(card.blob, NOME_CARD)} className={botaoSecundario}>{ios ? "Salvar imagem" : "Baixar imagem"}</button>
         )}
       </div>
 
@@ -241,9 +314,17 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
         </div>
         <div className="grid grid-cols-2 gap-2">
           <button onClick={copiarAdesivo} disabled={!adesivo} className={botaoMenor}>Copiar adesivo</button>
-          <button onClick={() => adesivo && baixar(adesivo, NOME_ADESIVO)} disabled={!adesivo} className={botaoMenor}>Baixar adesivo</button>
+          <button onClick={() => adesivo && void salvar(adesivo, NOME_ADESIVO)} disabled={!adesivo} className={botaoMenor}>{ios ? "Salvar adesivo" : "Baixar adesivo"}</button>
         </div>
       </section>
+      {previa && (
+        <div role="dialog" aria-modal="true" aria-label="Salvar imagem" className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/90 px-5 py-[max(1.5rem,env(safe-area-inset-top))]">
+          <p className="text-center text-lg font-black">Toque e segure a imagem e escolha “Salvar na Fotos”</p>
+          {/* eslint-disable-next-line @next/next/no-img-element -- blob local, sem otimização do Next */}
+          <img src={previa.url} alt="Card do treino" className="max-h-[70dvh] w-auto max-w-full rounded-2xl" style={{ WebkitTouchCallout: "default" }} />
+          <button onClick={() => setPrevia(null)} className={`${botaoSecundario} max-w-sm`}>Voltar para o card</button>
+        </div>
+      )}
     </main>
   );
 }
@@ -355,4 +436,24 @@ function baixar(blob: Blob, nome: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** iPhone e iPad (o iPadOS se apresenta como Mac, mas tem toque). */
+function ehIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+/** Foto reduzida para guardar na aba (cabe no sessionStorage). */
+function comoJpeg(c: HTMLCanvasElement): string | null {
+  try {
+    const escala = Math.min(1, 1440 / Math.max(c.width, c.height));
+    const r = document.createElement("canvas");
+    r.width = Math.round(c.width * escala);
+    r.height = Math.round(c.height * escala);
+    r.getContext("2d")?.drawImage(c, 0, 0, r.width, r.height);
+    return r.toDataURL("image/jpeg", 0.82);
+  } catch {
+    return null;
+  }
 }
