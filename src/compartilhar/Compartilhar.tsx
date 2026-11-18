@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { botaoPrimario, botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
+import type { Gancho } from "@/conteudo/ganchos";
 import type { DadosCard } from "@/dominio/card";
+import { escolherGancho, preencherGancho, trocarGancho, type EstadoDoTreino } from "@/dominio/ganchos";
+import { montarLinkConvite } from "@/lib/convite";
+import { registrarConviteComGancho } from "./acoes";
 import {
   carregarFontes, desenharAdesivo, desenharCard, paraPng, TAMANHOS,
   type Formato, type Fundo, type Toggles,
@@ -10,6 +14,25 @@ import {
 import type { EstadoCardSalvo, OrigemFundo } from "./memoria";
 
 type Origem = OrigemFundo;
+
+const assinarOrigem = () => () => {};
+
+/** Estado do treino para a tabela 3.1 (docs/GANCHOS_CONVITE.md) a partir do card já montado. */
+function estadoDoTreino(dados: DadosCard): EstadoDoTreino {
+  const bloco = dados.blocos[0];
+  return {
+    recordeNovo: dados.recorde?.novo ?? false,
+    ofensivaDias: dados.ofensiva,
+    emHive: dados.hive !== null,
+    variaveis: {
+      nome: dados.usuario,
+      dias: dados.ofensiva,
+      exercicio: bloco?.exercicio.toLowerCase(),
+      reps: bloco && bloco.tipo !== "tempo" ? bloco.numero : undefined,
+      tempo: bloco?.tipo === "tempo" ? bloco.valor : undefined,
+    },
+  };
+}
 
 const NOME_CARD = "hive-break-treino.png";
 const NOME_ADESIVO = "hive-break-adesivo.png";
@@ -22,9 +45,10 @@ const botaoMenor =
  * celular ou pelo download. Nada é enviado ao servidor.
  */
 export function Compartilhar({
-  dados, aoFechar, inicial, aoMudar,
+  dados, codigoConvite, aoFechar, inicial, aoMudar,
 }: {
   dados: DadosCard;
+  codigoConvite: string;
   aoFechar: () => void;
   /** Opções recuperadas depois de a página recarregar. */
   inicial?: EstadoCardSalvo;
@@ -46,6 +70,19 @@ export function Compartilhar({
   const canvasCard = useRef<HTMLCanvasElement>(null);
   const canvasAdesivo = useRef<HTMLCanvasElement>(null);
   const arquivo = useRef<HTMLInputElement>(null);
+
+  const estado = useMemo(() => estadoDoTreino(dados), [dados]);
+  const [usarFrase, setUsarFrase] = useState(true);
+  const [gancho, setGancho] = useState<Gancho | null>(() => escolherGancho("compartilhar_treino", estado));
+  const origemLink = useSyncExternalStore(assinarOrigem, () => window.location.origin, () => "");
+  const link = montarLinkConvite(origemLink || "https://hivebreak.app", codigoConvite, gancho ? { familia: gancho.familia, id: gancho.id } : null);
+  const textoCompartilhar = usarFrase && gancho ? `${preencherGancho(gancho.texto, estado.variaveis)}\n${link}` : link;
+
+  const trocarFrase = () => {
+    if (!gancho) return;
+    const outro = trocarGancho(gancho, "compartilhar_treino", estado.variaveis);
+    if (outro) setGancho(outro);
+  };
 
   useEffect(() => {
     let vivo = true;
@@ -157,9 +194,10 @@ export function Compartilhar({
   const compartilhar = async () => {
     if (!card) return;
     setAviso(null);
+    if (gancho) void registrarConviteComGancho(gancho.familia, gancho.id).catch(() => {});
     const file = new File([card.blob], NOME_CARD, { type: "image/png" });
     try {
-      await navigator.share({ files: [file] });
+      await navigator.share({ files: [file], text: textoCompartilhar });
     } catch (e) {
       if ((e as DOMException).name !== "AbortError") void salvar(card.blob, NOME_CARD);
     }
@@ -286,6 +324,31 @@ export function Compartilhar({
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {gancho && (
+        <section aria-label="Frase de convite" className={`${cartao} flex flex-col gap-3`}>
+          <label className="flex min-h-14 cursor-pointer items-center justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block font-bold">Frase de convite</span>
+              <span className="block truncate text-[13px] text-apagado">Vai junto com a imagem e o link</span>
+            </span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={usarFrase}
+              onChange={(e) => setUsarFrase(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span aria-hidden className="relative h-8 w-14 shrink-0 rounded-full bg-superficie-2 transition-colors peer-checked:bg-mel peer-focus-visible:outline peer-focus-visible:outline-3 peer-focus-visible:outline-mel after:absolute after:left-1 after:top-1 after:h-6 after:w-6 after:rounded-full after:bg-texto after:transition-transform peer-checked:after:translate-x-6 peer-checked:after:bg-black" />
+          </label>
+          {usarFrase && (
+            <>
+              <p className="text-[15px] font-semibold leading-snug">“{preencherGancho(gancho.texto, estado.variaveis)}”</p>
+              <button onClick={trocarFrase} className={`${botaoMenor} w-full`}>Trocar frase</button>
+            </>
+          )}
         </section>
       )}
 

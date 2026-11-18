@@ -51,6 +51,8 @@ interface Props {
   instagram: string | null;
   /** Melhores marcas anteriores neste desafio (com câmera). null: não deu para ler. */
   recordes: RecordesAnteriores | null;
+  /** Código de convite de quem está compartilhando (gera o link com o gancho). */
+  codigoConvite: string;
 }
 
 type Etapa = "pronto" | "camera" | "manual";
@@ -135,6 +137,7 @@ export function Desafio(props: Props) {
           instagram: props.instagram,
           // Depois de recarregar, o servidor já conta o treino de hoje: vale o recorde de antes.
           recordes: salvo ? salvo.recordes : props.recordes,
+          codigoConvite: props.codigoConvite,
         }}
         salvo={salvo}
       />
@@ -321,6 +324,7 @@ interface InfoCard {
   usuario: string;
   instagram: string | null;
   recordes: RecordesAnteriores | null;
+  codigoConvite: string;
 }
 
 function Resultado({
@@ -392,6 +396,7 @@ function Resultado({
     return (
       <Compartilhar
         dados={dadosCard}
+        codigoConvite={card.codigoConvite}
         inicial={salvo?.card}
         aoMudar={(estado) => atualizarFim(id, { card: estado })}
         aoFechar={() => setCompartilhando(false)}
