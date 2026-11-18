@@ -7,7 +7,8 @@
  *   3. node e2e/fluxo-fase1.mjs
  *
  * Variáveis: APP (endereço do app), SUPABASE (servidor falso), CAMERA_FALSA
- * (arquivo .mjpeg usado como câmera) e CAPTURAS (pasta para as telas).
+ * (arquivo .mjpeg usado como câmera), CAPTURAS (pasta para as telas) e CHROMIUM
+ * (caminho de um Chrome já instalado, no lugar do Chromium do Playwright).
  */
 import { createRequire } from "node:module";
 import assert from "node:assert/strict";
@@ -166,7 +167,7 @@ async function cadastro(pagina, { apelido, nascimento, triagemSim = false, prefi
   await captura(pagina, `${prefixo}-trilha`, false);
 }
 
-const navegador = await chromium.launch({ args: argumentos });
+const navegador = await chromium.launch({ args: argumentos, executablePath: process.env.CHROMIUM || undefined });
 try {
   // ---------------------------------------------------------------- visitante
   console.log("1. Visitante sem login é mandado para /entrar");
@@ -413,6 +414,30 @@ try {
   await ana.pagina.getByText("Bruno", { exact: true }).waitFor();
   await ana.pagina.getByText("1 pessoa entrou pelo seu link").waitFor();
   await captura(ana.pagina, "ana-amigos-com-bruno");
+
+  console.log("6b. Liga: todo mundo com cadastro está num grupo; aparece quem treinou, quem tem 0 XP vira contagem");
+  // A câmera falsa não mostra movimento: os desafios da Ana valeram como modo manual (0 XP de liga).
+  await ana.pagina.goto(APP + "/liga");
+  await ana.pagina.getByText("Seus pontos na semana").waitFor();
+  const [grupoAna] = await sql(
+    `select m.league_id from public.league_members m join public.leagues l on l.id = m.league_id
+     where m.user_id = $1 and l.semana_inicio = public.liga_semana_inicio()`, [perfilAna.id]);
+  assert.ok(grupoAna, "Ana entrou num grupo ao terminar o cadastro");
+  await sql("update public.league_members set pontos = 50 where league_id = $1 and user_id = $2", [grupoAna.league_id, perfilAna.id]);
+  // Mais 10 pessoas terminam o cadastro e caem no grupo dela; uma não treina.
+  const nomes = ["Duda", "Leo", "Mari", "Rafa", "Gabi", "Tati", "Nina", "Beto", "Iara", "Zeca"];
+  for (const [i, pontos] of [120, 95, 80, 60, 40, 30, 3, 2, 1, 0].entries()) {
+    const [u] = await sql("insert into auth.users (email, raw_user_meta_data) values ($1, $2) returning id",
+      [`liga${i}@exemplo.com`, JSON.stringify({ full_name: `Pessoa ${i}` })]);
+    await sql("update public.profiles set apelido = $2, onboarding_concluido_em = now() where id = $1", [u.id, nomes[i]]);
+    await sql("update public.league_members set pontos = $2 where user_id = $1", [u.id, pontos]);
+  }
+  await ana.pagina.reload();
+  await ana.pagina.getByText("Você", { exact: true }).waitFor();
+  await ana.pagina.getByText("Iara").waitFor(); // quem treinou aparece, mesmo lá embaixo
+  assert.equal(await ana.pagina.getByText("Zeca").count(), 0, "quem tem 0 XP não aparece pelo nome");
+  await ana.pagina.getByText(/ainda não trein/).waitFor();
+  await captura(ana.pagina, "ana-liga");
 
   console.log("7. Menor de 18 anos é barrado; sair e entrar de novo volta para onde parou");
   const caio = await novaPessoa(navegador, { nome: "Caio Nunes", email: "caio@exemplo.com" });

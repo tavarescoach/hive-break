@@ -388,22 +388,158 @@ positivo).
      e avisam "Vire de lado" / "Fique de frente". Aparecem ao vivo no pop-up (verde quando
      está tudo certo) e durante a série.
 
-### Card de compartilhamento
+## Hive ao vivo (19/11/2026)
 
-108. **Card montado no celular** (`src/compartilhar/`): botão "Compartilhar treino" na tela
+Telas: aba Hive (hives na sala ou em andamento, com Join), sala de espera de 60 s,
+faixa de colegas no topo da tela do exercício e card de resultado coletivo.
+
+### Respondidas pelo Luan
+
+108. **Modo competição** opcional: o anfitrião liga na sala, e os reps de todos aparecem
+     ao vivo. Desligado (padrão), cada um vê só os próprios números; os colegas aparecem
+     com a etapa (série, pausa, terminou) e a comparação fica no card do fim.
+109. **Join a qualquer momento**, inclusive com a hive em andamento ("o objetivo é hive").
+     Quem chega atrasado faz o desafio do início, no próprio relógio, e entra no mesmo card.
+110. **Todos veem e todos podem dar join** (não só amigos).
+
+### Decididas na implementação (revisar)
+
+111. **Desafio bloqueado na trilha** pode ser feito por quem está numa hive dele (até 3 h
+     depois do join). Travado pela triagem continua travado: a pessoa não entra.
+112. **Anfitrião** só abre hive de desafio liberado para ele, e uma de cada vez. Pode
+     começar antes dos 60 s.
+113. **Fim da hive:** duração do desafio + 3 min; cada join atrasado empurra o fim.
+114. **Sem vídeo:** o canal Realtime leva só etapa, série e reps. Na pausa, tocar num
+     colega manda um high five.
+115. **Sem bônus de XP por hive** por enquanto (valor a definir). Coluna `visibilidade`
+     já existe ('aberta' | 'equipe') para hive fechada de empresa no futuro.
+116. **Quem abre o link sem login** vai para a tela de entrar e, depois, para a trilha (não
+     volta sozinho para a hive).
+
+## Liga semanal (17/11/2026)
+
+Regras completas na seção 9.3 da especificação. Código em
+`supabase/migrations/20261119002000_liga.sql`, `src/dominio/liga.ts` e `src/app/(app)/liga/page.tsx`.
+
+### Respondidas pelo Luan
+
+117. **Grupo menor que 30:** sobe e desce proporcional (7 e 5 em cada 30); com menos de 5
+     pessoas só o 1º sobe e ninguém desce.
+118. **Entrada:** no 1º desafio válido da semana, não só na segunda.
+119. **Ninguém é exposto:** a tela mostra o pódio, a pessoa e quem está logo acima; a zona
+     de descida só aparece para a própria pessoa, com quanto falta para ficar.
+120. **Pontos:** XP da semana, só de desafios com câmera (sem modo manual, respiração,
+     convites e nivelamento). Agrupar por dificuldade parecida saiu do MVP.
+
+### Decididas na implementação (revisar)
+
+121. **Semana no horário de Brasília para todos**, de segunda 00h00 a domingo 23h59, mesmo
+     para quem tem outro fuso no perfil.
+122. **Empate:** fica na frente quem chegou primeiro àqueles pontos.
+123. **Quem sobe ganha 1 protetor de ofensiva** (seção 10.2), respeitando o limite de 2 (4
+     com ofensiva de 100 dias ou mais), e a conquista "Primeira subida de divisão".
+124. **Fechamento:** pg_cron toda segunda às 00h01. Sem pg_cron, a semana fecha sozinha na
+     primeira vez que alguém abre a Liga ou pontua na semana seguinte.
+125. **Fora do quadro:** a média de `fora_quadro_pct` dos exercícios do desafio acima de 30%
+     tira o desafio da liga (o XP continua valendo para a trilha).
+126. **Nível concluído** vale para a liga quando o desafio que fechou o nível foi feito com
+     a câmera.
+
+## Liga para todos (17/11/2026, 21h45)
+
+Código em `supabase/migrations/20261120001000_liga_todos.sql`. Substitui parte das decisões
+117 a 126.
+
+### Respondidas pelo Luan
+
+127. **Todo mundo participa:** quem tem cadastro completo está num grupo toda semana, mesmo
+     com 0 XP. A tela mostra todo mundo que treinou; quem tem 0 XP vira contagem.
+128. **Grupos de até 15, do mesmo tamanho** (20 → 10 + 10; 30 → 15 + 15; 40 → 14 + 13 + 13),
+     para o convite pesar mais.
+129. **Respiração guiada vale XP de liga**, com ou sem câmera.
+130. **XP de convite vale na liga** quando o convidado já treinou.
+131. **Modo manual continua fora da liga.** Ranking entre amigos não é a liga: vai para o
+     friend streak / friends hive.
+
+### Decididas na implementação (revisar)
+
+132. **Ativação de convite implementada** (seção 9.4, estava pendente): no 1º desafio
+     concluído do convidado (com ou sem câmera), os dois viram amigos, ganham 1 protetor de
+     ofensiva e quem convidou ganha 20 XP (até 10 por mês). Convites de quem já tinha
+     treinado foram ativados ao rodar a migração.
+133. **Grupos iguais em vez de 15 + 15 + 10:** com 40 pessoas ficam 14, 13 e 13, para nenhum
+     grupo ficar bem menor que os outros.
+134. **Quem chega no meio da semana** vai para o grupo de quem convidou (se tiver vaga) ou para
+     o menor; com todos em 15, abre um grupo novo.
+135. **Só sobe quem fez pelo menos 1 XP**, mesmo que esteja no topo de um grupo parado.
+136. **A semana de 16 a 22/11 foi refeita** ao rodar a migração: grupos montados de novo com
+     todos e pontos recalculados com todo o XP desde segunda, inclusive o de antes da liga
+     existir.
+137. **A respiração não tem a regra do corpo fora do quadro.**
+
+## Lembretes (20/11/2026)
+
+Regras e textos: FUNIL_LEMBRETES.md (v2). Configuração: `docs/CONFIGURACAO.md`, seção 6.
+
+### Respondidas pelo Luan
+
+1. **Lembretes vêm ligados.** Não existe "Ativar"; existe "Desativar" por categoria e geral,
+   em `/perfil/config` e no rodapé de todo e-mail.
+2. **n8n no servidor próprio** agenda e envia (e-mail pelo Gmail); banco e app cuidam das
+   regras, dos textos, do push e do "desativar".
+3. **R0 no horário da última prática**, com A/B de 12h; ofensiva às 20h (R1) e 22h (R1b);
+   pausa depois de 14 dias (W3); 1 e-mail e 3 push por dia; silêncio das 22h30 às 8h.
+
+### Decididas na implementação (revisar)
+
+4. **Um envio por gatilho, canal e dia.** Vale também para S1 (se duas pessoas entrarem na
+   sua hive no mesmo dia, só a primeira gera aviso) e garante "S4 no máximo 1 por dia".
+5. **No máximo 1 push por pessoa em cada rodada de 15 min.** Quando dois gatilhos coincidem,
+   vai o de maior prioridade; o outro sai na rodada seguinte, se a janela ainda valer.
+6. **Janelas:** gatilhos "no horário X" valem de X até X + 1 h (R1: 20h–22h; R1b: 22h–22h30;
+   S3: 18h–20h; R2: sábado 10h–12h). Se o n8n ficar fora por mais que isso, o aviso do dia
+   é perdido, não acumulado.
+7. **Canal:** R1b, H1, H2, S4 e S6 são só push (sem push, não saem). A2 tem push em +2 h e
+   e-mail em +24 h. Os demais "push" caem para e-mail quando a pessoa não tem push.
+8. **A5 ("primeiro convite")** sai a partir do 3º dia para quem treinou ontem ou hoje e
+   nunca convidou ninguém. "Convidou" = alguém se cadastrou pelo link **ou** a pessoa tocou
+   em Convidar/Copiar link (evento `invite_sent`).
+9. **S4 (ultrapassagem)** vai para amigos do mesmo grupo da liga, sem depender do modo
+   competição, que só existe na hive. Nunca mostra posição.
+10. **S6 (high five) agrupado:** um push por dia. Se já chegaram vários, sai "{qtd} pessoas
+    te mandaram high five hoje". O high five passa a ser gravado em `high_fives`.
+11. **H1 e H2** já estão no motor, mas a hive ainda começa na hora em que é criada: H1 só
+    vai funcionar quando existir a tela de agendar hive.
+12. **S3 (dupla em risco)** usa as ofensivas individuais dos dois (`friend_streaks` ainda não
+    é atualizada por nada).
+13. **Pausa do W3** grava `pausado_ate = infinity` e corta tudo, inclusive avisos sociais.
+    Qualquer desafio concluído tira a pausa. Na simulação, o W3 não pausa ninguém.
+14. **Horário do lembrete** (perfil) só vale para quem ainda não treinou (e-mail do A2).
+    Depois, manda o horário da última prática, como no FUNIL.
+15. **Push de madrugada não sai, nem imediato.** E-mail imediato (A1, A3...) sai a qualquer hora.
+16. **"Desativar" pelo link** acontece quando a página abre no navegador, e não no simples
+    acesso ao link, para filtros de e-mail que visitam links não desligarem nada.
+17. **Sem chave `service_role` no app.** As rotas sem login (push, abertura, desativar) usam
+    funções do banco que conferem o segredo ou o HMAC.
+18. **Disparo de teste do admin** ignora simulação, limites e preferências, e usa valores
+    de exemplo para o que faltar ("Ana", "15h"...).
+
+## Card de compartilhamento (18/11/2026)
+
+138. **Card montado no celular** (`src/compartilhar/`): botão "Compartilhar treino" na tela
      final abre a criação do card, com fundo de selfie (câmera frontal), foto da galeria ou
      arte da hive, em 9:16 (1080×1920) ou 4:5 (1080×1350), e um adesivo PNG transparente só
      com os dados. A imagem é desenhada num `<canvas>` depois de `document.fonts.load`; a
      foto nunca vai para o servidor. Compartilha com `navigator.share({ files })` quando
      `canShare` aceita; senão, "Baixar imagem". Adesivo: "Copiar adesivo" (área de
      transferência) e "Baixar adesivo".
-109. **O que entra no card** (`src/dominio/card.ts`): sequência em destaque (inclusive
+139. **O que entra no card** (`src/dominio/card.ts`): sequência em destaque (inclusive
      "1 dia · O 1º de muitos"), um bloco por exercício no tipo do score (reps com as séries
      embaixo, segundos válidos ou tempo para completar), identificação (apelido, @instagram,
      desafio, modalidade, data e hora) e extras com liga/desliga: recorde pessoal, total da
      hive e PSE (desligada por padrão). Nunca peso, medidas, calorias ou posição em ranking.
      Dado que ainda não existe some do card em vez de quebrar.
-110. **Recorde pessoal** = melhor marca do mesmo bloco deste desafio entre as tentativas com
+140. **Recorde pessoal** = melhor marca do mesmo bloco deste desafio entre as tentativas com
      câmera (`attempt_blocks`). Sempre "Seu recorde: X"; "Novo recorde" só quando supera uma
      marca anterior. Sem câmera não há recorde. Tempo para completar ainda não é guardado
      por bloco, então não entra no recorde.

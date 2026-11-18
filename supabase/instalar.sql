@@ -1476,6 +1476,2898 @@ grant execute on function public.abrir_bau(text, integer) to authenticated;
 grant execute on function public.pular_para_secao(integer) to authenticated;
 grant execute on all functions in schema public to service_role;
 
+-- >>> migrations/20261119001000_hive.sql
+-- Hive Break · Hive ao vivo (decisões do Luan em 17/11/2026)
+--
+-- Uma hive é um grupo fazendo o mesmo desafio ao mesmo tempo:
+--   * todos veem as hives abertas e todos podem dar join (visibilidade 'aberta');
+--   * dá para entrar a qualquer momento, inclusive com a hive em andamento: quem
+--     chega atrasado faz o desafio do início, no próprio relógio, e entra no
+--     mesmo card coletivo;
+--   * os números dos colegas ficam escondidos durante o exercício, a não ser
+--     que o anfitrião ligue o modo competição;
+--   * ninguém transmite vídeo: o tempo real (quem está em série, pausa, reps)
+--     passa pelo canal Realtime do Supabase e só tem números.
+--
+-- O estado da hive vem do relógio, não de uma coluna:
+--   sala       = antes de inicio_em (sala de espera de 60 s);
+--   andamento  = entre inicio_em e fim_em;
+--   encerrada  = depois de fim_em.
+-- Cada join atrasado empurra fim_em para que o card coletivo espere todo mundo.
+
+create table public.hives (
+  id uuid primary key default gen_random_uuid(),
+  anfitriao_id uuid not null references public.profiles (id) on delete cascade,
+  challenge_id text not null references public.challenges (id),
+  modo_competicao boolean not null default false,
+  -- 'equipe' fica reservado para hives fechadas de empresa (pós-MVP).
+  visibilidade text not null default 'aberta' check (visibilidade in ('aberta', 'equipe')),
+  criada_em timestamptz not null default now(),
+  inicio_em timestamptz not null,
+  fim_em timestamptz not null,
+  check (fim_em > inicio_em)
+);
+create index hives_fim_idx on public.hives (fim_em desc);
+create index hives_anfitriao_idx on public.hives (anfitriao_id, fim_em desc);
+
+create table public.hive_participantes (
+  hive_id uuid not null references public.hives (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  entrou_em timestamptz not null default now(),
+  atrasado boolean not null default false,
+  attempt_id uuid references public.challenge_attempts (id) on delete set null,
+  concluido_em timestamptz,
+  modo text check (modo in ('camera', 'manual')),
+  xp integer check (xp >= 0),
+  reps integer check (reps >= 0),
+  tempo_valido_s numeric(6, 1) check (tempo_valido_s >= 0),
+  primary key (hive_id, user_id)
+);
+create index hive_participantes_user_idx on public.hive_participantes (user_id, entrou_em desc);
+
+alter table public.hives enable row level security;
+alter table public.hive_participantes enable row level security;
+revoke all on public.hives, public.hive_participantes from anon, authenticated;
+grant select on public.hives, public.hive_participantes to authenticated;
+grant all on public.hives, public.hive_participantes to service_role;
+-- Todos veem as hives e quem está nelas (decisão do Luan). Nome e foto vêm de
+-- perfis_publicos; dados de saúde continuam só com o dono.
+create policy "hives: todos leem" on public.hives for select to authenticated using (true);
+create policy "participantes: todos leem" on public.hive_participantes for select to authenticated using (true);
+
+-- Duração de referência para fechar a hive: duração do desafio + 3 min de
+-- folga (preparo, pausas e quem demora a tocar em começar).
+create function public.hive_duracao(p_challenge_id text) returns interval
+language sql stable
+set search_path = public, pg_temp
+as $$
+  select make_interval(secs => coalesce((select duracao_s from public.challenges where id = p_challenge_id), 300) + 180)
+$$;
+
+create function public.hive_status(h public.hives) returns text
+language sql stable
+set search_path = public, pg_temp
+as $$
+  select case when now() < h.inicio_em then 'sala' when now() < h.fim_em then 'andamento' else 'encerrada' end
+$$;
+
+-- A pessoa entrou numa hive deste desafio nas últimas 3 horas. Quem está na
+-- hive pode fazer o desafio mesmo que ele ainda esteja bloqueado na trilha
+-- dela ("o objetivo é hive"). Travado pela triagem continua travado.
+create function public.em_hive_do_desafio(p_user uuid, p_challenge_id text) returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.hive_participantes hp join public.hives h on h.id = hp.hive_id
+    where hp.user_id = p_user and h.challenge_id = p_challenge_id and hp.entrou_em > now() - interval '3 hours'
+  )
+$$;
+
+create function public.exigir_cadastro() returns uuid
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  if not exists (select 1 from public.profiles where id = v_user and onboarding_concluido_em is not null) then
+    raise exception 'cadastro_incompleto' using errcode = '22023';
+  end if;
+  return v_user;
+end;
+$$;
+
+-- Começar uma hive: o anfitrião escolhe um desafio liberado para ele.
+-- Cada pessoa tem no máximo uma hive aberta como anfitriã.
+create function public.criar_hive(p_challenge_id text, p_competicao boolean default false) returns uuid
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := public.exigir_cadastro();
+  v_estado text;
+  v_id uuid;
+begin
+  select estado into v_estado from public.trilha_estados(v_user) where challenge_id = p_challenge_id;
+  if v_estado is null then
+    raise exception 'desafio_inexistente' using errcode = '22023';
+  end if;
+  if v_estado in ('bloqueado', 'travado') then
+    raise exception 'desafio_bloqueado' using errcode = '22023';
+  end if;
+  select id into v_id from public.hives where anfitriao_id = v_user and fim_em > now() order by criada_em desc limit 1;
+  if v_id is not null then
+    raise exception 'hive_ativa' using errcode = '22023', hint = v_id::text;
+  end if;
+  insert into public.hives (anfitriao_id, challenge_id, modo_competicao, inicio_em, fim_em)
+  values (v_user, p_challenge_id, coalesce(p_competicao, false), now() + interval '60 seconds',
+          now() + interval '60 seconds' + public.hive_duracao(p_challenge_id))
+  returning id into v_id;
+  insert into public.hive_participantes (hive_id, user_id) values (v_id, v_user);
+  return v_id;
+end;
+$$;
+
+-- Join: vale na sala e com a hive em andamento. Quem entra atrasado empurra o
+-- fim da hive para o card coletivo esperar por ele.
+create function public.entrar_hive(p_hive uuid) returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := public.exigir_cadastro();
+  h public.hives;
+  v_estado text;
+  v_atrasado boolean;
+begin
+  select * into h from public.hives where id = p_hive for update;
+  if h.id is null then
+    raise exception 'hive_inexistente' using errcode = '22023';
+  end if;
+  if public.hive_status(h) = 'encerrada' then
+    raise exception 'hive_encerrada' using errcode = '22023';
+  end if;
+  select estado into v_estado from public.trilha_estados(v_user) where challenge_id = h.challenge_id;
+  if v_estado = 'travado' then
+    raise exception 'desafio_travado' using errcode = '22023';
+  end if;
+  v_atrasado := now() >= h.inicio_em;
+  insert into public.hive_participantes (hive_id, user_id, atrasado) values (h.id, v_user, v_atrasado)
+  on conflict (hive_id, user_id) do nothing;
+  if found and v_atrasado then
+    update public.hives set fim_em = greatest(fim_em, now() + public.hive_duracao(challenge_id)) where id = h.id;
+  end if;
+  return jsonb_build_object('challenge_id', h.challenge_id, 'atrasado', v_atrasado);
+end;
+$$;
+
+-- Anfitrião: começar já (pula o resto da sala de espera).
+create function public.comecar_hive_agora(p_hive uuid) returns void
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare v_user uuid := public.exigir_cadastro();
+begin
+  update public.hives set inicio_em = now(), fim_em = now() + public.hive_duracao(challenge_id)
+  where id = p_hive and anfitriao_id = v_user and now() < inicio_em;
+end;
+$$;
+
+-- Anfitrião: liga ou desliga o modo competição enquanto a hive está na sala.
+create function public.definir_competicao_hive(p_hive uuid, p_valor boolean) returns void
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare v_user uuid := public.exigir_cadastro();
+begin
+  update public.hives set modo_competicao = coalesce(p_valor, false)
+  where id = p_hive and anfitriao_id = v_user and now() < inicio_em;
+end;
+$$;
+
+-- Fecha a participação com a tentativa que o servidor já gravou em
+-- finalizar_desafio: os números do card coletivo não vêm do aparelho.
+create function public.registrar_resultado_hive(p_hive uuid) returns boolean
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := public.exigir_cadastro();
+  hp public.hive_participantes;
+  h public.hives;
+  a public.challenge_attempts;
+begin
+  select * into hp from public.hive_participantes where hive_id = p_hive and user_id = v_user;
+  if hp.hive_id is null then
+    return false;
+  end if;
+  select * into h from public.hives where id = p_hive;
+  select * into a from public.challenge_attempts
+  where user_id = v_user and challenge_id = h.challenge_id and status = 'concluido' and concluido_em >= hp.entrou_em
+  order by concluido_em desc limit 1;
+  if a.id is null then
+    return false;
+  end if;
+  update public.hive_participantes
+  set attempt_id = a.id, concluido_em = a.concluido_em, modo = a.modo, xp = coalesce(a.xp, 0),
+      reps = (select coalesce(sum(reps_validas), 0) from public.attempt_blocks where attempt_id = a.id),
+      tempo_valido_s = (select coalesce(sum(tempo_valido_s), 0) from public.attempt_blocks where attempt_id = a.id)
+  where hive_id = p_hive and user_id = v_user;
+  return true;
+end;
+$$;
+
+-- Uma hive com os participantes (nome e foto públicos) e os resultados.
+create function public.hive_json(h public.hives, p_user uuid) returns jsonb
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select jsonb_build_object(
+    'id', h.id,
+    'status', public.hive_status(h),
+    'inicio_em', h.inicio_em,
+    'fim_em', h.fim_em,
+    'modo_competicao', h.modo_competicao,
+    'anfitriao_id', h.anfitriao_id,
+    'anfitriao', (select apelido from public.perfis_publicos where id = h.anfitriao_id),
+    'challenge_id', h.challenge_id,
+    'desafio', c.titulo,
+    'modalidade', c.modalidade,
+    'duracao_s', c.duracao_s,
+    'sou_participante', exists (select 1 from public.hive_participantes where hive_id = h.id and user_id = p_user),
+    'amigo', h.anfitriao_id = p_user or exists (
+      select 1 from public.friendships f
+      where (f.user_a = p_user and f.user_b = h.anfitriao_id) or (f.user_b = p_user and f.user_a = h.anfitriao_id)
+    ),
+    'participantes', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+        'id', hp.user_id, 'apelido', coalesce(pp.apelido, 'Alguém'), 'avatar_url', pp.avatar_url,
+        'atrasado', hp.atrasado, 'concluido', hp.concluido_em is not null, 'modo', hp.modo,
+        'xp', hp.xp, 'reps', hp.reps, 'tempo_valido_s', hp.tempo_valido_s
+      ) order by hp.entrou_em), '[]'::jsonb)
+      from public.hive_participantes hp
+      left join public.perfis_publicos pp on pp.id = hp.user_id
+      where hp.hive_id = h.id
+    )
+  )
+  from public.challenges c where c.id = h.challenge_id
+$$;
+
+create function public.ler_hive(p_hive uuid) returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := public.exigir_cadastro();
+  h public.hives;
+begin
+  select * into h from public.hives where id = p_hive;
+  if h.id is null then
+    return null;
+  end if;
+  return public.hive_json(h, v_user)
+    || jsonb_build_object('estado_desafio', (select estado from public.trilha_estados(v_user) where challenge_id = h.challenge_id));
+end;
+$$;
+
+-- Aba Hive: hives na sala ou em andamento (as de amigos primeiro) e as
+-- encerradas na última hora de que a pessoa participou.
+create function public.listar_hives() returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare v_user uuid := public.exigir_cadastro();
+begin
+  return coalesce((
+    select jsonb_agg(j order by (j ->> 'status') = 'encerrada', (j ->> 'amigo')::boolean desc, j ->> 'inicio_em')
+    from (
+      select public.hive_json(h, v_user) as j
+      from public.hives h
+      where h.visibilidade = 'aberta'
+        and (h.fim_em > now()
+             or (h.fim_em > now() - interval '1 hour'
+                 and exists (select 1 from public.hive_participantes where hive_id = h.id and user_id = v_user)))
+      order by h.inicio_em desc
+      limit 50
+    ) x
+  ), '[]'::jsonb);
+end;
+$$;
+
+-- finalizar_desafio igual à da migração 0007, com uma mudança: quem está numa
+-- hive do desafio pode fazê-lo mesmo bloqueado na trilha.
+create or replace function public.finalizar_desafio(p_challenge_id text, p_modo text, p_blocos jsonb) returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  p public.profiles;
+  c public.challenges;
+  v_estado text;
+  v_modo text := p_modo;
+  v_hoje date;
+  v_refeito boolean;
+  v_refazer_pago boolean;
+  v_primeiro boolean;
+  v_base integer;
+  v_xp_desafio integer;
+  v_xp_primeiro integer := 0;
+  v_xp integer;
+  v_attempt uuid;
+  v_total_blocos integer;
+  v_blocos_ativos integer := 0;
+  v_sem_movimento boolean := false;
+  v_unidade_concluida boolean := false;
+  v_unidade_sessao boolean := false;
+  v_nivel_concluido boolean := false;
+  v_proximo smallint;
+  v_ofensiva integer;
+  b jsonb;
+  bloco public.challenge_blocks;
+  v_segundos integer;
+  v_reps integer;
+  v_tempo numeric;
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  if p_modo not in ('camera', 'manual') then
+    raise exception 'modo_invalido' using errcode = '22023';
+  end if;
+  select * into p from public.profiles where id = v_user;
+  if p.onboarding_concluido_em is null then
+    raise exception 'cadastro_incompleto' using errcode = '22023';
+  end if;
+  select * into c from public.challenges where id = p_challenge_id;
+  if c.id is null then
+    raise exception 'desafio_inexistente' using errcode = '22023';
+  end if;
+  select estado into v_estado from public.trilha_estados(v_user) where challenge_id = c.id;
+  -- Bloqueado na trilha, mas a pessoa está numa hive deste desafio: pode fazer.
+  if v_estado = 'travado' or (v_estado = 'bloqueado' and not public.em_hive_do_desafio(v_user, c.id)) then
+    raise exception 'desafio_bloqueado' using errcode = '22023';
+  end if;
+  v_refeito := v_estado = 'concluido';
+
+  -- Confere os números enviados pelo aparelho e recusa valores impossíveis (seção 9.5).
+  select count(*) into v_total_blocos from public.challenge_blocks where challenge_id = c.id;
+  if jsonb_typeof(coalesce(p_blocos, '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(p_blocos, '[]'::jsonb)) > v_total_blocos
+     or pg_column_size(p_blocos) > 20000 then
+    raise exception 'kpis_invalidos' using errcode = '22023';
+  end if;
+  if v_modo = 'camera' then
+    for b in select * from jsonb_array_elements(p_blocos) loop
+      select * into bloco from public.challenge_blocks
+      where challenge_id = c.id and ordem = (b ->> 'ordem')::int;
+      if bloco.id is null or jsonb_typeof(b -> 'kpis') is distinct from 'object' then
+        raise exception 'kpis_invalidos' using errcode = '22023';
+      end if;
+      v_segundos := coalesce((bloco.parametros_por_dificuldade -> 'padrao' ->> 'segundos')::int, c.duracao_s);
+      v_reps := coalesce((b ->> 'reps_validas')::int, 0);
+      v_tempo := coalesce((b ->> 'tempo_valido_s')::numeric, 0);
+      -- Limite humano: no máximo 4 repetições por segundo; tempo válido não passa do tempo do bloco.
+      if v_reps < 0 or v_reps > v_segundos * 4 or v_tempo < 0 or v_tempo > v_segundos + 5
+         or coalesce((b ->> 'reps_parciais')::int, 0) not between 0 and v_segundos * 4
+         or coalesce((b ->> 'fora_quadro_pct')::numeric, 0) not between 0 and 100 then
+        raise exception 'kpis_invalidos' using errcode = '22023';
+      end if;
+      if v_reps > 0 or v_tempo >= 3 then
+        v_blocos_ativos := v_blocos_ativos + 1;
+      end if;
+    end loop;
+    -- A câmera não viu movimento em pelo menos metade dos exercícios: vale como modo manual.
+    if v_blocos_ativos * 2 < v_total_blocos then
+      v_modo := 'manual';
+      v_sem_movimento := true;
+    end if;
+  end if;
+
+  v_hoje := (now() at time zone p.fuso_horario)::date;
+  select exists (
+    select 1 from public.challenge_attempts
+    where user_id = v_user and challenge_id = c.id and status = 'concluido' and refeito and xp > 0
+      and (concluido_em at time zone p.fuso_horario)::date = v_hoje
+  ) into v_refazer_pago;
+  select not exists (
+    select 1 from public.challenge_attempts
+    where user_id = v_user and status = 'concluido'
+      and (concluido_em at time zone p.fuso_horario)::date = v_hoje
+  ) into v_primeiro;
+
+  v_base := public.xp_do_desafio(c.tipo);
+  v_xp_desafio := case
+    when v_refeito and v_refazer_pago then 0
+    else greatest(1, round(v_base * (case when v_modo = 'manual' then 0.5 else 1 end) * (case when v_refeito then 1.0 / 3 else 1 end)))::int
+  end;
+  if v_primeiro then
+    v_xp_primeiro := case when v_modo = 'manual' then 3 else 5 end;
+  end if;
+  v_xp := v_xp_desafio + v_xp_primeiro;
+
+  insert into public.challenge_attempts
+    (user_id, challenge_id, dificuldade, modo, status, concluido_em, xp, valido_para_liga, refeito)
+  values (v_user, c.id, p.dificuldade_atual, v_modo, 'concluido', now(), v_xp_desafio, false, v_refeito)
+  returning id into v_attempt;
+
+  if p_modo = 'camera' then
+    insert into public.attempt_blocks
+      (attempt_id, challenge_block_id, exercise_id, serie, reps_validas, reps_parciais, tempo_valido_s, kpis, fora_quadro_pct)
+    select v_attempt, cb.id, cb.exercise_id, 1,
+           coalesce((e ->> 'reps_validas')::int, 0), coalesce((e ->> 'reps_parciais')::int, 0),
+           coalesce((e ->> 'tempo_valido_s')::numeric, 0), e -> 'kpis', coalesce((e ->> 'fora_quadro_pct')::numeric, 0)
+    from jsonb_array_elements(p_blocos) e
+    join public.challenge_blocks cb on cb.challenge_id = c.id and cb.ordem = (e ->> 'ordem')::int
+    on conflict (attempt_id, challenge_block_id, serie) do nothing;
+  end if;
+
+  if v_xp_desafio > 0 then
+    insert into public.xp_events (user_id, tipo, valor, attempt_id)
+    values (v_user, case when v_refeito then 'refazer' else 'desafio' end, v_xp_desafio, v_attempt);
+  end if;
+  if v_xp_primeiro > 0 then
+    insert into public.xp_events (user_id, tipo, valor, attempt_id) values (v_user, 'primeiro_do_dia', v_xp_primeiro, v_attempt);
+  end if;
+
+  insert into public.user_challenge_progress (user_id, challenge_id, liberado, tentativas, concluido_em)
+  values (v_user, c.id, true, 1, now())
+  on conflict (user_id, challenge_id) do update
+    set tentativas = public.user_challenge_progress.tentativas + 1,
+        concluido_em = coalesce(public.user_challenge_progress.concluido_em, now());
+
+  -- Ofensiva: versão simples (dias seguidos). Protetor, recuperação, marcos e
+  -- a virada do dia por cron entram na Fase 4.
+  insert into public.streak_days (user_id, dia, tipo) values (v_user, v_hoje, 'feito')
+  on conflict (user_id, dia) do nothing;
+  update public.streaks
+  set atual = case
+        when ultimo_dia_ativo = v_hoje then atual
+        when ultimo_dia_ativo = v_hoje - 1 then atual + 1
+        else 1
+      end,
+      ultimo_dia_ativo = v_hoje
+  where user_id = v_user;
+  update public.streaks set recorde = greatest(recorde, atual) where user_id = v_user
+  returning atual into v_ofensiva;
+
+  if not v_refeito then
+    select not exists (
+      select 1 from public.trilha_estados(v_user) where unit_id = c.unit_id and estado in ('disponivel', 'bloqueado')
+    ) into v_unidade_concluida;
+    select not exists (
+      select 1 from public.trilha_estados(v_user) where level_id = c.level_id and estado in ('disponivel', 'bloqueado')
+    ) into v_nivel_concluido;
+  end if;
+
+  -- Unidade inteira numa única sessão: do primeiro ao último desafio em até 3 horas.
+  if v_unidade_concluida then
+    select max(ucp.concluido_em) - min(ucp.concluido_em) <= interval '3 hours' into v_unidade_sessao
+    from public.user_challenge_progress ucp
+    join public.challenges ch on ch.id = ucp.challenge_id
+    where ucp.user_id = v_user and ch.unit_id = c.unit_id and ucp.concluido_em is not null;
+    if v_unidade_sessao then
+      insert into public.xp_events (user_id, tipo, valor, attempt_id) values (v_user, 'unidade_sessao', 50, v_attempt);
+      v_xp := v_xp + 50;
+    end if;
+  end if;
+
+  if v_nivel_concluido then
+    update public.user_level_progress set concluido_em = now()
+    where user_id = v_user and level_id = c.level_id and concluido_em is null;
+    if found then
+      insert into public.xp_events (user_id, tipo, valor) values (v_user, 'nivel_concluido', 30);
+      v_xp := v_xp + 30;
+      select id into v_proximo from public.levels where ordem = (select ordem + 1 from public.levels where id = c.level_id);
+      if v_proximo is not null then
+        insert into public.user_level_progress (user_id, level_id, liberado) values (v_user, v_proximo, true)
+        on conflict (user_id, level_id) do update set liberado = true;
+        update public.profiles set nivel_atual = v_proximo where id = v_user and nivel_atual = c.level_id;
+      end if;
+    else
+      v_nivel_concluido := false;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'xp', v_xp, 'modo', v_modo, 'sem_movimento', v_sem_movimento,
+    'primeiro_do_dia', v_primeiro, 'refeito', v_refeito, 'refazer_sem_xp', v_refeito and v_refazer_pago,
+    'ofensiva', v_ofensiva, 'unidade_concluida', v_unidade_concluida, 'unidade_sessao', coalesce(v_unidade_sessao, false),
+    'nivel_concluido', v_nivel_concluido, 'proximo_nivel', v_proximo
+  );
+end;
+$$;
+
+-- Privilégios: retira tudo e concede função por função (ver migração 0005).
+revoke execute on all functions in schema public from public, anon, authenticated;
+grant execute on function public.minhas_ligas() to authenticated;
+grant execute on function public.registrar_triagem(jsonb) to authenticated;
+grant execute on function public.declarar_liberacao_medica() to authenticated;
+grant execute on function public.definir_compromisso(integer) to authenticated;
+grant execute on function public.registrar_convite(text) to authenticated;
+grant execute on function public.concluir_onboarding() to authenticated;
+grant execute on function public.convite_publico(text) to anon, authenticated;
+grant execute on function public.ler_trilha() to authenticated;
+grant execute on function public.finalizar_desafio(text, text, jsonb) to authenticated;
+grant execute on function public.concluir_desafio_provisorio(text) to authenticated;
+grant execute on function public.registrar_dor(text, text, text) to authenticated;
+grant execute on function public.registrar_esforco(text, integer) to authenticated;
+grant execute on function public.abrir_bau(text, integer) to authenticated;
+grant execute on function public.pular_para_secao(integer) to authenticated;
+grant execute on function public.criar_hive(text, boolean) to authenticated;
+grant execute on function public.entrar_hive(uuid) to authenticated;
+grant execute on function public.comecar_hive_agora(uuid) to authenticated;
+grant execute on function public.definir_competicao_hive(uuid, boolean) to authenticated;
+grant execute on function public.registrar_resultado_hive(uuid) to authenticated;
+grant execute on function public.ler_hive(uuid) to authenticated;
+grant execute on function public.listar_hives() to authenticated;
+grant execute on all functions in schema public to service_role;
+
+-- >>> migrations/20261119002000_liga.sql
+-- Hive Break · Liga semanal (docs/ESPECIFICACAO.md, seção 9.3, revisada em 17/11/2026)
+--
+-- Decisões do Luan:
+--   * a semana vai de segunda 00h00 a domingo 23h59, no horário de Brasília para todos;
+--   * a pessoa entra num grupo no 1º desafio válido da semana, no grupo aberto da
+--     divisão dela; com 30 pessoas, abre outro grupo;
+--   * pontos de liga = XP da semana ganho em desafios com câmera (desafio, refazer,
+--     1º do dia, unidade numa sessão, nível concluído). Não contam modo manual,
+--     respiração guiada, convites e nivelamento. Mais de 30% do tempo fora do quadro
+--     tira o desafio da liga;
+--   * fechamento proporcional: sobem 7 em cada 30 e descem 5 em cada 30, arredondando;
+--     grupo com menos de 5 pessoas: só o 1º sobe e ninguém desce. Bronze não desce,
+--     Diamante não sobe. Quem sobe ganha 1 protetor de ofensiva;
+--   * ninguém é exposto: ler_liga devolve só o pódio, a pessoa e quem está logo acima.
+--
+-- Os pontos são somados por um gatilho em xp_events, então finalizar_desafio não muda.
+-- O fechamento roda por cron (pg_cron, segunda 00h01) e, se o cron não existir, na
+-- primeira leitura ou pontuação da semana seguinte.
+
+alter table public.leagues add column criada_em timestamptz not null default now();
+alter table public.league_members add column entrou_em timestamptz not null default now();
+-- Quando a pessoa chegou aos pontos atuais: no empate, fica na frente quem chegou antes.
+alter table public.league_members add column pontos_em timestamptz not null default now();
+create index leagues_abertas_idx on public.leagues (status, semana_fim);
+
+-- Segunda-feira da semana da liga (horário de Brasília).
+create function public.liga_semana_inicio(p_quando timestamptz default now()) returns date
+language sql stable
+set search_path = public, pg_temp
+as $$ select date_trunc('week', p_quando at time zone 'America/Sao_Paulo')::date $$;
+
+-- Quantos sobem e quantos descem num grupo de p_n pessoas.
+create function public.liga_vagas(p_divisao text, p_n integer, out sobem integer, out descem integer)
+language sql immutable
+set search_path = public, pg_temp
+as $$
+  select
+    case when p_divisao = 'diamante' then 0
+         when p_n < 5 then least(p_n, 1)
+         else round(p_n * 7 / 30.0)::int end,
+    case when p_divisao = 'bronze' or p_n < 5 then 0
+         else round(p_n * 5 / 30.0)::int end
+$$;
+
+-- Fecha os grupos de semanas que já acabaram: posição final, quem sobe e quem desce,
+-- divisão nova no perfil, protetor de ofensiva e a conquista da primeira subida.
+create function public.fechar_ligas() returns integer
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  divisoes constant text[] := array['bronze', 'prata', 'ouro', 'safira', 'diamante'];
+  l public.leagues;
+  v_n integer;
+  v_sobem integer;
+  v_descem integer;
+  v_fechadas integer := 0;
+begin
+  perform pg_advisory_xact_lock(hashtext('hive_break:fechar_ligas'));
+  for l in
+    select * from public.leagues
+    where status = 'aberta' and semana_fim < (now() at time zone 'America/Sao_Paulo')::date
+    order by semana_inicio, criada_em
+    for update
+  loop
+    select count(*) into v_n from public.league_members where league_id = l.id;
+    select v.sobem, v.descem into v_sobem, v_descem from public.liga_vagas(l.divisao, v_n) v;
+
+    with ranking as (
+      select user_id, row_number() over (order by pontos desc, pontos_em, user_id) as pos
+      from public.league_members where league_id = l.id
+    )
+    update public.league_members m
+    set posicao_final = r.pos,
+        resultado = case when r.pos <= v_sobem then 'subiu'
+                         when r.pos > v_n - v_descem then 'desceu'
+                         else 'manteve' end
+    from ranking r
+    where m.league_id = l.id and m.user_id = r.user_id;
+
+    update public.profiles p
+    set divisao_atual = divisoes[array_position(divisoes, l.divisao) + case m.resultado when 'subiu' then 1 else -1 end]
+    from public.league_members m
+    where m.league_id = l.id and m.user_id = p.id and m.resultado in ('subiu', 'desceu');
+
+    -- Protetor de ofensiva: guarda até 2 (até 4 com ofensiva de 100 dias ou mais).
+    update public.streaks s
+    set protetores = least(s.protetores + 1, case when s.atual >= 100 then 4 else 2 end)
+    from public.league_members m
+    where m.league_id = l.id and m.user_id = s.user_id and m.resultado = 'subiu'
+      and s.protetores < case when s.atual >= 100 then 4 else 2 end;
+
+    insert into public.user_achievements (user_id, achievement_id)
+    select m.user_id, 'primeira_subida' from public.league_members m
+    where m.league_id = l.id and m.resultado = 'subiu'
+      and exists (select 1 from public.achievements where id = 'primeira_subida')
+    on conflict do nothing;
+
+    update public.leagues set status = 'fechada' where id = l.id;
+    v_fechadas := v_fechadas + 1;
+  end loop;
+  return v_fechadas;
+end;
+$$;
+
+-- Há grupo de semana passada ainda aberto? (consulta barata, usada antes de fechar)
+create function public.liga_tem_pendente() returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.leagues
+    where status = 'aberta' and semana_fim < (now() at time zone 'America/Sao_Paulo')::date
+  )
+$$;
+
+-- Gatilho em xp_events: decide se o XP vale para a liga, põe a pessoa num grupo
+-- no 1º XP válido da semana e soma os pontos.
+create function public.pontuar_liga() returns trigger
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  a public.challenge_attempts;
+  v_respiracao boolean;
+  v_fora numeric;
+  v_semana date;
+  v_divisao text;
+  v_liga uuid;
+begin
+  if new.tipo not in ('desafio', 'refazer', 'primeiro_do_dia', 'unidade_sessao', 'nivel_concluido') or new.valor <= 0 then
+    return null;
+  end if;
+
+  if new.attempt_id is not null then
+    select * into a from public.challenge_attempts where id = new.attempt_id;
+  else
+    -- Nível concluído não guarda a tentativa: vale a que acabou de ser concluída.
+    select * into a from public.challenge_attempts
+    where user_id = new.user_id and status = 'concluido' and concluido_em >= now() - interval '5 minutes'
+    order by concluido_em desc limit 1;
+  end if;
+  if a.id is null or a.modo <> 'camera' or a.status <> 'concluido' then
+    return null;
+  end if;
+
+  select c.modalidade = 'respiracao' into v_respiracao from public.challenges c where c.id = a.challenge_id;
+  select coalesce(avg(fora_quadro_pct), 0) into v_fora from public.attempt_blocks where attempt_id = a.id;
+  if coalesce(v_respiracao, false) or v_fora > 30 then
+    return null;
+  end if;
+
+  update public.challenge_attempts set valido_para_liga = true where id = a.id and not valido_para_liga;
+
+  if public.liga_tem_pendente() then
+    perform public.fechar_ligas();
+  end if;
+
+  v_semana := public.liga_semana_inicio();
+  select m.league_id into v_liga
+  from public.league_members m join public.leagues l on l.id = m.league_id
+  where m.user_id = new.user_id and l.semana_inicio = v_semana;
+
+  if v_liga is null then
+    select divisao_atual into v_divisao from public.profiles where id = new.user_id;
+    -- Uma entrada por vez em cada divisão, para nenhum grupo passar de 30.
+    perform pg_advisory_xact_lock(hashtext('hive_break:liga:' || v_divisao || ':' || v_semana));
+    select m.league_id into v_liga
+    from public.league_members m join public.leagues l on l.id = m.league_id
+    where m.user_id = new.user_id and l.semana_inicio = v_semana;
+  end if;
+  if v_liga is null then
+    select l.id into v_liga
+    from public.leagues l
+    where l.semana_inicio = v_semana and l.divisao = v_divisao and l.status = 'aberta'
+      and (select count(*) from public.league_members m where m.league_id = l.id) < 30
+    order by l.criada_em, l.id
+    limit 1;
+    if v_liga is null then
+      insert into public.leagues (divisao, semana_inicio, semana_fim)
+      values (v_divisao, v_semana, v_semana + 6)
+      returning id into v_liga;
+    end if;
+    insert into public.league_members (league_id, user_id, pontos, pontos_em)
+    values (v_liga, new.user_id, new.valor, now());
+  else
+    update public.league_members
+    set pontos = pontos + new.valor, pontos_em = now()
+    where league_id = v_liga and user_id = new.user_id;
+  end if;
+  return null;
+end;
+$$;
+
+create trigger xp_events_liga after insert on public.xp_events
+  for each row execute function public.pontuar_liga();
+
+-- Ranking de um grupo: mais pontos primeiro; no empate, quem chegou antes.
+create function public.liga_ranking(p_league_id uuid) returns table (user_id uuid, pontos integer, pos integer)
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select m.user_id, floor(m.pontos)::int, (row_number() over (order by m.pontos desc, m.pontos_em, m.user_id))::int
+  from public.league_members m where m.league_id = p_league_id
+$$;
+
+-- Tela da Liga. Devolve só o que a pessoa pode ver: o pódio, ela mesma e quem está
+-- logo acima dela. A zona de descida e os pontos que faltam são só dela.
+create function public.ler_liga() returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_semana date;
+  v_divisao text;
+  v_anterior jsonb;
+  l public.leagues;
+  v_n integer;
+  v_sobem integer;
+  v_descem integer;
+  v_pos integer;
+  v_pontos integer;
+  v_corte_subida integer;
+  v_corte_ficar integer;
+  v_linhas jsonb;
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  if public.liga_tem_pendente() then
+    perform public.fechar_ligas();
+  end if;
+  v_semana := public.liga_semana_inicio();
+  select divisao_atual into v_divisao from public.profiles where id = v_user;
+
+  select jsonb_build_object('divisao', pl.divisao, 'posicao', m.posicao_final, 'resultado', m.resultado)
+  into v_anterior
+  from public.league_members m join public.leagues pl on pl.id = m.league_id
+  where m.user_id = v_user and pl.status = 'fechada' and pl.semana_inicio = v_semana - 7;
+
+  select pl.* into l
+  from public.leagues pl join public.league_members m on m.league_id = pl.id
+  where m.user_id = v_user and pl.semana_inicio = v_semana;
+
+  if l.id is null then
+    return jsonb_build_object(
+      'divisao', v_divisao, 'semana_fim', v_semana + 6, 'no_grupo', false, 'semana_passada', v_anterior);
+  end if;
+
+  select count(*) into v_n from public.league_members where league_id = l.id;
+  select v.sobem, v.descem into v_sobem, v_descem from public.liga_vagas(l.divisao, v_n) v;
+
+  select pos, pontos into v_pos, v_pontos from public.liga_ranking(l.id) where user_id = v_user;
+  select pontos into v_corte_subida from public.liga_ranking(l.id) where pos = v_sobem;
+  select pontos into v_corte_ficar from public.liga_ranking(l.id) where pos = v_n - v_descem;
+
+  select jsonb_agg(jsonb_build_object(
+           'posicao', r.pos, 'apelido', coalesce(p.apelido, 'Alguém da hive'), 'avatar_url', p.avatar_url,
+           'pontos', r.pontos, 'eu', r.user_id = v_user) order by r.pos)
+  into v_linhas
+  from public.liga_ranking(l.id) r join public.profiles p on p.id = r.user_id
+  where r.pos <= 3 or r.user_id = v_user or r.pos = v_pos - 1;
+
+  return jsonb_build_object(
+    'divisao', l.divisao, 'semana_fim', l.semana_fim, 'no_grupo', true,
+    'tamanho', v_n, 'sobem', v_sobem, 'descem', v_descem,
+    'posicao', v_pos, 'pontos', v_pontos,
+    'zona', case when v_pos <= v_sobem then 'subida' when v_pos > v_n - v_descem then 'descida' else 'meio' end,
+    'faltam_para_subir', case when v_sobem > 0 and v_pos > v_sobem then v_corte_subida - v_pontos + 1 end,
+    'faltam_para_ficar', case when v_descem > 0 and v_pos > v_n - v_descem then v_corte_ficar - v_pontos + 1 end,
+    'linhas', coalesce(v_linhas, '[]'::jsonb),
+    'semana_passada', v_anterior);
+end;
+$$;
+
+revoke execute on function public.liga_semana_inicio(timestamptz), public.liga_vagas(text, integer),
+  public.fechar_ligas(), public.liga_tem_pendente(), public.pontuar_liga(), public.liga_ranking(uuid),
+  public.ler_liga()
+  from public, anon, authenticated;
+grant execute on function public.ler_liga() to authenticated;
+grant execute on function public.liga_semana_inicio(timestamptz), public.liga_vagas(text, integer),
+  public.fechar_ligas(), public.liga_tem_pendente(), public.liga_ranking(uuid), public.ler_liga() to service_role;
+
+-- Fechamento automático toda segunda às 00h01 de Brasília (03h01 UTC). Se o pg_cron
+-- não estiver disponível, o fechamento acontece na primeira leitura ou pontuação da
+-- semana seguinte, então nada quebra.
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron;
+    perform cron.schedule('hive-break-fechar-ligas', '1 3 * * 1', 'select public.fechar_ligas()');
+  end if;
+exception when others then
+  raise notice 'pg_cron indisponível (%); a liga fecha na primeira leitura da semana seguinte', sqlerrm;
+end;
+$$;
+
+-- >>> migrations/20261120000100_lembretes_base.sql
+-- Hive Break · Lembretes, parte 1: estrutura (FUNIL_LEMBRETES.md, doc do Luan)
+--
+-- O n8n agenda e envia; o banco decide quem recebe o quê. Esta migração cria:
+--   * as colunas de envio em notification_log (reserva → enviado/falhou/simulado);
+--   * assunto, pré-header e CTA em notification_templates;
+--   * lembretes_config: chaves de configuração (simular, URL do app, segredo, admins);
+--   * lembrete_gatilhos: categoria, prioridade e canal de cada gatilho do funil;
+--   * high_fives e lembrete_eventos (convite enviado), que alimentam S6 e A5;
+--   * o role n8n_lembretes, que só executa as duas funções e marca o resultado do envio.
+
+-- pgcrypto (hmac) já vem instalado no Supabase, no schema extensions.
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+
+-- --------------------------------------------------------- notification_log
+alter table public.notification_log
+  add column status text not null default 'reservado'
+    check (status in ('reservado', 'enviado', 'falhou', 'simulado')),
+  add column assunto text,
+  add column preheader text,
+  add column titulo text,
+  add column texto text,
+  add column cta_texto text,
+  add column url text,
+  add column erro text,
+  add column variaveis jsonb,
+  -- Quando a linha foi reservada, e o dia no fuso da pessoa (base de "um por dia").
+  add column criado_em timestamptz not null default now(),
+  add column dia_local date;
+
+-- Avisos gravados antes desta migração já tinham saído.
+update public.notification_log set status = 'enviado', criado_em = enviado_em where enviado_em is not null;
+
+-- enviado_em passa a ser preenchido só quando o envio dá certo.
+alter table public.notification_log alter column enviado_em drop not null, alter column enviado_em drop default;
+
+-- Um envio por gatilho, canal e dia: a segunda reserva do mesmo aviso não entra,
+-- nem se o n8n rodar duas vezes ao mesmo tempo. Disparos de teste têm dia_local nulo.
+create unique index notification_log_um_por_dia
+  on public.notification_log (user_id, gatilho, canal, dia_local);
+create index notification_log_criado_idx on public.notification_log (user_id, criado_em desc);
+create index notification_log_status_idx on public.notification_log (criado_em desc) where status = 'reservado';
+
+-- ---------------------------------------------------- notification_templates
+alter table public.notification_templates
+  add column assunto text,
+  add column preheader text,
+  add column cta_texto text;
+
+-- ---------------------------------------------------------- configuração
+create table public.lembretes_config (
+  chave text primary key,
+  valor jsonb not null,
+  atualizado_em timestamptz not null default now()
+);
+alter table public.lembretes_config enable row level security;
+revoke all on public.lembretes_config from anon, authenticated;
+
+insert into public.lembretes_config (chave, valor) values
+  -- Ligado: o motor grava 'simulado' e não devolve nada ao n8n. Desligue para valer.
+  ('LEMBRETES_SIMULAR', 'true'),
+  -- Endereço público do app, usado nos links (sem barra no fim).
+  ('APP_URL', '"https://hive-break.vercel.app"'),
+  -- Mesmo valor da variável LEMBRETES_SEGREDO da Vercel. Troque antes de desligar a simulação.
+  ('LEMBRETES_SEGREDO', to_jsonb(encode(extensions.gen_random_bytes(32), 'hex'))),
+  -- ids (uuid) de quem acessa /admin/lembretes.
+  ('ADMINS', '[]'),
+  -- Teste A/B do lembrete diário: % de pessoas no grupo "12h" (o resto fica em "24h").
+  ('R0_AB_12H_PCT', '0'),
+  ('LIMITE_EMAIL_DIA', '1'),
+  ('LIMITE_PUSH_DIA', '3')
+on conflict (chave) do nothing;
+
+create function public.lembretes_cfg(p_chave text) returns jsonb
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select valor from public.lembretes_config where chave = p_chave;
+$$;
+
+-- --------------------------------------------------------- gatilhos do funil
+-- modo: 'email' só e-mail · 'push' push, ou e-mail se a pessoa não tem push ·
+--       'push_so' só push · 'ambos' push e e-mail.
+-- categoria: o interruptor que desliga o gatilho; null = só "Desativar todos".
+-- prioridade: 1 Hive ao vivo · 2 Ofensiva em risco · 3 Social · 4 Ativação · 5 Hábito · 6 Reativação.
+create table public.lembrete_gatilhos (
+  gatilho text primary key,
+  etapa text not null,
+  categoria text check (categoria in ('lembrete', 'ofensiva', 'amigos', 'liga', 'resumo_semanal')),
+  prioridade smallint not null,
+  modo text not null check (modo in ('email', 'push', 'push_so', 'ambos')),
+  imediato boolean not null default false,
+  -- Fora do limite diário de e-mail (boas-vindas).
+  fora_do_limite boolean not null default false,
+  -- Para onde o botão leva.
+  caminho text not null default '/trilha'
+);
+alter table public.lembrete_gatilhos enable row level security;
+revoke all on public.lembrete_gatilhos from anon, authenticated;
+
+insert into public.lembrete_gatilhos (gatilho, etapa, categoria, prioridade, modo, imediato, fora_do_limite, caminho) values
+  ('A1',  'ativacao',   null,             4, 'email',   true,  true,  '/trilha'),
+  ('A2',  'ativacao',   'lembrete',       4, 'push',    false, false, '/trilha'),
+  ('A3',  'ativacao',   null,             4, 'email',   true,  false, '/amigos'),
+  ('A4',  'ativacao',   'lembrete',       4, 'push',    false, false, '/trilha'),
+  ('A5',  'ativacao',   'amigos',         4, 'email',   false, false, '/amigos'),
+  ('H1',  'hive',       'amigos',         1, 'push_so', false, false, '/hive'),
+  ('H2',  'hive',       'amigos',         1, 'push_so', false, false, '/hive'),
+  ('H3',  'hive',       'amigos',         1, 'email',   false, false, '/hive'),
+  ('R0',  'habito',     'lembrete',       5, 'push',    false, false, '/trilha'),
+  ('R1',  'habito',     'ofensiva',       2, 'ambos',   false, false, '/trilha'),
+  ('R1b', 'habito',     'ofensiva',       2, 'push_so', false, false, '/trilha'),
+  ('R2',  'habito',     'resumo_semanal', 5, 'email',   false, false, '/perfil'),
+  ('R3',  'habito',     'ofensiva',       5, 'ambos',   true,  false, '/perfil'),
+  ('S1',  'social',     'amigos',         3, 'ambos',   true,  false, '/amigos'),
+  ('S3',  'social',     'amigos',         2, 'push',    false, false, '/trilha'),
+  ('S4',  'social',     'liga',           3, 'push_so', true,  false, '/liga'),
+  ('S5',  'social',     'amigos',         3, 'email',   true,  false, '/amigos'),
+  ('S6',  'social',     'amigos',         3, 'push_so', true,  false, '/amigos'),
+  ('W1',  'reativacao', 'lembrete',       6, 'ambos',   false, false, '/trilha'),
+  ('W2',  'reativacao', 'lembrete',       6, 'email',   false, false, '/hive'),
+  ('W3',  'reativacao', null,             6, 'email',   false, false, '/trilha');
+
+-- ------------------------------------------------------ eventos do funil
+-- High five recebido (S6). Gravado pelo app; o Realtime continua mostrando na hora.
+create table public.high_fives (
+  id bigint generated always as identity primary key,
+  hive_id uuid references public.hives (id) on delete set null,
+  de_user uuid not null references public.profiles (id) on delete cascade,
+  para_user uuid not null references public.profiles (id) on delete cascade,
+  criado_em timestamptz not null default now(),
+  check (de_user <> para_user)
+);
+create index high_fives_para_idx on public.high_fives (para_user, criado_em desc);
+alter table public.high_fives enable row level security;
+revoke all on public.high_fives from anon, authenticated;
+
+-- Eventos do app que nenhuma outra tabela guarda (ex.: convite enviado, para A5).
+create table public.lembrete_eventos (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  tipo text not null check (tipo in ('invite_sent')),
+  criado_em timestamptz not null default now()
+);
+create index lembrete_eventos_user_idx on public.lembrete_eventos (user_id, tipo, criado_em desc);
+alter table public.lembrete_eventos enable row level security;
+revoke all on public.lembrete_eventos from anon, authenticated;
+
+create function public.registrar_evento_lembrete(p_tipo text) returns void
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  if p_tipo not in ('invite_sent') then
+    raise exception 'evento_invalido' using errcode = '22023';
+  end if;
+  -- Um por hora basta: o botão pode ser tocado várias vezes seguidas.
+  if not exists (
+    select 1 from public.lembrete_eventos
+    where user_id = v_user and tipo = p_tipo and criado_em > now() - interval '1 hour'
+  ) then
+    insert into public.lembrete_eventos (user_id, tipo) values (v_user, p_tipo);
+  end if;
+end;
+$$;
+
+-- High five dentro de uma hive: as duas pessoas precisam estar nela.
+create function public.registrar_high_five(p_hive uuid, p_para uuid) returns boolean
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  if v_user = p_para then
+    return false;
+  end if;
+  if (select count(*) from public.hive_participantes where hive_id = p_hive and user_id in (v_user, p_para)) < 2 then
+    return false;
+  end if;
+  -- Um por par e por hive: o push é agrupado, não precisa de mais.
+  if exists (select 1 from public.high_fives where hive_id = p_hive and de_user = v_user and para_user = p_para) then
+    return false;
+  end if;
+  insert into public.high_fives (hive_id, de_user, para_user) values (p_hive, v_user, p_para);
+  return true;
+end;
+$$;
+
+-- --------------------------------------------- volta da pessoa ao treino
+-- Qualquer desafio concluído: tira a pausa do W3 e marca os avisos das
+-- últimas 2 h como convertidos (desafio_em_2h, a métrica do rodízio).
+create function public.lembretes_desafio_concluido() returns trigger
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.status <> 'concluido' or (tg_op = 'UPDATE' and old.status = 'concluido') then
+    return null;
+  end if;
+  update public.notification_preferences set pausado_ate = null
+  where user_id = new.user_id and pausado_ate is not null;
+  update public.notification_log set desafio_em_2h = true
+  where user_id = new.user_id and status = 'enviado'
+    and enviado_em between coalesce(new.concluido_em, now()) - interval '2 hours' and coalesce(new.concluido_em, now())
+    and desafio_em_2h is distinct from true;
+  return null;
+end;
+$$;
+
+create trigger challenge_attempts_lembretes after insert or update of status on public.challenge_attempts
+  for each row execute function public.lembretes_desafio_concluido();
+
+-- ------------------------------------------------------------ role do n8n
+-- Entra pelo pooler do Supabase. A senha é definida à mão (ver docs/CONFIGURACAO.md):
+--   alter role n8n_lembretes with password '...';
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'n8n_lembretes') then
+    create role n8n_lembretes with login noinherit;
+  end if;
+end $$;
+
+grant usage on schema public to n8n_lembretes;
+-- UPDATE ... WHERE id = $1 precisa ler o id.
+grant select (id, status) on public.notification_log to n8n_lembretes;
+grant update (status, enviado_em, erro) on public.notification_log to n8n_lembretes;
+create policy "n8n: le avisos" on public.notification_log for select to n8n_lembretes using (true);
+create policy "n8n: marca envio" on public.notification_log for update to n8n_lembretes using (true) with check (true);
+
+-- --------------------------------------------------------------- permissões
+revoke execute on function public.lembretes_cfg(text), public.registrar_evento_lembrete(text),
+  public.registrar_high_five(uuid, uuid), public.lembretes_desafio_concluido() from public, anon, authenticated;
+grant execute on function public.registrar_evento_lembrete(text) to authenticated;
+grant execute on function public.registrar_high_five(uuid, uuid) to authenticated;
+grant all on public.lembretes_config, public.lembrete_gatilhos, public.high_fives, public.lembrete_eventos to service_role;
+grant execute on all functions in schema public to service_role;
+
+-- >>> migrations/20261120000200_lembretes_motor.sql
+-- Hive Break · Lembretes, parte 2: o motor (FUNIL_LEMBRETES.md, doc do Luan)
+--
+-- lembretes_pendentes(): o n8n chama a cada 15 min. Avalia os gatilhos de tempo,
+--   reserva cada envio em notification_log e devolve as linhas prontas.
+-- lembrete_imediato(): o n8n chama quando o app avisa de uma ação (webhook).
+--
+-- Regras comuns (lembrete_reservar):
+--   * preferências: categoria, email_ativo, push_ativo e pausa (pausado_ate);
+--   * horário silencioso 22h30–8h no fuso da pessoa (e-mail imediato pode sair);
+--   * um envio por gatilho, canal e dia; limite diário de e-mail e de push;
+--   * na rodada do n8n, no máximo 1 push por pessoa: vai o de maior prioridade,
+--     o seguinte espera a próxima rodada (as janelas duram 1 h ou mais);
+--   * texto: a variação menos vista pela pessoa nos últimos 30 dias, com todos
+--     os tokens preenchidos (variação com token sem valor é pulada);
+--   * LEMBRETES_SIMULAR: grava 'simulado' e não devolve a linha.
+
+create type public.lembrete_envio as (
+  log_id bigint,
+  user_id uuid,
+  canal text,
+  gatilho text,
+  email text,
+  nome text,
+  assunto text,
+  preheader text,
+  titulo text,
+  texto text,
+  cta_texto text,
+  url text,
+  link_desativar text
+);
+
+-- ------------------------------------------------------------- auxiliares
+create function public.lembrete_silencio(p_local timestamp) returns boolean
+language sql immutable
+as $$
+  select p_local::time >= time '22:30' or p_local::time < time '08:00';
+$$;
+
+-- Um horário que cai no silêncio vai para as 8h seguintes.
+create function public.lembrete_ajustar(p_alvo timestamp) returns timestamp
+language sql immutable
+as $$
+  select case
+    when p_alvo::time >= time '22:30' then (p_alvo::date + 1) + time '08:00'
+    when p_alvo::time < time '08:00' then p_alvo::date + time '08:00'
+    else p_alvo
+  end;
+$$;
+
+-- "No horário da última prática", hoje: se cair no silêncio, vai para as 8h de hoje.
+create function public.lembrete_no_dia(p_dia date, p_hora time) returns timestamp
+language sql immutable
+as $$
+  select case when p_hora >= time '22:30' or p_hora < time '08:00' then p_dia + time '08:00' else p_dia + p_hora end;
+$$;
+
+create function public.lembrete_janela(p_alvo timestamp, p_local timestamp, p_duracao interval) returns boolean
+language sql immutable
+as $$
+  select p_local >= p_alvo and p_local < p_alvo + p_duracao;
+$$;
+
+-- 7h, 19h30.
+create function public.lembrete_hora(p_hora time) returns text
+language sql immutable
+as $$
+  select extract(hour from p_hora)::int || 'h' ||
+         case when extract(minute from p_hora)::int = 0 then '' else lpad(extract(minute from p_hora)::int::text, 2, '0') end;
+$$;
+
+create function public.lembrete_preencher(p_texto text, p_vars jsonb) returns text
+language plpgsql immutable
+as $$
+declare
+  r text := p_texto;
+  k text;
+  v text;
+  i int;
+begin
+  if r is null then
+    return null;
+  end if;
+  -- Duas passadas: um valor pode trazer outro token (ex.: "Semana firme, {nome}").
+  for i in 1..2 loop
+    for k, v in select key, value from jsonb_each_text(coalesce(p_vars, '{}')) loop
+      r := replace(r, '{' || k || '}', coalesce(v, ''));
+    end loop;
+  end loop;
+  return r;
+end;
+$$;
+
+create function public.lembrete_tem_token(p_texto text) returns boolean
+language sql immutable
+as $$
+  select coalesce(p_texto, '') ~ '\{[^{}[:space:]]+\}';
+$$;
+
+-- Token do link "Desativar": <user_id>.<categoria>.<hmac-sha256 em hex>.
+create function public.lembrete_token(p_user uuid, p_categoria text) returns text
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select p_user::text || '.' || p_categoria || '.' ||
+         encode(extensions.hmac(p_user::text || '.' || p_categoria, public.lembretes_cfg('LEMBRETES_SEGREDO') #>> '{}', 'sha256'), 'hex');
+$$;
+
+-- Teste A/B do R0: grupo fixo por pessoa.
+create function public.lembrete_grupo_r0(p_user uuid) returns text
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select case
+    when ((hashtext(p_user::text)::bigint % 100) + 100) % 100 < coalesce((public.lembretes_cfg('R0_AB_12H_PCT'))::int, 0)
+      then '12h' else '24h'
+  end;
+$$;
+
+-- Variáveis que valem para qualquer gatilho: nome, ofensiva, próximo desafio...
+create function public.lembrete_vars_base(p_user uuid, p_agora timestamptz) returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare
+  p public.profiles;
+  s public.streaks;
+  v_hoje date;
+  v_n integer;
+  v_titulo text;
+  v_duracao integer;
+begin
+  select * into p from public.profiles where id = p_user;
+  select * into s from public.streaks where user_id = p_user;
+  v_hoje := (p_agora at time zone p.fuso_horario)::date;
+  -- Ofensiva viva: o último dia ativo é hoje ou ontem.
+  v_n := case when s.ultimo_dia_ativo >= v_hoje - 1 then coalesce(s.atual, 0) else 0 end;
+
+  select c.titulo, c.duracao_s into v_titulo, v_duracao
+  from public.trilha_estados(p_user) t
+  join public.challenges c on c.id = t.challenge_id
+  where t.estado = 'disponivel'
+  order by t.level_id, t.seq
+  limit 1;
+
+  return jsonb_strip_nulls(jsonb_build_object(
+    'nome', coalesce(nullif(btrim(p.apelido), ''), nullif(split_part(btrim(coalesce(p.nome, '')), ' ', 1), ''), 'você'),
+    'objetivo', case p.objetivo
+      when 'emagrecer' then 'se mexer mais'
+      when 'forca' then 'ganhar força'
+      when 'mobilidade' then 'mobilidade'
+      when 'condicionamento' then 'condicionamento'
+      when 'saude_geral' then 'saúde no dia a dia'
+    end,
+    -- Sem ofensiva viva, variações com {n} ficam de fora (nada de "0 dias").
+    'n', nullif(v_n, 0),
+    'n+1', v_n + 1,
+    'desafio', v_titulo,
+    'duração', case when v_duracao is not null then greatest(1, round(v_duracao / 60.0))::int end
+  ));
+end;
+$$;
+
+-- Números da semana para o resumo (R2): esta semana contra a anterior.
+create function public.lembrete_vars_semana(p_user uuid, p_agora timestamptz) returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_fuso text;
+  v_hoje date;
+  a record;
+  b record;
+  v_titulo text;
+begin
+  select fuso_horario into v_fuso from public.profiles where id = p_user;
+  v_hoje := (p_agora at time zone v_fuso)::date;
+  with t as (
+    select ca.id, (ca.concluido_em at time zone v_fuso)::date as d, c.duracao_s,
+           (select coalesce(sum(ab.reps_validas), 0) from public.attempt_blocks ab where ab.attempt_id = ca.id) as reps
+    from public.challenge_attempts ca
+    join public.challenges c on c.id = ca.challenge_id
+    where ca.user_id = p_user and ca.status = 'concluido' and ca.concluido_em >= p_agora - interval '15 days'
+  )
+  select
+    count(*) filter (where d between v_hoje - 6 and v_hoje) as desafios,
+    count(distinct d) filter (where d between v_hoje - 6 and v_hoje) as dias,
+    coalesce(round(sum(duracao_s) filter (where d between v_hoje - 6 and v_hoje) / 60.0), 0)::int as min,
+    coalesce(sum(reps) filter (where d between v_hoje - 6 and v_hoje), 0)::int as reps,
+    count(*) filter (where d between v_hoje - 13 and v_hoje - 7) as desafios_ant,
+    coalesce(round(sum(duracao_s) filter (where d between v_hoje - 13 and v_hoje - 7) / 60.0), 0)::int as min_ant,
+    coalesce(sum(reps) filter (where d between v_hoje - 13 and v_hoje - 7), 0)::int as reps_ant
+  into a from t;
+  select
+    coalesce(sum(valor) filter (where (criado_em at time zone v_fuso)::date between v_hoje - 6 and v_hoje), 0)::int as xp,
+    coalesce(sum(valor) filter (where (criado_em at time zone v_fuso)::date between v_hoje - 13 and v_hoje - 7), 0)::int as xp_ant
+  into b from public.xp_events where user_id = p_user and criado_em >= p_agora - interval '15 days';
+
+  v_titulo := case
+    when a.desafios > a.desafios_ant then 'Sua semana esquentou 🔥'
+    when a.desafios = a.desafios_ant then 'Semana firme, {nome} 💪'
+    else 'Semana mais leve. Bora retomar? 🐝'
+  end;
+  return jsonb_build_object(
+    'titulo_semana', v_titulo,
+    'dias_semana', a.dias || ' de 7',
+    'desafios', a.desafios, 'min', a.min, 'reps', a.reps, 'xp', b.xp,
+    'var_desafios', public.lembrete_variacao(a.desafios, a.desafios_ant),
+    'var_min', public.lembrete_variacao(a.min, a.min_ant),
+    'var_reps', public.lembrete_variacao(a.reps, a.reps_ant),
+    'var_xp', public.lembrete_variacao(b.xp, b.xp_ant)
+  );
+end;
+$$;
+
+create function public.lembrete_variacao(p_atual numeric, p_anterior numeric) returns text
+language sql immutable
+as $$
+  select case
+    when coalesce(p_anterior, 0) = 0 and coalesce(p_atual, 0) = 0 then 'igual'
+    when coalesce(p_anterior, 0) = 0 then 'novo'
+    when p_atual = p_anterior then 'igual'
+    when p_atual > p_anterior then '+' || round((p_atual - p_anterior) * 100.0 / p_anterior)::int || '%'
+    else '−' || round((p_anterior - p_atual) * 100.0 / p_anterior)::int || '%'
+  end;
+$$;
+
+-- ---------------------------------------------------------------- reserva
+-- Aplica as regras comuns, escolhe o texto, reserva em notification_log e
+-- devolve a linha para o n8n (nada, se simulado ou barrado).
+--   p_canal: força um canal (ex.: A2 tem push em +2h e e-mail em +24h).
+--   p_teste: disparo do /admin; ignora preferências, limites e simulação.
+--   p_rodada: chamada por lembretes_pendentes (vale o "1 push por rodada").
+create function public.lembrete_reservar(
+  p_user uuid, p_gatilho text, p_vars jsonb, p_agora timestamptz,
+  p_canal text default null, p_teste boolean default false, p_rodada boolean default false
+) returns setof public.lembrete_envio
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  g public.lembrete_gatilhos;
+  p public.profiles;
+  np public.notification_preferences;
+  t public.notification_templates;
+  r public.lembrete_envio;
+  v_local timestamp;
+  v_hoje date;
+  v_email text;
+  v_tem_push boolean;
+  v_tem_email boolean;
+  v_simular boolean;
+  v_canais text[];
+  v_canal text;
+  v_usado integer;
+  v_limite integer;
+  v_ok boolean;
+  v_assunto text;
+  v_preheader text;
+  v_titulo text;
+  v_texto text;
+  v_cta text;
+  v_app text;
+  v_caminho text;
+  v_id bigint;
+begin
+  select * into g from public.lembrete_gatilhos where gatilho = p_gatilho;
+  select * into p from public.profiles where id = p_user;
+  if g.gatilho is null or p.id is null then
+    return;
+  end if;
+  select * into np from public.notification_preferences where user_id = p_user;
+  select email into v_email from auth.users where id = p_user;
+  v_local := p_agora at time zone p.fuso_horario;
+  v_hoje := v_local::date;
+  v_simular := not p_teste and coalesce((public.lembretes_cfg('LEMBRETES_SIMULAR'))::boolean, true);
+  v_app := rtrim(coalesce(public.lembretes_cfg('APP_URL') #>> '{}', ''), '/');
+
+  if not p_teste then
+    if np.pausado_ate is not null and np.pausado_ate > p_agora then
+      return;
+    end if;
+    if g.categoria is not null and not coalesce((to_jsonb(np) ->> g.categoria)::boolean, true) then
+      return;
+    end if;
+  end if;
+
+  v_tem_push := exists (select 1 from public.push_subscriptions where user_id = p_user and ativo)
+                and (p_teste or coalesce(np.push_ativo, true));
+  v_tem_email := v_email is not null and (p_teste or coalesce(np.email_ativo, true));
+
+  if p_canal is not null then
+    v_canais := array[p_canal];
+  elsif g.modo = 'email' then
+    v_canais := array['email'];
+  elsif g.modo = 'push_so' then
+    v_canais := array['push'];
+  elsif g.modo = 'ambos' then
+    v_canais := array['push', 'email'];
+  else
+    -- 'push': e-mail só se a pessoa não tem push.
+    v_canais := case when v_tem_push then array['push'] else array['email'] end;
+  end if;
+
+  foreach v_canal in array v_canais loop
+    continue when v_canal = 'push' and not v_tem_push;
+    continue when v_canal = 'email' and not v_tem_email;
+
+    if not p_teste then
+      continue when public.lembrete_silencio(v_local) and (v_canal = 'push' or not g.imediato);
+      continue when exists (
+        select 1 from public.notification_log
+        where user_id = p_user and gatilho = p_gatilho and canal = v_canal and dia_local = v_hoje
+      );
+      if not (v_canal = 'email' and g.fora_do_limite) then
+        select count(*) into v_usado
+        from public.notification_log l
+        join public.lembrete_gatilhos lg on lg.gatilho = l.gatilho
+        where l.user_id = p_user and l.canal = v_canal and l.dia_local = v_hoje and l.status <> 'falhou'
+          and not (l.canal = 'email' and lg.fora_do_limite);
+        v_limite := coalesce((public.lembretes_cfg(case when v_canal = 'email' then 'LIMITE_EMAIL_DIA' else 'LIMITE_PUSH_DIA' end))::int,
+                             case when v_canal = 'email' then 1 else 3 end);
+        continue when v_usado >= v_limite;
+      end if;
+      continue when p_rodada and v_canal = 'push' and exists (
+        select 1 from public.notification_log
+        where user_id = p_user and canal = 'push' and criado_em = p_agora and dia_local is not null
+      );
+    end if;
+
+    -- A variação menos vista nos últimos 30 dias, com todos os tokens preenchidos.
+    v_ok := false;
+    for t in
+      select nt.* from public.notification_templates nt
+      left join lateral (
+        select count(*) as vezes, max(l.criado_em) as ultima
+        from public.notification_log l
+        where l.user_id = p_user and l.template_id = nt.id and l.criado_em > p_agora - interval '30 days'
+      ) vis on true
+      where nt.gatilho = p_gatilho and nt.canal = v_canal and nt.ativo
+      order by vis.vezes, vis.ultima nulls first, nt.variacao
+    loop
+      v_assunto := public.lembrete_preencher(t.assunto, p_vars);
+      v_preheader := public.lembrete_preencher(t.preheader, p_vars);
+      v_titulo := public.lembrete_preencher(t.titulo, p_vars);
+      v_texto := public.lembrete_preencher(t.texto, p_vars);
+      v_cta := public.lembrete_preencher(t.cta_texto, p_vars);
+      if not public.lembrete_tem_token(concat_ws(' ', v_assunto, v_preheader, v_titulo, v_texto, v_cta)) then
+        v_ok := true;
+        exit;
+      end if;
+    end loop;
+    continue when not v_ok;
+
+    v_caminho := coalesce(p_vars ->> 'caminho', g.caminho);
+    v_id := null;
+    insert into public.notification_log
+      (user_id, gatilho, template_id, canal, status, assunto, preheader, titulo, texto, cta_texto, url, variaveis, criado_em, dia_local)
+    values
+      (p_user, p_gatilho, t.id, v_canal, case when v_simular then 'simulado' else 'reservado' end,
+       v_assunto, v_preheader, v_titulo, v_texto, v_cta,
+       v_app || v_caminho || case when position('?' in v_caminho) > 0 then '&' else '?' end
+         || 'utm_source=lembrete&utm_campaign=' || p_gatilho,
+       p_vars, p_agora, case when p_teste then null else v_hoje end)
+    on conflict (user_id, gatilho, canal, dia_local) do nothing
+    returning id into v_id;
+    continue when v_id is null;
+
+    -- W3 é o último: silêncio até a pessoa voltar (o gatilho de challenge_attempts tira a pausa).
+    if p_gatilho = 'W3' and not v_simular and not p_teste then
+      update public.notification_preferences set pausado_ate = 'infinity' where user_id = p_user;
+    end if;
+
+    if not v_simular then
+      r.log_id := v_id;
+      r.user_id := p_user;
+      r.canal := v_canal;
+      r.gatilho := p_gatilho;
+      r.email := v_email;
+      r.nome := p_vars ->> 'nome';
+      r.assunto := v_assunto;
+      r.preheader := v_preheader;
+      r.titulo := v_titulo;
+      r.texto := v_texto;
+      r.cta_texto := v_cta;
+      r.url := (select url from public.notification_log where id = v_id);
+      r.link_desativar := v_app || '/lembretes/desativar?token=' || public.lembrete_token(p_user, coalesce(g.categoria, 'todos'));
+      return next r;
+    end if;
+  end loop;
+end;
+$$;
+
+-- ------------------------------------------------------ gatilhos de tempo
+-- Cada linha: quem, qual gatilho, canal forçado (ou null) e variáveis próprias.
+create function public.lembrete_candidatos(p_agora timestamptz)
+returns table (user_id uuid, gatilho text, canal text, vars jsonb)
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  with u as (
+    select p.id, p.fuso_horario as fuso, p.horario_lembrete,
+           (p_agora at time zone p.fuso_horario) as agora_l,
+           (p_agora at time zone p.fuso_horario)::date as hoje,
+           (p.criado_em at time zone p.fuso_horario) as criado_l,
+           a.ultimo,
+           (a.ultimo at time zone p.fuso_horario) as ultimo_l,
+           coalesce(a.dias, 0) as dias_ativos,
+           a.primeiro_dia,
+           coalesce(s.atual, 0) as ofensiva,
+           coalesce(s.protetores, 0) as protetores,
+           s.ultimo_dia_ativo
+    from public.profiles p
+    join public.notification_preferences np on np.user_id = p.id
+    left join public.streaks s on s.user_id = p.id
+    left join lateral (
+      select max(ca.concluido_em) as ultimo,
+             count(distinct (ca.concluido_em at time zone p.fuso_horario)::date) as dias,
+             min((ca.concluido_em at time zone p.fuso_horario)::date) as primeiro_dia
+      from public.challenge_attempts ca
+      where ca.user_id = p.id and ca.status = 'concluido'
+    ) a on true
+    where np.pausado_ate is null or np.pausado_ate <= p_agora
+  ),
+  amigos as (
+    select f.user_a as user_id, f.user_b as amigo_id from public.friendships f
+    union all
+    select f.user_b, f.user_a from public.friendships f
+  )
+  -- A2: ainda sem o 1º desafio. Push em +2h, e-mail em +24h (ou no horário do lembrete).
+  select id, 'A2', 'push', '{}'::jsonb from u
+  where dias_ativos = 0
+    and public.lembrete_janela(public.lembrete_ajustar(criado_l + interval '2 hours'), agora_l, interval '1 hour')
+  union all
+  select id, 'A2', 'email', '{}'::jsonb from u
+  where dias_ativos = 0
+    and public.lembrete_janela(
+      public.lembrete_ajustar(coalesce((criado_l::date + 1) + horario_lembrete, criado_l + interval '24 hours')),
+      agora_l, interval '2 hours')
+
+  -- A4: fez o dia 1 ontem e ainda não fez o dia 2. No horário em que fez o dia 1.
+  union all
+  select id, 'A4', null, '{}'::jsonb from u
+  where dias_ativos = 1 and ultimo_l::date = hoje - 1
+    and public.lembrete_janela(public.lembrete_no_dia(hoje, ultimo_l::time), agora_l, interval '1 hour')
+
+  -- A5: 2 dias ou mais, a partir do 3º dia, ainda treinando (ontem ou hoje) e sem
+  -- nenhum convite. Uma vez só.
+  union all
+  select id, 'A5', null, '{}'::jsonb from u
+  where dias_ativos >= 2 and hoje >= primeiro_dia + 2 and ultimo_l::date >= hoje - 1
+    and not exists (select 1 from public.invites i where i.inviter_id = u.id)
+    and not exists (select 1 from public.lembrete_eventos e where e.user_id = u.id and e.tipo = 'invite_sent')
+    and not exists (select 1 from public.notification_log l where l.user_id = u.id and l.gatilho = 'A5')
+    and public.lembrete_janela(public.lembrete_no_dia(hoje, ultimo_l::time), agora_l, interval '1 hour')
+
+  -- H1: hive agendada começa em até 15 min. Para quem já confirmou.
+  union all
+  select hp.user_id, 'H1', null,
+         jsonb_build_object('hora', public.lembrete_hora((h.inicio_em at time zone u.fuso)::time),
+                            'n', (select count(*) from public.hive_participantes x where x.hive_id = h.id),
+                            'caminho', '/hive/' || h.id)
+  from public.hives h
+  join public.hive_participantes hp on hp.hive_id = h.id and hp.entrou_em < h.inicio_em
+  join u on u.id = hp.user_id
+  where h.inicio_em > p_agora and h.inicio_em <= p_agora + interval '15 minutes'
+
+  -- H2: a hive começou e o amigo do anfitrião não entrou (nem treinou na última hora).
+  union all
+  select am.amigo_id, 'H2', null,
+         jsonb_strip_nulls(jsonb_build_object(
+           'anfitrião', coalesce(pa.apelido, split_part(pa.nome, ' ', 1)),
+           'n', nullif((select count(*) from public.hive_participantes x where x.hive_id = h.id and x.user_id <> h.anfitriao_id), 0),
+           'caminho', '/hive/' || h.id))
+  from public.hives h
+  join public.profiles pa on pa.id = h.anfitriao_id
+  join amigos am on am.user_id = h.anfitriao_id
+  join u on u.id = am.amigo_id
+  where h.inicio_em <= p_agora and h.inicio_em > p_agora - interval '15 minutes' and h.fim_em > p_agora
+    and not exists (select 1 from public.hive_participantes x where x.hive_id = h.id and x.user_id = am.amigo_id)
+    and not exists (select 1 from public.challenge_attempts ca where ca.user_id = am.amigo_id and ca.status = 'concluido'
+                    and ca.concluido_em > p_agora - interval '1 hour')
+
+  -- H3: a hive terminou (com 2 pessoas ou mais). E-mail para quem participou...
+  union all
+  select hp.user_id, 'H3', 'email',
+         jsonb_build_object('n', hv.n, 'reps_total', hv.reps, 'min', hv.min, 'caminho', '/hive/' || h.id)
+  from public.hives h
+  cross join lateral (
+    select count(*) as n, coalesce(sum(x.reps), 0) as reps,
+           greatest(1, round(extract(epoch from h.fim_em - h.inicio_em) / 60))::int as min
+    from public.hive_participantes x where x.hive_id = h.id
+  ) hv
+  join public.hive_participantes hp on hp.hive_id = h.id
+  join u on u.id = hp.user_id
+  where h.fim_em <= p_agora and h.fim_em > p_agora - interval '1 hour' and hv.n >= 2
+  -- ...e push para os amigos do anfitrião que não foram.
+  union all
+  select am.amigo_id, 'H3', 'push',
+         jsonb_strip_nulls(jsonb_build_object(
+           'hora', public.lembrete_hora((h.inicio_em at time zone u.fuso)::time),
+           'próximo_horário', (select public.lembrete_hora((min(h2.inicio_em) at time zone u.fuso)::time)
+                               from public.hives h2 where h2.anfitriao_id = h.anfitriao_id and h2.inicio_em > p_agora),
+           'caminho', '/hive'))
+  from public.hives h
+  join amigos am on am.user_id = h.anfitriao_id
+  join u on u.id = am.amigo_id
+  where h.fim_em <= p_agora and h.fim_em > p_agora - interval '1 hour'
+    and (select count(*) from public.hive_participantes x where x.hive_id = h.id) >= 2
+    and not exists (select 1 from public.hive_participantes x where x.hive_id = h.id and x.user_id = am.amigo_id)
+
+  -- R0: lembrete diário no horário da última prática (A/B: 12h), se ainda não fez hoje.
+  -- Para no 3º dia, quando entra a reativação. Quem está no dia 2 recebe o A4.
+  union all
+  select id, 'R0', null,
+         case when ultimo_l::date = hoje - 1 then jsonb_build_object('hora', public.lembrete_hora(ultimo_l::time)) else '{}'::jsonb end
+           || jsonb_build_object('grupo_ab', grupo)
+  from u
+  cross join lateral (select public.lembrete_grupo_r0(u.id) as grupo) gr
+  where dias_ativos >= 1 and ultimo_l::date < hoje and ultimo_l::date >= hoje - 2
+    and not (dias_ativos = 1 and ultimo_l::date = hoje - 1)
+    and public.lembrete_janela(
+      case when grupo = '12h'
+        then greatest(hoje + time '08:00', public.lembrete_ajustar((hoje + ultimo_l::time) - interval '12 hours'))
+        else public.lembrete_no_dia(hoje, ultimo_l::time)
+      end, agora_l, interval '1 hour')
+
+  -- R1: ofensiva de 3 dias ou mais e nada hoje, das 20h às 22h.
+  union all
+  select id, 'R1', null, '{}'::jsonb from u
+  where ofensiva >= 3 and ultimo_dia_ativo = hoje - 1
+    and agora_l::time >= time '20:00' and agora_l::time < time '22:00'
+
+  -- R1b: idem, sem protetor, das 22h às 22h30.
+  union all
+  select id, 'R1b', null, '{}'::jsonb from u
+  where ofensiva >= 3 and ultimo_dia_ativo = hoje - 1 and protetores = 0
+    and agora_l::time >= time '22:00' and agora_l::time < time '22:30'
+
+  -- R2: resumo semanal, sábado das 10h às 12h, para quem treinou nos últimos 14 dias.
+  union all
+  select id, 'R2', null, public.lembrete_vars_semana(u.id, p_agora) from u
+  where extract(isodow from hoje) = 6 and ultimo >= p_agora - interval '14 days'
+    and agora_l::time >= time '10:00' and agora_l::time < time '12:00'
+
+  -- S3: ofensiva em dupla em risco: o amigo já fez hoje, a pessoa não. Das 18h às 20h.
+  union all
+  select x.user_id, 'S3', null, jsonb_build_object('amigo', x.amigo, 'n', x.n)
+  from (
+    select distinct on (u.id) u.id as user_id,
+           coalesce(pf.apelido, split_part(pf.nome, ' ', 1)) as amigo,
+           least(u.ofensiva + 1, sf.atual) as n
+    from u
+    join amigos am on am.user_id = u.id
+    join public.profiles pf on pf.id = am.amigo_id
+    join public.streaks sf on sf.user_id = am.amigo_id
+    where u.ofensiva >= 1 and u.ultimo_dia_ativo = u.hoje - 1
+      and sf.ultimo_dia_ativo = (p_agora at time zone pf.fuso_horario)::date and sf.atual >= 2
+      and u.agora_l::time >= time '18:00' and u.agora_l::time < time '20:00'
+    order by u.id, least(u.ofensiva + 1, sf.atual) desc
+  ) x
+
+  -- W1, W2, W3: 3, 7 e 14 dias sem desafio, no horário da última prática.
+  -- Quem ainda está na ativação (menos de 2 dias feitos) não recebe.
+  union all
+  select id, case hoje - ultimo_l::date when 3 then 'W1' when 7 then 'W2' else 'W3' end, null,
+         jsonb_strip_nulls(jsonb_build_object('amigos_ativos', nullif((
+           select count(distinct ca.user_id) from amigos am
+           join public.challenge_attempts ca on ca.user_id = am.amigo_id and ca.status = 'concluido'
+             and ca.concluido_em > p_agora - interval '7 days'
+           where am.user_id = u.id), 0),
+           'dias_parado', hoje - ultimo_l::date))
+  from u
+  where dias_ativos >= 2
+    and (hoje - ultimo_l::date in (3, 7)
+         or (hoje - ultimo_l::date >= 14
+             and not exists (select 1 from public.notification_log l
+                             where l.user_id = u.id and l.gatilho = 'W3' and l.criado_em > u.ultimo)))
+    and public.lembrete_janela(public.lembrete_no_dia(hoje, ultimo_l::time), agora_l, interval '1 hour');
+$$;
+
+-- ------------------------------------------------- chamadas do n8n
+create function public.lembretes_pendentes(p_agora timestamptz default now())
+returns setof public.lembrete_envio
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  c record;
+begin
+  -- Duas rodadas ao mesmo tempo não disputam as mesmas pessoas.
+  perform pg_advisory_xact_lock(hashtext('hive_break:lembretes_pendentes'));
+  for c in
+    select x.*, g.prioridade
+    from public.lembrete_candidatos(p_agora) x
+    join public.lembrete_gatilhos g on g.gatilho = x.gatilho
+    order by x.user_id, g.prioridade, x.gatilho, x.canal
+  loop
+    return query
+      select * from public.lembrete_reservar(
+        c.user_id, c.gatilho, public.lembrete_vars_base(c.user_id, p_agora) || c.vars, p_agora, c.canal, false, true);
+  end loop;
+end;
+$$;
+
+-- Valores de exemplo para disparos de teste do /admin (gatilhos que pedem dados).
+create function public.lembrete_vars_exemplo() returns jsonb
+language sql immutable
+as $$
+  select jsonb_build_object(
+    'amigo', 'Ana', 'anfitrião', 'Ana', 'hora', '15h', 'próximo_horário', '18h', 'xp', 20, 'tempo', '15 dias',
+    'reps', 42, 'min', 4, 'reps_total', 180, 'qtd', 3, 'amigos_ativos', 2, 'dias_parado', 3,
+    'titulo_semana', 'Semana firme, {nome} 💪', 'dias_semana', '4 de 7', 'desafios', 6,
+    'var_desafios', '+20%', 'var_min', '+15%', 'var_reps', 'igual', 'var_xp', '+10%');
+$$;
+
+create function public.lembrete_imediato(p_user_id uuid, p_gatilho text, p_dados jsonb)
+returns setof public.lembrete_envio
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  g public.lembrete_gatilhos;
+  v_agora timestamptz := now();
+  v_dados jsonb := coalesce(p_dados, '{}');
+  v_teste boolean;
+  v_vars jsonb;
+  v_extra jsonb := '{}';
+  v_fuso text;
+  v_dias integer;
+  v_n integer;
+  v_amigo text;
+  v_attempt uuid;
+begin
+  select * into g from public.lembrete_gatilhos where gatilho = p_gatilho;
+  select fuso_horario into v_fuso from public.profiles where id = p_user_id;
+  if g.gatilho is null or v_fuso is null then
+    return;
+  end if;
+  v_teste := coalesce((v_dados ->> 'teste')::boolean, false)
+             and coalesce(public.lembretes_cfg('ADMINS'), '[]') ? p_user_id::text;
+  if not v_teste and not g.imediato then
+    return;
+  end if;
+
+  -- Só os campos esperados entram nas variáveis, com tamanho limitado.
+  v_amigo := left(btrim(v_dados ->> 'amigo'), 40);
+  v_extra := jsonb_strip_nulls(jsonb_build_object(
+    'amigo', nullif(v_amigo, ''),
+    'xp', case when (v_dados ->> 'xp') ~ '^\d{1,6}$' then (v_dados ->> 'xp')::int end,
+    'tempo', nullif(left(btrim(v_dados ->> 'tempo'), 30), ''),
+    'caminho', case when (v_dados ->> 'caminho') ~ '^/[A-Za-z0-9/_-]{0,80}$' then v_dados ->> 'caminho' end));
+
+  if v_teste then
+    v_vars := public.lembrete_vars_exemplo() || public.lembrete_vars_base(p_user_id, v_agora);
+    if not v_vars ? 'n' then
+      v_vars := v_vars || jsonb_build_object('n', 12, 'n+1', 13);
+    end if;
+    v_vars := v_vars || v_extra;
+    return query select * from public.lembrete_reservar(p_user_id, p_gatilho, v_vars, v_agora, null, true, false);
+    return;
+  end if;
+
+  select count(distinct (concluido_em at time zone v_fuso)::date) into v_dias
+  from public.challenge_attempts where user_id = p_user_id and status = 'concluido';
+
+  case p_gatilho
+    when 'A1' then
+      if exists (select 1 from public.notification_log where user_id = p_user_id and gatilho = 'A1') then
+        return;
+      end if;
+    when 'A3' then
+      -- Só no 1º dia de treino, uma vez na vida.
+      if v_dias <> 1 or exists (select 1 from public.notification_log where user_id = p_user_id and gatilho = 'A3') then
+        return;
+      end if;
+      select id into v_attempt from public.challenge_attempts
+      where user_id = p_user_id and status = 'concluido' order by concluido_em limit 1;
+      select jsonb_strip_nulls(jsonb_build_object(
+               'reps', nullif((select sum(reps_validas) from public.attempt_blocks where attempt_id = v_attempt), 0),
+               'min', greatest(1, round(c.duracao_s / 60.0))::int))
+      into v_extra
+      from public.challenge_attempts a join public.challenges c on c.id = a.challenge_id where a.id = v_attempt;
+    when 'R3' then
+      select atual into v_n from public.streaks where user_id = p_user_id;
+      if v_n is null or v_n not in (7, 14, 30, 100, 365) or exists (
+        select 1 from public.notification_log
+        where user_id = p_user_id and gatilho = 'R3' and variaveis ->> 'n' = v_n::text
+      ) then
+        return;
+      end if;
+      v_extra := v_extra || jsonb_build_object('n', v_n, 'caminho', '/perfil');
+    when 'S6' then
+      -- Agrupado: um por dia. Se já chegaram vários hoje, sai o número.
+      select count(distinct de_user) into v_n from public.high_fives
+      where para_user = p_user_id and (criado_em at time zone v_fuso)::date = (v_agora at time zone v_fuso)::date;
+      if v_n > 1 then
+        v_extra := (v_extra - 'amigo') || jsonb_build_object('qtd', v_n);
+      elsif v_amigo is null then
+        return;
+      end if;
+    else
+      -- S1, S4, S5: precisam do nome do amigo.
+      if v_amigo is null or (p_gatilho = 'S4' and not v_extra ? 'xp') then
+        return;
+      end if;
+  end case;
+
+  v_vars := public.lembrete_vars_base(p_user_id, v_agora) || v_extra;
+  return query select * from public.lembrete_reservar(p_user_id, p_gatilho, v_vars, v_agora, null, false, false);
+end;
+$$;
+
+-- --------------------------------------------------------------- permissões
+revoke execute on function
+  public.lembrete_silencio(timestamp), public.lembrete_ajustar(timestamp), public.lembrete_no_dia(date, time),
+  public.lembrete_janela(timestamp, timestamp, interval), public.lembrete_hora(time),
+  public.lembrete_preencher(text, jsonb), public.lembrete_tem_token(text),
+  public.lembrete_token(uuid, text), public.lembrete_grupo_r0(uuid),
+  public.lembrete_vars_base(uuid, timestamptz), public.lembrete_vars_semana(uuid, timestamptz),
+  public.lembrete_variacao(numeric, numeric), public.lembrete_vars_exemplo(),
+  public.lembrete_reservar(uuid, text, jsonb, timestamptz, text, boolean, boolean),
+  public.lembrete_candidatos(timestamptz), public.lembretes_pendentes(timestamptz),
+  public.lembrete_imediato(uuid, text, jsonb)
+from public, anon, authenticated;
+
+grant execute on function public.lembretes_pendentes(timestamptz) to n8n_lembretes;
+grant execute on function public.lembrete_imediato(uuid, text, jsonb) to n8n_lembretes;
+grant execute on all functions in schema public to service_role;
+
+-- >>> migrations/20261120000300_lembretes_textos.sql
+-- Hive Break · Lembretes, parte 3: textos (FUNIL_LEMBRETES.md, doc do Luan)
+--
+-- 2 a 3 variações por gatilho e canal. O motor escolhe a menos vista pela
+-- pessoa e pula variações com token sem valor (ex.: {hora} só existe no R0
+-- quando a última prática foi ontem). Pode ser rodado de novo: atualiza os textos.
+--
+-- Tokens: {nome} {n} {n+1} {desafio} {duração} {objetivo} {reps} {min} {amigo}
+-- {hora} {anfitrião} {reps_total} {próximo_horário} {xp} {tempo} {qtd}
+-- {titulo_semana} {dias_semana} {desafios} {var_desafios} {var_min} {var_reps}
+-- {var_xp} {amigos_ativos}
+--
+-- Push: titulo + texto. E-mail: assunto, preheader, titulo (manchete), texto
+-- (uma linha por parágrafo) e cta_texto. Tom: leve, sem culpa, sem falar de corpo.
+
+insert into public.notification_templates (id, gatilho, canal, variacao, assunto, preheader, titulo, texto, cta_texto) values
+-- ------------------------------------------------------------ ATIVAÇÃO
+('A1-email-1', 'A1', 'email', 1,
+  'Bem-vindo à Hive Break, {nome} 🐝',
+  'Sem equipamento, sem roupa de academia. Só a câmera do celular.',
+  'Oi, {nome}!',
+  E'A Hive Break funciona assim: desafios de 3 a 5 minutos, a câmera conta as repetições e você vê quem da sua hive já fez hoje.\nSeu objetivo: {objetivo}. O primeiro desafio já está separado: {desafio} · {duração} min.',
+  'Bora, 3 minutinhos'),
+('A1-email-2', 'A1', 'email', 2,
+  'Seu primeiro break leva 3 minutos',
+  'Sem equipamento, sem roupa de academia. Só a câmera do celular.',
+  'Que bom ter você aqui, {nome}',
+  E'Desafios curtos, a câmera conta as repetições e a sua hive vê quem já fez hoje.\nSeu primeiro desafio: {desafio}, {duração} min. Dá para fazer de pé, do lado da mesa.',
+  'Começar agora'),
+
+('A2-push-1', 'A2', 'push', 1, null, null, 'Seu primeiro desafio tá pronto 🐝', '3 minutinhos agora?', null),
+('A2-push-2', 'A2', 'push', 2, null, null, 'Hive Break', '{desafio} leva {duração} min. Bora fazer o primeiro? 🐝', null),
+('A2-push-3', 'A2', 'push', 3, null, null, 'Primeiro break, {nome}?', 'Sem trocar de roupa, sem sair do lugar. 3 minutinhos.', null),
+('A2-email-1', 'A2', 'email', 1,
+  '{nome}, 3 minutos e pronto ⏱️',
+  'Dá para fazer de pé, do lado da mesa.',
+  'Seu primeiro desafio continua esperando',
+  E'{desafio}, {duração} min. Não precisa trocar de roupa, nem de lugar.\nA câmera conta as repetições para você.',
+  'Começar agora'),
+('A2-email-2', 'A2', 'email', 2,
+  'Seu primeiro break continua aqui',
+  'Dá para fazer de pé, do lado da mesa.',
+  '3 minutinhos, {nome}?',
+  E'Seu primeiro desafio está separado: {desafio}, {duração} min.\nÉ só abrir, apoiar o celular e começar.',
+  'Bora, 3 minutinhos'),
+
+('A3-email-1', 'A3', 'email', 1,
+  'Dia 1 ✅ Sua ofensiva começou',
+  'Amanhã é o dia 2. Fica mais fácil com companhia.',
+  'Belo começo, {nome}',
+  E'Você fez {reps} repetições em {min} min. A câmera conferiu, tá valendo.\nAmanhã é o dia 2. Quem você chamaria para fazer junto?',
+  'Chamar minha hive'),
+('A3-email-2', 'A3', 'email', 2,
+  '{reps} repetições. Belo começo, {nome}',
+  'Amanhã é o dia 2. Fica mais fácil com companhia.',
+  'Dia 1 ✅',
+  E'{reps} repetições em {min} min. Sua ofensiva começou hoje.\nAmanhã é o dia 2. Chama alguém para fazer junto?',
+  'Chamar minha hive'),
+('A3-email-3', 'A3', 'email', 3,
+  'Dia 1 ✅ Sua ofensiva começou',
+  'Amanhã é o dia 2. Fica mais fácil com companhia.',
+  'Primeiro break feito, {nome}',
+  E'{min} minutos e o dia 1 é seu.\nAmanhã é o dia 2. Quem você chamaria para fazer junto?',
+  'Chamar minha hive'),
+
+('A4-push-1', 'A4', 'push', 1, null, null, 'Dia 2 🔥', 'Dia 2 é o mais importante. E leva só 3 minutos.', null),
+('A4-push-2', 'A4', 'push', 2, null, null, 'Bora pro dia 2, {nome}?', '{desafio} leva {duração} min. Ontem você mandou bem 🔥', null),
+('A4-push-3', 'A4', 'push', 3, null, null, 'Hive Break', 'Mais 3 minutinhos e sua ofensiva vira 2 dias 🔥', null),
+('A4-email-1', 'A4', 'email', 1,
+  'O dia 2 é o mais curto da sua vida',
+  'Ontem foi o dia 1. Hoje leva só 3 minutos.',
+  'Dia 2, {nome}',
+  E'O dia 2 é o mais importante, e leva só 3 minutos.\nSeu desafio de hoje: {desafio}, {duração} min.',
+  'Fazer o dia 2'),
+('A4-email-2', 'A4', 'email', 2,
+  'Dia 2? 3 minutinhos e pronto 🔥',
+  'Ontem foi o dia 1. Hoje leva só 3 minutos.',
+  'Sua ofensiva quer o dia 2',
+  E'Ontem você começou. Hoje é o dia que transforma o começo em hábito.\n{desafio}, {duração} min.',
+  'Fazer o dia 2'),
+
+('A5-email-1', 'A5', 'email', 1,
+  'Quem você tiraria da cadeira hoje?',
+  'Treinar com alguém do lado é mais fácil.',
+  'Sua hive ainda tem lugar 🐝',
+  E'Você já tem {n} dias de ofensiva. Agora falta alguém do seu lado.\nManda o link para um colega, alguém da família ou aquele amigo que vive reclamando das costas.',
+  'Chamar no WhatsApp'),
+('A5-email-2', 'A5', 'email', 2,
+  'Sua hive ainda tem lugar 🐝',
+  'Treinar com alguém do lado é mais fácil.',
+  'Bora chamar alguém, {nome}?',
+  E'{n} dias de ofensiva, só você na hive. Que tal chamar alguém?\nCom amigo na hive, vocês veem quem já fez hoje e mandam high five um para o outro.',
+  'Chamar no WhatsApp'),
+
+-- ---------------------------------------------------------- HIVE AO VIVO
+('H1-push-1', 'H1', 'push', 1, null, null, 'Sua hive começa às {hora} ⏰', '{n} pessoas já confirmaram. Vou entrar?', null),
+('H1-push-2', 'H1', 'push', 2, null, null, 'Daqui a pouco: hive às {hora} 🐝', 'Separa 5 minutinhos. {n} pessoas já estão dentro.', null),
+
+('H2-push-1', 'H2', 'push', 1, null, null, 'Let''s hive 🐝', '{anfitrião} e mais {n} já estão no break. Ainda dá tempo, entra.', null),
+('H2-push-2', 'H2', 'push', 2, null, null, 'A hive de {anfitrião} começou 🐝', 'Dá para entrar no meio. Bora?', null),
+
+('H3-email-1', 'H3', 'email', 1,
+  'Sua hive fez {reps_total} repetições juntas 🐝',
+  '{n} pessoas, {min} minutos.',
+  'Que hive, {nome}!',
+  E'{n} pessoas, {min} minutos, {reps_total} repetições.\nCada um no seu ritmo, todo mundo junto.',
+  'Mandar high five para a hive'),
+('H3-email-2', 'H3', 'email', 2,
+  '{n} pessoas, {reps_total} repetições, uma hive 🐝',
+  'Obrigado por puxar o ritmo.',
+  'A hive se mexeu',
+  E'Foram {min} minutos com {n} pessoas e {reps_total} repetições no total.\nManda um high five para quem estava lá.',
+  'Mandar high five para a hive'),
+('H3-push-1', 'H3', 'push', 1, null, null, 'Sua hive se mexeu às {hora} 👋', 'Próximo break: {próximo_horário}.', null),
+('H3-push-2', 'H3', 'push', 2, null, null, 'Sua hive se mexeu hoje 👋', 'Na próxima, entra junto. Dá para entrar no meio.', null),
+
+-- ---------------------------------------------------------------- HÁBITO
+('R0-push-1', 'R0', 'push', 1, null, null, 'Hora do break 🐝', 'Ontem você fez seu break às {hora}. Bora repetir?', null),
+('R0-push-2', 'R0', 'push', 2, null, null, 'Dia {n+1} da ofensiva', '3 minutinhos agora?', null),
+('R0-push-3', 'R0', 'push', 3, null, null, 'Hora do break, {nome}', 'Seu desafio de hoje leva {duração} min.', null),
+('R0-email-1', 'R0', 'email', 1,
+  'Seu break de hoje: {desafio}, {duração} min',
+  'Um desafio curto e o dia de hoje está feito.',
+  'Hora do break, {nome}',
+  E'Seu desafio de hoje: {desafio}, {duração} min.\nÉ só apoiar o celular e começar.',
+  'Fazer meu break'),
+('R0-email-2', 'R0', 'email', 2,
+  'Seu break de hoje: {desafio}, {duração} min',
+  'Um desafio curto e o dia de hoje está feito.',
+  'Bora repetir hoje?',
+  E'{duração} minutos e o dia de hoje é seu.\nSeu próximo desafio: {desafio}.',
+  'Fazer meu break'),
+
+('R1-push-1', 'R1', 'push', 1, null, null, '🔥 {n} dias', 'Mais 3 minutos e o dia {n+1} é seu.', null),
+('R1-push-2', 'R1', 'push', 2, null, null, '🔥 {n} dias. Hoje vira {n+1}?', 'Um desafio curto mantém a sequência.', null),
+('R1-email-1', 'R1', 'email', 1,
+  'Sua ofensiva de {n} dias quer mais 3 minutos',
+  'Um desafio curto mantém a sequência.',
+  '🔥 {n} dias',
+  E'Um desafio curto mantém a sequência.\nSeu desafio de hoje: {desafio}, {duração} min.',
+  'Manter a ofensiva'),
+('R1-email-2', 'R1', 'email', 2,
+  '🔥 {n} dias. Hoje vira {n+1}?',
+  'Um desafio curto mantém a sequência.',
+  'Mais 3 minutos, {nome}',
+  E'Você está com {n} dias seguidos. Com mais um desafio hoje, vira {n+1}.\n{desafio}, {duração} min.',
+  'Manter a ofensiva'),
+
+('R1b-push-1', 'R1b', 'push', 1, null, null, 'Ainda dá tempo 🌙', '3 minutos até meia-noite mantêm seus {n} dias.', null),
+('R1b-push-2', 'R1b', 'push', 2, null, null, '🔥 {n} dias', 'Um alongamento de 3 min e o dia {n+1} tá garantido.', null),
+
+('R2-email-1', 'R2', 'email', 1,
+  '{titulo_semana}',
+  '{desafios} desafios, {min} minutos ativos e {xp} XP nesta semana.',
+  '{titulo_semana}',
+  E'Dias com break: {dias_semana}.\nMinutos ativos: {min} ({var_min} contra a semana anterior).\nDesafios: {desafios} ({var_desafios}).\nRepetições: {reps} ({var_reps}).\nXP: {xp} ({var_xp}).\nFecha a semana perfeita na próxima?',
+  'Ver meu progresso'),
+('R2-email-2', 'R2', 'email', 2,
+  '{titulo_semana}',
+  'Seu resumo da semana na Hive Break.',
+  'Sua semana, {nome}',
+  E'{desafios} desafios ({var_desafios}) em {dias_semana} dias.\n{min} minutos ativos ({var_min}) e {reps} repetições ({var_reps}).\n{xp} XP ({var_xp}).\nFecha a semana perfeita na próxima?',
+  'Ver meu progresso'),
+
+('R3-push-1', 'R3', 'push', 1, null, null, '{n} dias seguidos 🎉', 'Isso merece um card. Compartilha?', null),
+('R3-push-2', 'R3', 'push', 2, null, null, '🔥 {n} dias!', 'Marco desbloqueado. Seu card está pronto.', null),
+('R3-email-1', 'R3', 'email', 1,
+  '{n} dias seguidos 🎉 Isso merece um card',
+  'Seu card de {n} dias está pronto para compartilhar.',
+  '{n} dias',
+  E'{n} dias seguidos de break. Isso é hábito, {nome}.\nSeu card está pronto para compartilhar.',
+  'Compartilhar meu card'),
+('R3-email-2', 'R3', 'email', 2,
+  '🔥 {n} dias seguidos, {nome}',
+  'Seu card de {n} dias está pronto para compartilhar.',
+  '{n} dias seguidos',
+  E'Marco de {n} dias desbloqueado.\nMostra para a sua hive: o card já está pronto.',
+  'Compartilhar meu card'),
+
+-- ---------------------------------------------------------------- SOCIAL
+('S1-push-1', 'S1', 'push', 1, null, null, '{amigo} entrou na sua hive 🐝', 'Manda um high five?', null),
+('S1-push-2', 'S1', 'push', 2, null, null, 'Hive Break', '{amigo} chegou na sua hive. Bora treinar junto? 🐝', null),
+('S1-email-1', 'S1', 'email', 1,
+  '{amigo} entrou na sua hive 🐝',
+  'Agora vocês veem quem já fez o break do dia.',
+  '{amigo} chegou',
+  E'{amigo} entrou na sua hive.\nAgora vocês veem quem já fez o break do dia e podem treinar juntos.',
+  'Mandar high five'),
+('S1-email-2', 'S1', 'email', 2,
+  'Sua hive cresceu: {amigo} chegou 🐝',
+  'Agora vocês veem quem já fez o break do dia.',
+  'Sua hive cresceu',
+  E'{amigo} acabou de entrar na sua hive.\nUm high five de boas-vindas faz diferença.',
+  'Mandar high five'),
+
+('S3-push-1', 'S3', 'push', 1, null, null, '{amigo} já fez hoje 🤝', 'Falta você para a dupla chegar a {n} dias.', null),
+('S3-push-2', 'S3', 'push', 2, null, null, 'Sua dupla com {amigo} 🤝', '{amigo} já treinou. 3 minutos e vocês chegam a {n} dias.', null),
+('S3-email-1', 'S3', 'email', 1,
+  '{amigo} já fez hoje 🤝',
+  'Falta você para a dupla chegar a {n} dias.',
+  'Falta só você',
+  E'{amigo} já fez o break de hoje. Falta você para a dupla chegar a {n} dias.\n{desafio}, {duração} min.',
+  'Fazer meu desafio'),
+('S3-email-2', 'S3', 'email', 2,
+  'Sua dupla com {amigo} chega a {n} dias hoje?',
+  'Falta você para a dupla chegar a {n} dias.',
+  'Dupla em ação 🤝',
+  E'{amigo} já treinou hoje.\nUm desafio curto e a dupla chega a {n} dias.',
+  'Fazer meu desafio'),
+
+('S4-push-1', 'S4', 'push', 1, null, null, '{amigo} te passou na liga 😏', 'Faltam {xp} XP para retomar.', null),
+('S4-push-2', 'S4', 'push', 2, null, null, 'Movimento na liga 😏', '{amigo} passou na sua frente. {xp} XP e você volta.', null),
+
+('S5-email-1', 'S5', 'email', 1,
+  '{amigo} voltou depois de {tempo} 🎉',
+  'Um high five agora faz diferença.',
+  '{amigo} voltou',
+  E'{amigo} voltou a treinar depois de {tempo}.\nUm high five agora faz diferença. E se você também deu uma pausa, sua hive está voltando a se mexer.',
+  'Mandar high five'),
+('S5-email-2', 'S5', 'email', 2,
+  'Olha quem voltou: {amigo} 🎉',
+  'Um high five agora faz diferença.',
+  'Sua hive está voltando a se mexer',
+  E'{amigo} fez um break hoje, depois de {tempo}.\nManda um high five para comemorar.',
+  'Mandar high five'),
+
+('S6-push-1', 'S6', 'push', 1, null, null, 'High five 🙌', '{amigo} te mandou um high five.', null),
+('S6-push-2', 'S6', 'push', 2, null, null, '{amigo} te mandou um high five 🙌', 'Bora devolver no próximo break?', null),
+('S6-push-3', 'S6', 'push', 3, null, null, 'High five 🙌', '{qtd} pessoas te mandaram high five hoje.', null),
+
+-- ------------------------------------------------------------ REATIVAÇÃO
+('W1-push-1', 'W1', 'push', 1, null, null, '3 minutinhos? 🐝', 'Um desafio curto para voltar ao ritmo.', null),
+('W1-push-2', 'W1', 'push', 2, null, null, '{nome}, seu próximo break tá pronto', '{desafio}, {duração} min. A gente começa leve.', null),
+('W1-email-1', 'W1', 'email', 1,
+  '3 minutinhos para voltar ao ritmo',
+  'Um desafio curto e você está de volta.',
+  'Seu próximo break tá pronto',
+  E'Separamos um desafio curto: {desafio}, {duração} min.\nEnquanto isso, {amigos_ativos} pessoas da sua hive treinaram esta semana.',
+  'Voltar com 3 minutos'),
+('W1-email-2', 'W1', 'email', 2,
+  '{nome}, seu próximo break tá pronto',
+  'Um desafio curto e você está de volta.',
+  'Bora voltar leve?',
+  E'Seu próximo desafio: {desafio}, {duração} min.\nSem pressa, sem cobrança. É só abrir e começar.',
+  'Voltar com 3 minutos'),
+
+('W2-email-1', 'W2', 'email', 1,
+  'Olha o que sua hive andou fazendo 🐝',
+  'Sua hive continua se mexendo.',
+  'Sua hive continua aqui',
+  E'Nesta semana, {amigos_ativos} pessoas da sua hive fizeram seus breaks.\nQuando der, entra também. Um desafio de {duração} min já conta.',
+  'Entrar na hive'),
+('W2-email-2', 'W2', 'email', 2,
+  'Olha o que sua hive andou fazendo 🐝',
+  'Um desafio curto e você está de volta.',
+  'Faz uma semana, {nome}',
+  E'Sua hive continua aqui, e tem desafio novo te esperando: {desafio}, {duração} min.\nVolta leve, no seu ritmo.',
+  'Entrar na hive'),
+
+('W3-email-1', 'W3', 'email', 1,
+  'Vamos dar um tempo nos lembretes',
+  'Quando der vontade de um break, é só abrir.',
+  'Vamos dar um tempo',
+  E'Parece que os lembretes não estão ajudando agora, então vamos parar de mandar.\nQuando der vontade de um break, é só abrir. A sua hive continua aqui.',
+  'Fazer um break agora'),
+('W3-email-2', 'W3', 'email', 2,
+  'Vamos dar um tempo nos lembretes',
+  'Quando der vontade de um break, é só abrir.',
+  'A gente para por aqui, {nome}',
+  E'Os lembretes não parecem estar ajudando agora, então vamos pausar.\nSeu progresso fica guardado e a sua hive continua aqui. Quando quiser, é só abrir.',
+  'Fazer um break agora')
+on conflict (id) do update set
+  gatilho = excluded.gatilho, canal = excluded.canal, variacao = excluded.variacao,
+  assunto = excluded.assunto, preheader = excluded.preheader, titulo = excluded.titulo,
+  texto = excluded.texto, cta_texto = excluded.cta_texto, ativo = true;
+
+-- >>> migrations/20261120000400_lembretes_app.sql
+-- Hive Break · Lembretes, parte 4: funções que o app chama
+--
+-- Gatilhos imediatos: depois de uma ação, o app pergunta ao banco quem deve ser
+-- avisado (lembretes_apos_desafio, lembretes_ao_entrar_hive,
+-- lembretes_ao_concluir_cadastro) e manda cada item para o webhook do n8n, que
+-- chama lembrete_imediato(). As regras finais (uma vez só, limites, preferências)
+-- continuam em lembrete_imediato.
+--
+-- Push, "desativar" e abertura: rotas do app sem login, protegidas pelo segredo
+-- (LEMBRETES_SEGREDO, igual na Vercel e em lembretes_config) ou por token HMAC.
+
+-- ------------------------------------------------------------ auxiliares
+create function public.lembrete_segredo_ok(p_segredo text) returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(p_segredo, '') <> '' and p_segredo = (public.lembretes_cfg('LEMBRETES_SEGREDO') #>> '{}');
+$$;
+
+create function public.lembrete_apelido(p_user uuid) returns text
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(nullif(btrim(apelido), ''), nullif(split_part(btrim(coalesce(nome, '')), ' ', 1), ''), 'Alguém')
+  from public.profiles where id = p_user;
+$$;
+
+-- ---------------------------------------------- eventos depois de uma ação
+-- Pontos da liga nesta semana (null fora da liga). O app lê antes de finalizar
+-- o desafio para saber quem foi ultrapassado (S4).
+create function public.lembretes_meus_pontos_liga() returns numeric
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select m.pontos from public.league_members m
+  join public.leagues l on l.id = m.league_id
+  where m.user_id = auth.uid() and l.semana_inicio = public.liga_semana_inicio();
+$$;
+
+-- Depois de um desafio concluído: A3 (1º dia), R3 (marco), S5 (voltou após
+-- 14 dias, para os amigos) e S4 (amigos ultrapassados na liga).
+create function public.lembretes_apos_desafio(p_pontos_antes numeric default null) returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_fuso text;
+  v_hoje date;
+  v_hoje_qtd integer;
+  v_dias integer;
+  v_atual integer;
+  v_ultimo timestamptz;
+  v_anterior timestamptz;
+  v_eu text;
+  v_liga uuid;
+  v_pontos numeric;
+  r jsonb := '[]';
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  select fuso_horario into v_fuso from public.profiles where id = v_user;
+  v_hoje := (now() at time zone v_fuso)::date;
+  v_eu := public.lembrete_apelido(v_user);
+
+  select count(*) filter (where (concluido_em at time zone v_fuso)::date = v_hoje),
+         count(distinct (concluido_em at time zone v_fuso)::date)
+  into v_hoje_qtd, v_dias
+  from public.challenge_attempts where user_id = v_user and status = 'concluido';
+  select concluido_em into v_ultimo from public.challenge_attempts
+  where user_id = v_user and status = 'concluido' order by concluido_em desc limit 1;
+  select concluido_em into v_anterior from public.challenge_attempts
+  where user_id = v_user and status = 'concluido' order by concluido_em desc offset 1 limit 1;
+  select atual into v_atual from public.streaks where user_id = v_user;
+
+  if v_hoje_qtd = 1 then
+    if v_dias = 1 then
+      r := r || jsonb_build_object('user_id', v_user, 'gatilho', 'A3', 'dados', '{}'::jsonb);
+    end if;
+    if v_atual in (7, 14, 30, 100, 365) then
+      r := r || jsonb_build_object('user_id', v_user, 'gatilho', 'R3', 'dados', jsonb_build_object('n', v_atual));
+    end if;
+    if v_anterior is not null and v_ultimo - v_anterior >= interval '14 days' then
+      r := r || coalesce((
+        select jsonb_agg(jsonb_build_object('user_id', am.amigo, 'gatilho', 'S5',
+                 'dados', jsonb_build_object('amigo', v_eu, 'tempo', extract(day from v_ultimo - v_anterior)::int || ' dias')))
+        from (select case when f.user_a = v_user then f.user_b else f.user_a end as amigo
+              from public.friendships f where v_user in (f.user_a, f.user_b)) am
+      ), '[]');
+    end if;
+  end if;
+
+  -- S4: amigos do mesmo grupo da liga que estavam na frente e agora ficaram atrás.
+  select m.league_id, m.pontos into v_liga, v_pontos
+  from public.league_members m join public.leagues l on l.id = m.league_id
+  where m.user_id = v_user and l.semana_inicio = public.liga_semana_inicio();
+  if v_liga is not null then
+    r := r || coalesce((
+      select jsonb_agg(jsonb_build_object('user_id', m.user_id, 'gatilho', 'S4',
+               'dados', jsonb_build_object('amigo', v_eu, 'xp', ceil(v_pontos - m.pontos)::int + 1)))
+      from public.league_members m
+      where m.league_id = v_liga and m.user_id <> v_user
+        and m.pontos >= coalesce(p_pontos_antes, 0) and m.pontos < v_pontos
+        and exists (select 1 from public.friendships f
+                    where (f.user_a, f.user_b) = (least(v_user, m.user_id), greatest(v_user, m.user_id)))
+    ), '[]');
+  end if;
+  return r;
+end;
+$$;
+
+-- Entrou numa hive: S1 para o anfitrião.
+create function public.lembretes_ao_entrar_hive(p_hive uuid) returns jsonb
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object('user_id', h.anfitriao_id, 'gatilho', 'S1',
+           'dados', jsonb_build_object('amigo', public.lembrete_apelido(auth.uid()), 'caminho', '/hive/' || h.id))), '[]')
+  from public.hives h
+  where h.id = p_hive and h.anfitriao_id <> auth.uid()
+    and exists (select 1 from public.hive_participantes hp where hp.hive_id = h.id and hp.user_id = auth.uid());
+$$;
+
+-- Cadastro concluído: A1 para a pessoa e S1 para quem convidou.
+create function public.lembretes_ao_concluir_cadastro() returns jsonb
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select jsonb_build_array(jsonb_build_object('user_id', p.id, 'gatilho', 'A1', 'dados', '{}'::jsonb))
+         || case when p.convidado_por is not null
+              then jsonb_build_array(jsonb_build_object('user_id', p.convidado_por, 'gatilho', 'S1',
+                     'dados', jsonb_build_object('amigo', public.lembrete_apelido(p.id), 'caminho', '/amigos')))
+              else '[]'::jsonb end
+  from public.profiles p
+  where p.id = auth.uid() and p.onboarding_concluido_em is not null;
+$$;
+
+-- ----------------------------------------------------------------- push
+-- Guarda o aparelho (o mesmo endpoint pode mudar de dono se outra pessoa
+-- entrar no mesmo navegador) e liga o push nas preferências.
+create function public.salvar_push(p_endpoint text, p_chaves jsonb, p_aparelho text default null) returns void
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  if p_endpoint !~ '^https://' or length(p_endpoint) > 1000 or jsonb_typeof(p_chaves) <> 'object'
+     or not (p_chaves ? 'p256dh' and p_chaves ? 'auth') then
+    raise exception 'inscricao_invalida' using errcode = '22023';
+  end if;
+  insert into public.push_subscriptions (user_id, endpoint, chaves, aparelho, ativo)
+  values (v_user, p_endpoint, p_chaves, left(p_aparelho, 120), true)
+  on conflict (endpoint) do update
+    set user_id = excluded.user_id, chaves = excluded.chaves, aparelho = excluded.aparelho, ativo = true;
+  update public.notification_preferences set push_ativo = true where user_id = v_user;
+end;
+$$;
+
+-- Usada pela rota /api/lembretes/push: o que mandar e para quais aparelhos.
+create function public.lembrete_push_dados(p_segredo text, p_log_id bigint) returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare
+  l public.notification_log;
+begin
+  if not public.lembrete_segredo_ok(p_segredo) then
+    raise exception 'segredo_invalido' using errcode = '28000';
+  end if;
+  select * into l from public.notification_log where id = p_log_id and canal = 'push';
+  if l.id is null then
+    return null;
+  end if;
+  return jsonb_build_object(
+    'log_id', l.id, 'user_id', l.user_id, 'gatilho', l.gatilho,
+    'titulo', l.titulo, 'texto', l.texto, 'url', l.url,
+    'inscricoes', coalesce((
+      select jsonb_agg(jsonb_build_object('endpoint', s.endpoint, 'chaves', s.chaves))
+      from public.push_subscriptions s where s.user_id = l.user_id and s.ativo
+    ), '[]'));
+end;
+$$;
+
+-- Aparelhos que responderam 404/410: a inscrição acabou.
+create function public.lembrete_push_desativar(p_segredo text, p_endpoints text[]) returns integer
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v integer;
+begin
+  if not public.lembrete_segredo_ok(p_segredo) then
+    raise exception 'segredo_invalido' using errcode = '28000';
+  end if;
+  update public.push_subscriptions set ativo = false where endpoint = any(p_endpoints) and ativo;
+  get diagnostics v = row_count;
+  return v;
+end;
+$$;
+
+-- Assinatura que vai junto do push, para o service worker registrar a abertura.
+create function public.lembrete_assinatura_abertura(p_log_id bigint) returns text
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select encode(extensions.hmac('aberto.' || p_log_id, public.lembretes_cfg('LEMBRETES_SEGREDO') #>> '{}', 'sha256'), 'hex');
+$$;
+
+create function public.registrar_abertura_lembrete(p_log_id bigint, p_assinatura text) returns boolean
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if p_assinatura is distinct from public.lembrete_assinatura_abertura(p_log_id) then
+    return false;
+  end if;
+  update public.notification_log set aberto_em = now() where id = p_log_id and aberto_em is null;
+  return true;
+end;
+$$;
+
+-- ------------------------------------------------------------- desativar
+-- Link do rodapé: <user_id>.<categoria>.<hmac>. Sem login.
+create function public.desativar_lembretes(p_token text, p_tudo boolean default false) returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_partes text[] := string_to_array(coalesce(p_token, ''), '.');
+  v_user uuid;
+  v_categoria text;
+begin
+  if coalesce(array_length(v_partes, 1), 0) <> 3 or v_partes[1] !~ '^[0-9a-f-]{36}$'
+     or v_partes[2] not in ('lembrete', 'ofensiva', 'amigos', 'liga', 'resumo_semanal', 'todos') then
+    return jsonb_build_object('ok', false);
+  end if;
+  v_user := v_partes[1]::uuid;
+  v_categoria := v_partes[2];
+  if public.lembrete_token(v_user, v_categoria) is distinct from p_token then
+    return jsonb_build_object('ok', false);
+  end if;
+  if p_tudo or v_categoria = 'todos' then
+    update public.notification_preferences
+    set lembrete = false, ofensiva = false, amigos = false, liga = false, resumo_semanal = false,
+        email_ativo = false, push_ativo = false
+    where user_id = v_user;
+    v_categoria := 'todos';
+  else
+    execute format('update public.notification_preferences set %I = false where user_id = $1', v_categoria) using v_user;
+  end if;
+  return jsonb_build_object('ok', true, 'categoria', v_categoria);
+end;
+$$;
+
+-- --------------------------------------------------------------- admin
+create function public.lembretes_sou_admin() returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select auth.uid() is not null and coalesce(public.lembretes_cfg('ADMINS'), '[]') ? auth.uid()::text;
+$$;
+
+create function public.lembretes_admin_log(p_limite integer default 50) returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not public.lembretes_sou_admin() then
+    raise exception 'sem_permissao' using errcode = '42501';
+  end if;
+  return jsonb_build_object(
+    'simular', coalesce((public.lembretes_cfg('LEMBRETES_SIMULAR'))::boolean, true),
+    'envios', coalesce((
+      select jsonb_agg(x order by x.id desc) from (
+        select l.id, l.criado_em, l.enviado_em, l.aberto_em, l.gatilho, l.canal, l.status, l.erro,
+               coalesce(l.assunto, l.titulo) as assunto, l.texto, l.desafio_em_2h,
+               public.lembrete_apelido(l.user_id) as pessoa
+        from public.notification_log l
+        order by l.id desc
+        limit least(greatest(coalesce(p_limite, 50), 1), 200)
+      ) x
+    ), '[]'),
+    'gatilhos', (select jsonb_agg(gatilho order by gatilho) from public.lembrete_gatilhos));
+end;
+$$;
+
+-- --------------------------------------------------------------- permissões
+revoke execute on function
+  public.lembrete_segredo_ok(text), public.lembrete_apelido(uuid), public.lembretes_meus_pontos_liga(),
+  public.lembretes_apos_desafio(numeric), public.lembretes_ao_entrar_hive(uuid), public.lembretes_ao_concluir_cadastro(),
+  public.salvar_push(text, jsonb, text), public.lembrete_push_dados(text, bigint), public.lembrete_push_desativar(text, text[]),
+  public.lembrete_assinatura_abertura(bigint), public.registrar_abertura_lembrete(bigint, text),
+  public.desativar_lembretes(text, boolean), public.lembretes_sou_admin(), public.lembretes_admin_log(integer)
+from public, anon, authenticated;
+
+grant execute on function public.lembretes_meus_pontos_liga(), public.lembretes_apos_desafio(numeric),
+  public.lembretes_ao_entrar_hive(uuid), public.lembretes_ao_concluir_cadastro(), public.salvar_push(text, jsonb, text),
+  public.lembretes_sou_admin(), public.lembretes_admin_log(integer)
+to authenticated;
+-- Rotas sem login: protegidas pelo segredo ou pelo token assinado.
+grant execute on function public.lembrete_push_dados(text, bigint), public.lembrete_push_desativar(text, text[]),
+  public.registrar_abertura_lembrete(bigint, text), public.desativar_lembretes(text, boolean)
+to anon, authenticated;
+grant execute on all functions in schema public to service_role;
+
+-- >>> migrations/20261120001000_liga_todos.sql
+-- Hive Break · Liga para todos (decisões do Luan em 17/11/2026, seção 9.3)
+--
+-- Muda a liga da migração 20261119002000_liga.sql:
+--   * todo mundo com cadastro completo entra na liga da semana, mesmo com 0 XP;
+--   * grupos de até 15 pessoas, do mesmo tamanho: 20 pessoas viram 2 grupos de 10,
+--     30 viram 2 de 15 e 40 viram 3 grupos (14, 13 e 13);
+--   * quem termina o cadastro no meio da semana entra no grupo de quem convidou (se tiver vaga)
+--     ou no grupo menor da divisão;
+--   * a respiração guiada vale XP de liga, mesmo sem câmera;
+--   * convite ativado (o convidado concluiu o 1º desafio) dá 20 XP a quem convidou,
+--     e esse XP vale na liga. Também dá 1 protetor de ofensiva a cada um e cria a
+--     amizade (seção 9.4). Até 10 convites recompensados com XP por mês;
+--   * modo manual continua não valendo na liga;
+--   * só sobe quem fez pelo menos 1 XP na semana;
+--   * a tela mostra todo mundo que treinou na semana; quem tem 0 XP aparece só
+--     como contagem.
+--
+-- A semana atual é refeita: os grupos são montados de novo com todos e os pontos
+-- recalculados a partir do XP desde segunda (inclusive o de antes da liga existir).
+
+-- ---------------------------------------------------------------------------
+-- Que XP vale para a liga
+-- ---------------------------------------------------------------------------
+create function public.liga_xp_vale(p_user uuid, p_tipo text, p_valor integer, p_attempt uuid, p_quando timestamptz)
+returns boolean
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare
+  a public.challenge_attempts;
+  v_respiracao boolean;
+  v_fora numeric;
+begin
+  if p_valor <= 0 then
+    return false;
+  end if;
+  if p_tipo = 'convite' then
+    return true;
+  end if;
+  if p_tipo not in ('desafio', 'refazer', 'primeiro_do_dia', 'unidade_sessao', 'nivel_concluido') then
+    return false;
+  end if;
+
+  if p_attempt is not null then
+    select * into a from public.challenge_attempts where id = p_attempt;
+  else
+    -- Nível concluído não guarda a tentativa: vale a que fechou o nível.
+    select * into a from public.challenge_attempts
+    where user_id = p_user and status = 'concluido'
+      and concluido_em between p_quando - interval '5 minutes' and p_quando
+    order by concluido_em desc limit 1;
+  end if;
+  if a.id is null or a.status <> 'concluido' then
+    return false;
+  end if;
+
+  select c.modalidade = 'respiracao' into v_respiracao from public.challenges c where c.id = a.challenge_id;
+  if coalesce(v_respiracao, false) then
+    return true;
+  end if;
+  if a.modo <> 'camera' then
+    return false;
+  end if;
+  select coalesce(avg(fora_quadro_pct), 0) into v_fora from public.attempt_blocks where attempt_id = a.id;
+  return v_fora <= 30;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Montagem dos grupos
+-- ---------------------------------------------------------------------------
+
+-- Põe uma pessoa num grupo já existente da semana: o de quem convidou, se for da
+-- mesma divisão e tiver vaga; senão, o grupo menor da divisão; com todos cheios
+-- (15), um grupo novo.
+create function public.liga_colocar(p_user uuid, p_divisao text, p_semana date) returns uuid
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_liga uuid;
+  v_convidou uuid;
+begin
+  select convidado_por into v_convidou from public.profiles where id = p_user;
+  select l.id into v_liga
+  from public.leagues l
+  where l.semana_inicio = p_semana and l.divisao = p_divisao and l.status = 'aberta'
+    and (select count(*) from public.league_members m where m.league_id = l.id) < 15
+  order by
+    (v_convidou is not null and exists (
+      select 1 from public.league_members m where m.league_id = l.id and m.user_id = v_convidou)) desc,
+    (select count(*) from public.league_members m where m.league_id = l.id),
+    l.criada_em, l.id
+  limit 1;
+  if v_liga is null then
+    insert into public.leagues (divisao, semana_inicio, semana_fim)
+    values (p_divisao, p_semana, p_semana + 6)
+    returning id into v_liga;
+  end if;
+  insert into public.league_members (league_id, user_id, pontos, pontos_em) values (v_liga, p_user, 0, now());
+  return v_liga;
+end;
+$$;
+
+-- Monta os grupos da semana: todo mundo com cadastro completo, em grupos de até
+-- 15 do mesmo tamanho. Numa divisão que já tem grupos nesta semana, quem ficou de
+-- fora entra pelo liga_colocar.
+create function public.liga_formar_semana(p_semana date) returns void
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  d text;
+  v_ids uuid[];
+  v_n integer;
+  v_k integer;
+  v_grupos uuid[];
+  i integer;
+begin
+  perform pg_advisory_xact_lock(hashtext('hive_break:liga_formar:' || p_semana));
+  foreach d in array array['bronze', 'prata', 'ouro', 'safira', 'diamante'] loop
+    select array_agg(p.id order by random()) into v_ids
+    from public.profiles p
+    where p.onboarding_concluido_em is not null and p.divisao_atual = d
+      and not exists (
+        select 1 from public.league_members m join public.leagues l on l.id = m.league_id
+        where m.user_id = p.id and l.semana_inicio = p_semana);
+    v_n := coalesce(array_length(v_ids, 1), 0);
+    continue when v_n = 0;
+
+    if exists (select 1 from public.leagues where semana_inicio = p_semana and divisao = d) then
+      for i in 1..v_n loop
+        perform public.liga_colocar(v_ids[i], d, p_semana);
+      end loop;
+      continue;
+    end if;
+
+    v_k := ceil(v_n / 15.0)::int;
+    v_grupos := array[]::uuid[];
+    for i in 1..v_k loop
+      insert into public.leagues (divisao, semana_inicio, semana_fim)
+      values (d, p_semana, p_semana + 6)
+      returning array_append(v_grupos, id) into v_grupos;
+    end loop;
+    -- Distribui um por grupo, em rodízio: os tamanhos diferem em no máximo 1.
+    for i in 1..v_n loop
+      insert into public.league_members (league_id, user_id, pontos, pontos_em)
+      values (v_grupos[((i - 1) % v_k) + 1], v_ids[i], 0, now());
+    end loop;
+  end loop;
+end;
+$$;
+
+-- Garante que a pessoa está num grupo desta semana e devolve o grupo.
+create function public.liga_garantir_membro(p_user uuid) returns uuid
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_semana date := public.liga_semana_inicio();
+  v_liga uuid;
+  v_divisao text;
+begin
+  select m.league_id into v_liga
+  from public.league_members m join public.leagues l on l.id = m.league_id
+  where m.user_id = p_user and l.semana_inicio = v_semana;
+  if v_liga is not null then
+    return v_liga;
+  end if;
+
+  -- Semana passada ainda aberta (o cron não rodou): fecha antes, para a divisão estar certa.
+  if public.liga_tem_pendente() then
+    perform public.fechar_ligas();
+  end if;
+  select divisao_atual into v_divisao from public.profiles where id = p_user;
+  if v_divisao is null then
+    return null;
+  end if;
+
+  -- 1ª pessoa da semana: monta os grupos de todo mundo (inclusive ela, se o cadastro está completo).
+  perform public.liga_formar_semana(v_semana);
+  perform pg_advisory_xact_lock(hashtext('hive_break:liga:' || v_divisao || ':' || v_semana));
+  select m.league_id into v_liga
+  from public.league_members m join public.leagues l on l.id = m.league_id
+  where m.user_id = p_user and l.semana_inicio = v_semana;
+  if v_liga is not null then
+    return v_liga;
+  end if;
+
+  -- Chegou no meio da semana (cadastro novo ou divisão sem ninguém ainda).
+  v_liga := public.liga_colocar(p_user, v_divisao, v_semana);
+  return v_liga;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Pontos: o gatilho em xp_events passa a usar liga_xp_vale e liga_garantir_membro
+-- ---------------------------------------------------------------------------
+create or replace function public.pontuar_liga() returns trigger
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_liga uuid;
+begin
+  if not public.liga_xp_vale(new.user_id, new.tipo, new.valor, new.attempt_id, new.criado_em) then
+    return null;
+  end if;
+  if new.attempt_id is not null then
+    update public.challenge_attempts set valido_para_liga = true where id = new.attempt_id and not valido_para_liga;
+  end if;
+  if public.liga_tem_pendente() then
+    perform public.fechar_ligas();
+  end if;
+  v_liga := public.liga_garantir_membro(new.user_id);
+  update public.league_members
+  set pontos = pontos + new.valor, pontos_em = now()
+  where league_id = v_liga and user_id = new.user_id;
+  return null;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Fechamento: igual ao anterior, mas só sobe quem fez pelo menos 1 XP
+-- ---------------------------------------------------------------------------
+create or replace function public.fechar_ligas() returns integer
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  divisoes constant text[] := array['bronze', 'prata', 'ouro', 'safira', 'diamante'];
+  l public.leagues;
+  v_n integer;
+  v_sobem integer;
+  v_descem integer;
+  v_fechadas integer := 0;
+begin
+  perform pg_advisory_xact_lock(hashtext('hive_break:fechar_ligas'));
+  for l in
+    select * from public.leagues
+    where status = 'aberta' and semana_fim < (now() at time zone 'America/Sao_Paulo')::date
+    order by semana_inicio, criada_em
+    for update
+  loop
+    select count(*) into v_n from public.league_members where league_id = l.id;
+    select v.sobem, v.descem into v_sobem, v_descem from public.liga_vagas(l.divisao, v_n) v;
+
+    with ranking as (
+      select user_id, pontos, row_number() over (order by pontos desc, pontos_em, user_id) as pos
+      from public.league_members where league_id = l.id
+    )
+    update public.league_members m
+    set posicao_final = r.pos,
+        resultado = case when r.pos <= v_sobem and r.pontos > 0 then 'subiu'
+                         when r.pos > v_n - v_descem then 'desceu'
+                         else 'manteve' end
+    from ranking r
+    where m.league_id = l.id and m.user_id = r.user_id;
+
+    update public.profiles p
+    set divisao_atual = divisoes[array_position(divisoes, l.divisao) + case m.resultado when 'subiu' then 1 else -1 end]
+    from public.league_members m
+    where m.league_id = l.id and m.user_id = p.id and m.resultado in ('subiu', 'desceu');
+
+    update public.streaks s
+    set protetores = least(s.protetores + 1, case when s.atual >= 100 then 4 else 2 end)
+    from public.league_members m
+    where m.league_id = l.id and m.user_id = s.user_id and m.resultado = 'subiu'
+      and s.protetores < case when s.atual >= 100 then 4 else 2 end;
+
+    insert into public.user_achievements (user_id, achievement_id)
+    select m.user_id, 'primeira_subida' from public.league_members m
+    where m.league_id = l.id and m.resultado = 'subiu'
+      and exists (select 1 from public.achievements where id = 'primeira_subida')
+    on conflict do nothing;
+
+    update public.leagues set status = 'fechada' where id = l.id;
+    v_fechadas := v_fechadas + 1;
+  end loop;
+  return v_fechadas;
+end;
+$$;
+
+-- Virada da semana (cron de segunda): fecha a semana passada e monta a nova.
+create function public.liga_virar_semana() returns void
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.fechar_ligas();
+  perform public.liga_formar_semana(public.liga_semana_inicio());
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Tela da Liga: todo mundo que treinou na semana; quem tem 0 XP vira contagem
+-- ---------------------------------------------------------------------------
+create or replace function public.ler_liga() returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_semana date;
+  v_divisao text;
+  v_anterior jsonb;
+  l public.leagues;
+  v_liga uuid;
+  v_n integer;
+  v_sobem integer;
+  v_descem integer;
+  v_pos integer;
+  v_pontos integer;
+  v_corte_subida integer;
+  v_corte_ficar integer;
+  v_sem_treino integer;
+  v_linhas jsonb;
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  if public.liga_tem_pendente() then
+    perform public.fechar_ligas();
+  end if;
+  v_semana := public.liga_semana_inicio();
+  select divisao_atual into v_divisao from public.profiles where id = v_user;
+
+  select jsonb_build_object('divisao', pl.divisao, 'posicao', m.posicao_final, 'resultado', m.resultado)
+  into v_anterior
+  from public.league_members m join public.leagues pl on pl.id = m.league_id
+  where m.user_id = v_user and pl.status = 'fechada' and pl.semana_inicio = v_semana - 7;
+
+  v_liga := public.liga_garantir_membro(v_user);
+  select * into l from public.leagues where id = v_liga;
+  if l.id is null then
+    return jsonb_build_object(
+      'divisao', v_divisao, 'semana_fim', v_semana + 6, 'no_grupo', false, 'semana_passada', v_anterior);
+  end if;
+
+  select count(*) into v_n from public.league_members where league_id = l.id;
+  select v.sobem, v.descem into v_sobem, v_descem from public.liga_vagas(l.divisao, v_n) v;
+
+  select pos, pontos into v_pos, v_pontos from public.liga_ranking(l.id) where user_id = v_user;
+  select pontos into v_corte_subida from public.liga_ranking(l.id) where pos = v_sobem;
+  select pontos into v_corte_ficar from public.liga_ranking(l.id) where pos = v_n - v_descem;
+  select count(*) into v_sem_treino from public.liga_ranking(l.id) where pontos = 0 and user_id <> v_user;
+
+  select jsonb_agg(jsonb_build_object(
+           'posicao', r.pos, 'apelido', coalesce(p.apelido, 'Alguém da hive'), 'avatar_url', p.avatar_url,
+           'pontos', r.pontos, 'eu', r.user_id = v_user) order by r.pos)
+  into v_linhas
+  from public.liga_ranking(l.id) r join public.profiles p on p.id = r.user_id
+  where r.pontos > 0 or r.user_id = v_user;
+
+  return jsonb_build_object(
+    'divisao', l.divisao, 'semana_fim', l.semana_fim, 'no_grupo', true,
+    'tamanho', v_n, 'sobem', v_sobem, 'descem', v_descem,
+    'posicao', v_pos, 'pontos', v_pontos, 'sem_treino', v_sem_treino,
+    'zona', case when v_pos <= v_sobem then 'subida' when v_pos > v_n - v_descem then 'descida' else 'meio' end,
+    'faltam_para_subir', case when v_sobem > 0 and v_pos > v_sobem then v_corte_subida - v_pontos + 1 end,
+    'faltam_para_ficar', case when v_descem > 0 and v_pos > v_n - v_descem then v_corte_ficar - v_pontos + 1 end,
+    'linhas', coalesce(v_linhas, '[]'::jsonb),
+    'semana_passada', v_anterior);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Ativação de convite (seção 9.4): no 1º desafio concluído do convidado
+-- ---------------------------------------------------------------------------
+create function public.ativar_convite(p_invitee uuid, p_quando timestamptz) returns void
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  i public.invites;
+  v_recompensados integer;
+begin
+  select * into i from public.invites where invitee_id = p_invitee and ativado_em is null for update;
+  if i.id is null then
+    return;
+  end if;
+  update public.invites set ativado_em = p_quando where id = i.id;
+
+  insert into public.friendships (user_a, user_b, origem)
+  values (least(i.inviter_id, i.invitee_id), greatest(i.inviter_id, i.invitee_id), 'convite')
+  on conflict do nothing;
+
+  -- 1 protetor de ofensiva para cada um (limite de 2, ou 4 com ofensiva de 100 dias ou mais).
+  insert into public.streaks (user_id, protetores) values (i.inviter_id, 1), (i.invitee_id, 1)
+  on conflict (user_id) do update
+  set protetores = least(public.streaks.protetores + 1, case when public.streaks.atual >= 100 then 4 else 2 end)
+  where public.streaks.protetores < case when public.streaks.atual >= 100 then 4 else 2 end;
+
+  -- 20 XP para quem convidou, até 10 convites recompensados por mês.
+  select count(*) into v_recompensados from public.invites
+  where inviter_id = i.inviter_id and recompensado
+    and date_trunc('month', ativado_em at time zone 'America/Sao_Paulo') = date_trunc('month', p_quando at time zone 'America/Sao_Paulo');
+  if v_recompensados < 10 then
+    update public.invites set recompensado = true where id = i.id;
+    insert into public.xp_events (user_id, tipo, valor) values (i.inviter_id, 'convite', 20);
+  end if;
+end;
+$$;
+
+create function public.ativar_convite_gatilho() returns trigger
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.status = 'concluido' and (tg_op = 'INSERT' or old.status is distinct from 'concluido') then
+    perform public.ativar_convite(new.user_id, coalesce(new.concluido_em, now()));
+  end if;
+  return null;
+end;
+$$;
+
+create trigger challenge_attempts_convite after insert or update of status on public.challenge_attempts
+  for each row execute function public.ativar_convite_gatilho();
+
+-- Quem termina o cadastro no meio da semana já entra num grupo (com 0 XP).
+create function public.liga_ao_concluir_cadastro() returns trigger
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.onboarding_concluido_em is not null and old.onboarding_concluido_em is null then
+    begin
+      perform public.liga_garantir_membro(new.id);
+    exception when others then
+      -- A liga nunca pode travar o cadastro: a pessoa entra no grupo ao abrir a Liga.
+      raise warning 'liga: não deu para pôr % num grupo (%)', new.id, sqlerrm;
+    end;
+  end if;
+  return null;
+end;
+$$;
+
+create trigger profiles_liga after update of onboarding_concluido_em on public.profiles
+  for each row execute function public.liga_ao_concluir_cadastro();
+
+revoke execute on function public.liga_xp_vale(uuid, text, integer, uuid, timestamptz), public.liga_colocar(uuid, text, date), public.liga_formar_semana(date),
+  public.liga_garantir_membro(uuid), public.liga_virar_semana(), public.ativar_convite(uuid, timestamptz),
+  public.ativar_convite_gatilho(), public.liga_ao_concluir_cadastro()
+  from public, anon, authenticated;
+grant execute on function public.liga_formar_semana(date), public.liga_garantir_membro(uuid),
+  public.liga_virar_semana(), public.ativar_convite(uuid, timestamptz) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- Refaz a semana atual com as regras novas
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_semana date := public.liga_semana_inicio();
+  v_desde timestamptz := public.liga_semana_inicio()::timestamp at time zone 'America/Sao_Paulo';
+  e record;
+  v_liga uuid;
+begin
+  perform public.fechar_ligas();
+  delete from public.leagues where semana_inicio = v_semana;
+  perform public.liga_formar_semana(v_semana);
+
+  for e in
+    select x.* from public.xp_events x
+    where x.criado_em >= v_desde
+      and public.liga_xp_vale(x.user_id, x.tipo, x.valor, x.attempt_id, x.criado_em)
+    order by x.criado_em, x.id
+  loop
+    v_liga := public.liga_garantir_membro(e.user_id);
+    update public.league_members set pontos = pontos + e.valor, pontos_em = e.criado_em
+    where league_id = v_liga and user_id = e.user_id;
+    if e.attempt_id is not null then
+      update public.challenge_attempts set valido_para_liga = true where id = e.attempt_id;
+    end if;
+  end loop;
+
+  -- Convites de quem já concluiu um desafio: ativa agora (o XP entra na liga desta semana).
+  for e in
+    select i.invitee_id, min(a.concluido_em) as quando
+    from public.invites i join public.challenge_attempts a on a.user_id = i.invitee_id and a.status = 'concluido'
+    where i.ativado_em is null
+    group by i.invitee_id
+  loop
+    perform public.ativar_convite(e.invitee_id, e.quando);
+  end loop;
+end;
+$$;
+
+-- Cron de segunda passa a fechar e já montar a semana nova.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('hive-break-fechar-ligas', '1 3 * * 1', 'select public.liga_virar_semana()');
+  end if;
+exception when others then
+  raise notice 'pg_cron indisponível (%); a semana vira na primeira leitura ou pontuação', sqlerrm;
+end;
+$$;
+
 -- >>> seed.sql
 -- Hive Break · Seed de conteúdo fixo.
 -- Fase 1: os 8 níveis (seção 6.1) e as 12 conquistas (seção 9.6).

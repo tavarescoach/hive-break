@@ -151,7 +151,7 @@ export interface EntradaCard {
   nomes: string[];
   ofensiva: number;
   recordesAnteriores: RecordesAnteriores | null;
-  /** Ainda não existe na trilha principal: sempre null por enquanto. */
+  /** Só quando o desafio foi feito numa hive; fora dela, null. */
   hive: { fizeram: number; total: number } | null;
   pse: number | null;
   usuario: string;

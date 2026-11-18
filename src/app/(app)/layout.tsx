@@ -3,14 +3,20 @@ import { NavInferior } from "@/componentes/NavInferior";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 import { supabaseConfigurado } from "@/lib/supabase/env";
 
-/** Área logada: pede login e cadastro completo, e mostra as 4 abas. */
+/** Área logada: pede login e cadastro completo, e mostra as abas. */
 export default async function LayoutApp({ children }: { children: React.ReactNode }) {
   if (!supabaseConfigurado) return <ConfiguracaoPendente />;
-  await exigirCadastroCompleto();
+  const sessao = await exigirCadastroCompleto();
+  // Hives na sala ou em andamento (sem a migração da hive, conta zero).
+  const { count } = await sessao.supabase
+    .from("hives")
+    .select("id", { count: "exact", head: true })
+    .eq("visibilidade", "aberta")
+    .gt("fim_em", new Date().toISOString());
   return (
     <>
       <div className="pb-[calc(5rem+env(safe-area-inset-bottom))]">{children}</div>
-      <NavInferior />
+      <NavInferior hivesAoVivo={count ?? 0} />
     </>
   );
 }

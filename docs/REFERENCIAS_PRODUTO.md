@@ -70,9 +70,9 @@ Notas técnicas:
 ## 4. Liga e missões
 
 ### 4.1 Liga semanal
-- Grupos de ~30 pessoas, ranking por XP da semana, reinicia todo domingo.
-- Zona de promoção (top) e de rebaixamento (base).
-- Divisões com tema de colmeia (sugestão; nomes a validar).
+Revisada e implementada em 17/11/2026: regras na seção 9.3 de `ESPECIFICACAO.md`
+(entrada no 1º desafio com câmera da semana, pontos = XP de desafios com câmera,
+sobe e desce proporcional ao tamanho do grupo, ninguém exposto na tela).
 
 ### 4.2 Missões
 - **Diárias (3 por dia)**: ex. "Ganhe 30 XP", "Faça 10 min de atividade", "Complete 2 desafios com nota boa".

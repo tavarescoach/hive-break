@@ -5,6 +5,7 @@ import { proximoPasso, TIPOS_ACEITE } from "@/dominio/onboarding";
 import { COMPROMISSOS, ESTILOS_MUSICA, ETAPAS_PERFIL, METAS_DIARIAS, validarCampo, validarFuso } from "@/dominio/perfil";
 import { VERSAO_TERMOS } from "@/dominio/termos";
 import { lerRespostas } from "@/dominio/triagem";
+import { dispararLembretes } from "@/lib/lembretes";
 import { exigirSessao, lerSessao } from "@/lib/sessao";
 
 export interface EstadoFormulario {
@@ -85,7 +86,11 @@ export async function salvarMusica(_anterior: EstadoFormulario, formulario: Form
   // O servidor confere se tudo foi preenchido antes de liberar a trilha.
   const { data, error } = await sessao.supabase.rpc("concluir_onboarding");
   if (error) return { erro: FALHA };
-  if ((data as { ok: boolean }).ok) redirect("/trilha");
+  if ((data as { ok: boolean }).ok) {
+    // A1 (boas-vindas) e S1 para quem convidou.
+    dispararLembretes(async () => (await sessao.supabase.rpc("lembretes_ao_concluir_cadastro")).data);
+    redirect("/trilha");
+  }
   redirect("/onboarding");
 }
 

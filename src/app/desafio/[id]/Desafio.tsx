@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { prepararSom } from "@/camera/som";
+import { ConvitePush } from "@/componentes/ConvitePush";
 import { botaoPrimario, botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
 import { Gabarito, dicaDoGabarito } from "@/componentes/Gabarito";
 import type { BlocoEnviado } from "@/dominio/agregar";
@@ -15,6 +16,9 @@ import { ROTULO_EQUIPAMENTO, ROTULO_MODALIDADE } from "@/dominio/trilha";
 import { montarDadosCard, type RecordesAnteriores } from "@/dominio/card";
 import { Compartilhar } from "@/compartilhar/Compartilhar";
 import { exercicioPorId, paraMetodo } from "@/exercicios";
+import { registrarResultadoHive } from "@/app/hive/acoes";
+import { useHive } from "@/app/hive/AoVivo";
+import { CardColetivo } from "@/app/hive/CardColetivo";
 import { finalizarDesafio, registrarEsforco, type ResultadoDesafio } from "./acoes";
 import { Execucao } from "./Execucao";
 
@@ -77,10 +81,18 @@ export function Desafio(props: Props) {
   const [resultado, setResultado] = useState<ResultadoDesafio | null>(null);
   const [envio, setEnvio] = useState<(FimDoDesafio & { modo: "camera" | "manual" }) | null>(null);
   const [enviando, iniciar] = useTransition();
+  const hive = useHive();
+  const voltar = hive ? "/hive" : "/trilha";
 
   const finalizar = (modo: "camera" | "manual", fim: FimDoDesafio) => {
     setEnvio({ modo, ...fim });
-    iniciar(async () => setResultado(await finalizarDesafio(id, modo, fim.numeros)));
+    hive?.publicar({ etapa: "terminou" });
+    iniciar(async () => {
+      const r = await finalizarDesafio(id, modo, fim.numeros);
+      // Hive: leva o resultado gravado pelo servidor para o card coletivo.
+      if (r.ok && hive) await registrarResultadoHive(hive.hiveId);
+      setResultado(r);
+    });
   };
 
   if (resultado?.ok && envio) {
@@ -108,7 +120,7 @@ export function Desafio(props: Props) {
         {!enviando && (
           <>
             <button onClick={() => finalizar(envio.modo, envio)} className={botaoPrimario}>Tentar de novo</button>
-            <Link href="/trilha" className={botaoSecundario}>Voltar para a trilha</Link>
+            <Link href={voltar} className={botaoSecundario}>{hive ? "Voltar para a hive" : "Voltar para a trilha"}</Link>
           </>
         )}
       </main>
@@ -144,7 +156,7 @@ export function Desafio(props: Props) {
   return (
     <main className="flex min-h-dvh flex-col px-5 pb-6 pt-[max(1rem,env(safe-area-inset-top))]">
       <header className="flex items-start gap-2">
-        <Link href="/trilha" aria-label="Voltar para a trilha" className="-ml-3 flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-apagado active:bg-superficie">
+        <Link href={voltar} aria-label={hive ? "Sair da hive" : "Voltar para a trilha"} className="-ml-3 flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-apagado active:bg-superficie">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
@@ -153,6 +165,11 @@ export function Desafio(props: Props) {
           <p className="truncate text-[12px] font-black uppercase tracking-[0.12em] text-apagado">{contexto}</p>
           <h1 className="text-2xl font-black leading-tight">{titulo}</h1>
           <p className="text-sm text-apagado">{detalhe}</p>
+          {hive && (
+            <p className="mt-1 text-sm font-bold text-mel">
+              Hive · {hive.colegas.length + 1} hiving{hive.competicao ? " · modo competição" : ""}
+            </p>
+          )}
         </div>
       </header>
 
@@ -290,10 +307,14 @@ function Resultado({
   card: InfoCard;
   modo: "camera" | "manual";
 }) {
+  const hive = useHive();
   const [pse, setPse] = useState<number | null>(null);
   const [compartilhando, setCompartilhando] = useState(false);
   // Hora em que o treino terminou (fica fixa enquanto a pessoa monta o card).
   const [quando] = useState(() => new Date());
+  // Na hive: total anônimo de quem já terminou (eu incluso). Fora dela, o item some.
+  const hiveFizeram = hive ? 1 + hive.colegas.filter((c) => c.etapa === "terminou").length : 0;
+  const hiveTotal = hive ? 1 + hive.colegas.length : 0;
   const dadosCard = useMemo(
     () =>
       montarDadosCard({
@@ -303,8 +324,7 @@ function Resultado({
         ofensiva: resultado.ofensiva ?? 1,
         // Sem câmera as séries não são guardadas: não há recorde para comparar.
         recordesAnteriores: modo === "camera" && !resultado.sem_movimento ? card.recordes : null,
-        // A hive ainda não existe nesta versão: o item fica escondido.
-        hive: null,
+        hive: hiveTotal > 0 ? { fizeram: hiveFizeram, total: hiveTotal } : null,
         pse,
         usuario: card.usuario,
         instagram: card.instagram,
@@ -312,7 +332,7 @@ function Resultado({
         modalidade: card.modalidade,
         quando,
       }),
-    [linha, fim.resultados, nomes, resultado, card, pse, quando, modo],
+    [linha, fim.resultados, nomes, resultado, card, pse, quando, modo, hiveFizeram, hiveTotal],
   );
   const [salvandoPse, iniciar] = useTransition();
   const titulo = resultado.nivel_concluido ? "Seção concluída" : resultado.unidade_concluida ? "Unidade concluída" : "Desafio concluído";
@@ -341,6 +361,8 @@ function Resultado({
         <p className="text-[5rem] font-black leading-none text-mel tabular-nums">+{resultado.xp}</p>
         <p className="-mt-1 text-2xl font-black">XP</p>
       </div>
+
+      {hive && <CardColetivo hiveId={hive.hiveId} euId={hive.eu.id} />}
 
       <section className={cartao}>
         <p className="text-xl font-black leading-tight">{fim.resumo.titulo}</p>
@@ -402,15 +424,16 @@ function Resultado({
           {resultado.unidade_concluida ? "A próxima unidade já está liberada na trilha." : "O próximo desafio já está liberado na trilha."}
         </p>
       </section>
+      <ConvitePush />
       <div className="mt-auto flex flex-col gap-3">
-        <Link href="/trilha" className={botaoPrimario}>
-          Continuar
+        <Link href={hive ? "/hive" : "/trilha"} className={botaoPrimario}>
+          {hive ? "Ver outras hives" : "Continuar"}
         </Link>
         <button onClick={() => setCompartilhando(true)} className={botaoSecundario}>
           Compartilhar treino
         </button>
-        <Link href="/amigos" className={botaoSecundario}>
-          Convidar amigos
+        <Link href={hive ? "/trilha" : "/amigos"} className={botaoSecundario}>
+          {hive ? "Voltar para a trilha" : "Convidar amigos"}
         </Link>
       </div>
     </main>
