@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { prepararSom } from "@/camera/som";
+import { ConvitePush } from "@/componentes/ConvitePush";
 import { botaoPrimario, botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
 import { Gabarito, dicaDoGabarito } from "@/componentes/Gabarito";
 import type { BlocoEnviado } from "@/dominio/agregar";
@@ -373,6 +374,7 @@ function Resultado({
           {resultado.unidade_concluida ? "A próxima unidade já está liberada na trilha." : "O próximo desafio já está liberado na trilha."}
         </p>
       </section>
+      <ConvitePush />
       <div className="mt-auto flex flex-col gap-3">
         <Link href={hive ? "/hive" : "/trilha"} className={botaoPrimario}>
           {hive ? "Ver outras hives" : "Continuar"}

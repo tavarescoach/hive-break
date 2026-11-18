@@ -476,3 +476,51 @@ Código em `supabase/migrations/20261120001000_liga_todos.sql`. Substitui parte 
      todos e pontos recalculados com todo o XP desde segunda, inclusive o de antes da liga
      existir.
 137. **A respiração não tem a regra do corpo fora do quadro.**
+
+## Lembretes (20/11/2026)
+
+Regras e textos: FUNIL_LEMBRETES.md (v2). Configuração: `docs/CONFIGURACAO.md`, seção 6.
+
+### Respondidas pelo Luan
+
+1. **Lembretes vêm ligados.** Não existe "Ativar"; existe "Desativar" por categoria e geral,
+   em `/perfil/config` e no rodapé de todo e-mail.
+2. **n8n no servidor próprio** agenda e envia (e-mail pelo Gmail); banco e app cuidam das
+   regras, dos textos, do push e do "desativar".
+3. **R0 no horário da última prática**, com A/B de 12h; ofensiva às 20h (R1) e 22h (R1b);
+   pausa depois de 14 dias (W3); 1 e-mail e 3 push por dia; silêncio das 22h30 às 8h.
+
+### Decididas na implementação (revisar)
+
+4. **Um envio por gatilho, canal e dia.** Vale também para S1 (se duas pessoas entrarem na
+   sua hive no mesmo dia, só a primeira gera aviso) e garante "S4 no máximo 1 por dia".
+5. **No máximo 1 push por pessoa em cada rodada de 15 min.** Quando dois gatilhos coincidem,
+   vai o de maior prioridade; o outro sai na rodada seguinte, se a janela ainda valer.
+6. **Janelas:** gatilhos "no horário X" valem de X até X + 1 h (R1: 20h–22h; R1b: 22h–22h30;
+   S3: 18h–20h; R2: sábado 10h–12h). Se o n8n ficar fora por mais que isso, o aviso do dia
+   é perdido, não acumulado.
+7. **Canal:** R1b, H1, H2, S4 e S6 são só push (sem push, não saem). A2 tem push em +2 h e
+   e-mail em +24 h. Os demais "push" caem para e-mail quando a pessoa não tem push.
+8. **A5 ("primeiro convite")** sai a partir do 3º dia para quem treinou ontem ou hoje e
+   nunca convidou ninguém. "Convidou" = alguém se cadastrou pelo link **ou** a pessoa tocou
+   em Convidar/Copiar link (evento `invite_sent`).
+9. **S4 (ultrapassagem)** vai para amigos do mesmo grupo da liga, sem depender do modo
+   competição, que só existe na hive. Nunca mostra posição.
+10. **S6 (high five) agrupado:** um push por dia. Se já chegaram vários, sai "{qtd} pessoas
+    te mandaram high five hoje". O high five passa a ser gravado em `high_fives`.
+11. **H1 e H2** já estão no motor, mas a hive ainda começa na hora em que é criada: H1 só
+    vai funcionar quando existir a tela de agendar hive.
+12. **S3 (dupla em risco)** usa as ofensivas individuais dos dois (`friend_streaks` ainda não
+    é atualizada por nada).
+13. **Pausa do W3** grava `pausado_ate = infinity` e corta tudo, inclusive avisos sociais.
+    Qualquer desafio concluído tira a pausa. Na simulação, o W3 não pausa ninguém.
+14. **Horário do lembrete** (perfil) só vale para quem ainda não treinou (e-mail do A2).
+    Depois, manda o horário da última prática, como no FUNIL.
+15. **Push de madrugada não sai, nem imediato.** E-mail imediato (A1, A3...) sai a qualquer hora.
+16. **"Desativar" pelo link** acontece quando a página abre no navegador, e não no simples
+    acesso ao link, para filtros de e-mail que visitam links não desligarem nada.
+17. **Sem chave `service_role` no app.** As rotas sem login (push, abertura, desativar) usam
+    funções do banco que conferem o segredo ou o HMAC.
+18. **Disparo de teste do admin** ignora simulação, limites e preferências, e usa valores
+    de exemplo para o que faltar ("Ana", "15h"...).
+
