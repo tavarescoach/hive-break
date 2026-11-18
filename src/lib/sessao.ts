@@ -64,7 +64,7 @@ export async function lerEstadoVisitante(sessao: Sessao): Promise<EstadoVisitant
   const [trilha, doConvite, feitos] = await Promise.all([
     sessao.supabase.rpc("ler_trilha"),
     sessao.supabase.rpc("meu_desafio_do_convite"),
-    sessao.supabase.from("challenge_attempts").select("concluido_em", { count: "exact" })
+    sessao.supabase.from("challenge_attempts").select("concluido_em")
       .eq("user_id", sessao.usuarioId).eq("status", "concluido").order("concluido_em", { ascending: false }).limit(1),
   ]);
   const desafios = (trilha.data as DadosTrilha | null)?.desafios ?? [];
@@ -73,7 +73,8 @@ export async function lerEstadoVisitante(sessao: Sessao): Promise<EstadoVisitant
   return {
     temUsername: Boolean(sessao.perfil.username),
     fezDeclaracao: Boolean(sessao.perfil.triagem_respondida_em),
-    desafiosConcluidos: feitos.count ?? 0,
+    // Basta saber se já jogou: lê só o último concluído.
+    desafiosConcluidos: feitos.data?.length ?? 0,
     desafio: convite?.id ?? primeiro?.id ?? null,
     ultimoConcluido: (feitos.data?.[0]?.concluido_em as string | undefined) ?? null,
   };

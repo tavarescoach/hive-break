@@ -63,9 +63,9 @@ export function DeclaracaoSaude({
             ))}
           </ol>
           <div className="flex flex-col gap-2.5">
-            <button onClick={() => responder(true)} className={botaoPrimario}>{TEXTO_DECLARACAO.replace("Declaro que respondo", "Respondo")}</button>
-            <button onClick={() => responder(false)} className={botaoSecundario}>Respondo SIM a alguma</button>
-            <button onClick={aoFechar} className="h-12 text-[15px] font-semibold text-apagado underline underline-offset-4">Voltar</button>
+            <button type="button" onClick={() => responder(true)} className={botaoPrimario}>Respondo NÃO a todas</button>
+            <button type="button" onClick={() => responder(false)} className={botaoSecundario}>Respondo SIM a alguma</button>
+            <button type="button" onClick={aoFechar} className="h-12 text-[15px] font-semibold text-apagado underline underline-offset-4">Voltar</button>
           </div>
         </div>
       ) : (
@@ -84,10 +84,10 @@ export function DeclaracaoSaude({
           </ul>
           {erro && <p role="alert" className="rounded-xl border border-ruim/50 bg-ruim/10 px-4 py-3 text-[15px]">{erro}</p>}
           <div className="flex flex-col gap-2.5">
-            <button onClick={() => aoConfirmar(todasNao)} disabled={ocupado} className={botaoPrimario}>
+            <button type="button" onClick={() => aoConfirmar(todasNao)} disabled={ocupado} className={botaoPrimario}>
               {ocupado ? "Preparando…" : TEXTO_CIENTE}
             </button>
-            <button onClick={() => setPasso("perguntas")} disabled={ocupado} className="h-12 text-[15px] font-semibold text-apagado underline underline-offset-4">
+            <button type="button" onClick={() => setPasso("perguntas")} disabled={ocupado} className="h-12 text-[15px] font-semibold text-apagado underline underline-offset-4">
               Voltar
             </button>
           </div>
