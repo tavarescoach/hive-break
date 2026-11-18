@@ -7,6 +7,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
+import { unaccent } from "@electric-sql/pglite/contrib/unaccent";
 
 const PASTA_SUPABASE = path.resolve(process.cwd(), "supabase");
 
@@ -34,7 +36,7 @@ const AMBIENTE_SUPABASE = `
 
 /** `ate`: para antes desta migração (para testar uma migração sobre dados antigos). */
 export async function criarBanco(opcoes: { ate?: string } = {}): Promise<PGlite> {
-  const db = new PGlite({ extensions: { pgcrypto } });
+  const db = new PGlite({ extensions: { pgcrypto, pg_trgm, unaccent } });
   await db.exec(AMBIENTE_SUPABASE);
   const pasta = path.join(PASTA_SUPABASE, "migrations");
   for (const arquivo of readdirSync(pasta).sort()) {

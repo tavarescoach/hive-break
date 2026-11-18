@@ -181,6 +181,15 @@ export function validarCampo(campo: CampoPerfil, valores: string[], hoje: Date =
   }
 }
 
+/** Formato do username (rota /@username, docs/PERFIL.md seção 9). */
+export const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
+
+export function validarUsername(bruto: string): Validacao<string> {
+  const v = bruto.trim().toLowerCase();
+  if (!USERNAME_REGEX.test(v)) return erro("Use de 3 a 20 letras minúsculas, números ou _ (sem espaços nem acentos).");
+  return { ok: true, valor: v };
+}
+
 export function validarFuso(bruto: string): string | null {
   try {
     new Intl.DateTimeFormat("pt-BR", { timeZone: bruto });
@@ -200,6 +209,7 @@ export interface Perfil {
   id: string;
   nome: string | null;
   avatar_url: string | null;
+  username: string;
   apelido: string | null;
   data_nascimento: string | null;
   sexo: string | null;

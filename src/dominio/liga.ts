@@ -15,6 +15,19 @@ export const NOMES_DIVISAO: Record<Divisao, string> = {
   diamante: "Diamante",
 };
 
+/**
+ * Cor de cada divisão (moldura do avatar, selos). O amarelo da marca
+ * (--color-mel) fica reservado para ação/conquista/meta batida, então o
+ * Ouro usa um dourado próximo, mas distinto.
+ */
+export const CORES_DIVISAO: Record<Divisao, string> = {
+  bronze: "#B08D57",
+  prata: "#C7CBD1",
+  ouro: "#D9A62A",
+  safira: "#4C7EF2",
+  diamante: "#7DD8E8",
+};
+
 /** Artigo de cada divisão: "na Prata", "no Ouro". */
 const FEMININA: Record<Divisao, boolean> = { bronze: false, prata: true, ouro: false, safira: true, diamante: false };
 const na = (d: Divisao) => `${FEMININA[d] ? "na" : "no"} ${NOMES_DIVISAO[d]}`;

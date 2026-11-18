@@ -90,6 +90,16 @@ Rode, nesta ordem (veja a seção 6 para o resto da configuração):
 
 Os lembretes começam em **modo simulação**: o banco grava o que mandaria, mas não manda nada.
 
+### Perfil v2 e busca de amigos (21/11/2026)
+
+Detalhes em [`docs/PERFIL.md`](PERFIL.md). Rode, nesta ordem, cada migração desta leva
+conforme ela for implementada:
+
+1. [`supabase/migrations/20261121000300_perfil_username.sql`](../supabase/migrations/20261121000300_perfil_username.sql)
+   — cria o `username` (rota `/@username`) e as funções que o geram. Precisa da extensão
+   **unaccent**: se o `create extension` da migração falhar por permissão, ative-a antes em
+   **Database > Extensions** no painel do Supabase e rode a migração de novo.
+
 ## 2. Login com Google
 
 1. No Google Cloud Console, crie um projeto e, em **APIs e serviços > Tela de consentimento

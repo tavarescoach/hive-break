@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { posicaoDoPasso, proximoPasso, TOTAL_PASSOS, type EstadoOnboarding } from "../onboarding";
-import { ETAPAS_PERFIL, faixaEtaria, idade, imc, validarCampo, validarFuso, type Perfil } from "../perfil";
+import { ETAPAS_PERFIL, faixaEtaria, idade, imc, validarCampo, validarFuso, validarUsername, type Perfil } from "../perfil";
 import { lerRespostas } from "../triagem";
 
 const HOJE = new Date(2026, 10, 16);
@@ -52,6 +52,14 @@ describe("validação do perfil", () => {
     expect(idade("1990-11-16", HOJE)).toBe(36);
     expect([18, 29, 30, 49, 59, 60, 75].map(faixaEtaria)).toEqual(["18-29", "18-29", "30-39", "40-49", "50-59", "60+", "60+"]);
     expect(imc(170, 70)).toBe(24.2);
+  });
+
+  it("valida o username: 3 a 20 letras minúsculas, números ou _", () => {
+    expect(validarUsername("Luan_Tavares")).toEqual({ ok: true, valor: "luan_tavares" });
+    expect(validarUsername("ab")).toMatchObject({ ok: false });
+    expect(validarUsername("x".repeat(21))).toMatchObject({ ok: false });
+    expect(validarUsername("luan tavares")).toMatchObject({ ok: false });
+    expect(validarUsername("luan-tavares")).toMatchObject({ ok: false });
   });
 
   it("valida o fuso horário", () => {

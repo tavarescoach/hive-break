@@ -17,7 +17,7 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
   return (
     <>
       <div className="pb-[calc(5rem+env(safe-area-inset-bottom))]">{children}</div>
-      <NavInferior hivesAoVivo={count ?? 0} />
+      <NavInferior hivesAoVivo={count ?? 0} perfilHref={`/@${sessao.perfil.username}`} />
       {/* Ao abrir o app, se ainda não viu nenhum pop-up hoje (docs/RESGATE.md, seção 3). */}
       <PopUpResgate />
     </>

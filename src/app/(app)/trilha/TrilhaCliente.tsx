@@ -388,7 +388,7 @@ function CartaoItem({
       corpo = (
         <p className="text-[15px] font-semibold leading-snug">
           Travado por segurança: pela sua triagem, este desafio é intenso demais por enquanto.{" "}
-          <Link href="/perfil" className="underline underline-offset-2">Já fui liberado pelo médico</Link>
+          <Link href="/perfil/config" className="underline underline-offset-2">Já fui liberado pelo médico</Link>
         </p>
       );
     } else {

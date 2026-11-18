@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { EstadoFormulario } from "@/app/onboarding/acoes";
-import { ESTILOS_MUSICA, LIMITACOES, METAS_DIARIAS, validarCampo, validarInteiro, type CampoPerfil } from "@/dominio/perfil";
+import { ESTILOS_MUSICA, LIMITACOES, METAS_DIARIAS, validarCampo, validarInteiro, validarUsername, type CampoPerfil } from "@/dominio/perfil";
 import { exigirSessao } from "@/lib/sessao";
 
 const FALHA = "Não consegui salvar. Confira a internet e tente de novo.";
@@ -14,8 +14,21 @@ export async function declararLiberacao(_anterior: EstadoFormulario, formulario:
   if (formulario.get("confirmo") !== "on") return { erro: "Marque a confirmação para continuar." };
   const { error } = await sessao.supabase.rpc("declarar_liberacao_medica");
   if (error) return { erro: FALHA };
-  revalidatePath("/perfil");
+  revalidatePath("/perfil/config");
   return {};
+}
+
+/** Troca o @username (rota /@username). Continua único: erro amigável em caso de choque. */
+export async function salvarUsername(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
+  const sessao = await exigirSessao();
+  const resultado = validarUsername(String(formulario.get("username") ?? ""));
+  if (!resultado.ok) return { erro: resultado.erro };
+  if (resultado.valor === sessao.perfil.username) return {};
+  const { error } = await sessao.supabase.from("profiles").update({ username: resultado.valor }).eq("id", sessao.usuarioId);
+  if (error) return { erro: error.code === "23505" ? "Esse nome de usuário já está em uso." : FALHA };
+  revalidatePath("/perfil/config");
+  revalidatePath(`/@${resultado.valor}`);
+  redirect("/perfil/config");
 }
 
 export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
@@ -67,8 +80,9 @@ export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulari
 
   const { error } = await sessao.supabase.from("profiles").update(dados).eq("id", sessao.usuarioId);
   if (error) return { erro: FALHA };
-  revalidatePath("/perfil");
-  redirect("/perfil");
+  revalidatePath("/perfil/config");
+  revalidatePath(`/@${sessao.perfil.username}`);
+  redirect("/perfil/config");
 }
 
 export async function sair() {
