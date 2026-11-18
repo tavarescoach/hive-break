@@ -115,7 +115,7 @@ export function recordeDoCard(linha: LinhaDoTempo, resultados: ResultadoFase[], 
   const antes = marca ? (bloco.tipo === "segundos" ? marca.segundos : marca.reps) : 0;
   const melhor = Math.max(antes, bloco.numero);
   const unidade = bloco.tipo === "segundos" ? "s" : melhor === 1 ? "rep" : "reps";
-  const nome = linha.estrutura.blocos.length > 1 ? ` em ${bloco.exercicio.toLowerCase()}` : "";
+  const nome = linha.estrutura.blocos.length > 1 ? ` em ${bloco.exercicio}` : "";
   return { texto: `Seu recorde${nome}: ${melhor} ${unidade}`, novo: antes > 0 && bloco.numero > antes };
 }
 
