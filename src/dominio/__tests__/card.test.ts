@@ -80,7 +80,7 @@ describe("recorde", () => {
   it("vários exercícios: diz de qual é o recorde", () => {
     const rc = resultados(CORE, [PRANCHA, AGACHAMENTO], [{ seg: 28 }, { seg: 25 }, { seg: 30 }, { reps: 15 }, { reps: 12 }]);
     expect(recordeDoCard(compilar(CORE, [PRANCHA, AGACHAMENTO]), rc, ["Prancha", "Agachamento"], { 0: { reps: 0, segundos: 70 } }))
-      .toEqual({ texto: "Seu recorde em prancha: 83 s", novo: true });
+      .toEqual({ texto: "Seu recorde em Prancha: 83 s", novo: true });
   });
 });
 

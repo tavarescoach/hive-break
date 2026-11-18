@@ -543,3 +543,12 @@ Regras e textos: FUNIL_LEMBRETES.md (v2). Configuração: `docs/CONFIGURACAO.md`
      câmera (`attempt_blocks`). Sempre "Seu recorde: X"; "Novo recorde" só quando supera uma
      marca anterior. Sem câmera não há recorde. Tempo para completar ainda não é guardado
      por bloco, então não entra no recorde.
+141. **A tela do card não se perde** (`src/compartilhar/memoria.ts`): resultado, PSE,
+     opções do card e a foto (JPEG reduzido) ficam no `sessionStorage` da aba por até 2 h.
+     Se o navegador recarregar a página (o Safari descarta a aba enquanto a pessoa está no
+     Instagram), ela volta direto para o card como estava. Some ao tocar em "Continuar" ou
+     ao começar o desafio de novo. Fica só naquela aba do aparelho, nunca no servidor.
+142. **Salvar no iPhone sem sair da página:** o `<a download>` pode trocar a página pela
+     imagem (principalmente com o app na tela inicial). No iPhone, "Salvar imagem" abre o
+     menu de compartilhar (que tem "Salvar imagem"); sem ele, mostra a imagem por cima do
+     card para tocar, segurar e salvar. No Android e no computador continua o download.

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { prepararSom } from "@/camera/som";
 import { ConvitePush } from "@/componentes/ConvitePush";
 import { botaoPrimario, botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
@@ -15,6 +15,7 @@ import {
 import { ROTULO_EQUIPAMENTO, ROTULO_MODALIDADE } from "@/dominio/trilha";
 import { montarDadosCard, type RecordesAnteriores } from "@/dominio/card";
 import { Compartilhar } from "@/compartilhar/Compartilhar";
+import { apagarFim, atualizarFim, lerFim, salvarFim, type FimSalvo } from "@/compartilhar/memoria";
 import { exercicioPorId, paraMetodo } from "@/exercicios";
 import { registrarResultadoHive } from "@/app/hive/acoes";
 import { useHive } from "@/app/hive/AoVivo";
@@ -81,8 +82,21 @@ export function Desafio(props: Props) {
   const [resultado, setResultado] = useState<ResultadoDesafio | null>(null);
   const [envio, setEnvio] = useState<(FimDoDesafio & { modo: "camera" | "manual" }) | null>(null);
   const [enviando, iniciar] = useTransition();
+  const [salvo, setSalvo] = useState<FimSalvoDesafio | null>(null);
   const hive = useHive();
   const voltar = hive ? "/hive" : "/trilha";
+
+  // A página recarregou (ex.: Safari descartou a aba enquanto a pessoa estava no
+  // Instagram): volta direto para a tela final e o card, como estavam.
+  useEffect(() => {
+    const anterior = lerFim<ResultadoDesafio, FimDoDesafio & { modo: "camera" | "manual" }, RecordesAnteriores | null>(id);
+    if (!anterior?.resultado?.ok || !anterior.envio) return;
+    // sessionStorage só existe depois da hidratação: restaurar aqui é intencional.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSalvo(anterior);
+    setEnvio(anterior.envio);
+    setResultado(anterior.resultado);
+  }, [id]);
 
   const finalizar = (modo: "camera" | "manual", fim: FimDoDesafio) => {
     setEnvio({ modo, ...fim });
@@ -91,8 +105,16 @@ export function Desafio(props: Props) {
       const r = await finalizarDesafio(id, modo, fim.numeros);
       // Hive: leva o resultado gravado pelo servidor para o card coletivo.
       if (r.ok && hive) await registrarResultadoHive(hive.hiveId);
+      if (r.ok) salvarFim(id, { resultado: r, envio: { modo, ...fim }, recordes: props.recordes, quando: new Date().toISOString() });
       setResultado(r);
     });
+  };
+
+  const comecar = (qual: Etapa) => {
+    apagarFim(id);
+    setSalvo(null);
+    prepararSom();
+    setEtapa(qual);
   };
 
   if (resultado?.ok && envio) {
@@ -106,7 +128,15 @@ export function Desafio(props: Props) {
         pseAlvo={pseAlvo.length ? Math.max(...pseAlvo) : null}
         linha={linha}
         modo={envio.modo}
-        card={{ titulo, modalidade: ROTULO_MODALIDADE[modalidade] ?? modalidade, usuario: props.usuario, instagram: props.instagram, recordes: props.recordes }}
+        card={{
+          titulo,
+          modalidade: ROTULO_MODALIDADE[modalidade] ?? modalidade,
+          usuario: props.usuario,
+          instagram: props.instagram,
+          // Depois de recarregar, o servidor já conta o treino de hoje: vale o recorde de antes.
+          recordes: salvo ? salvo.recordes : props.recordes,
+        }}
+        salvo={salvo}
       />
     );
   }
@@ -240,19 +270,15 @@ export function Desafio(props: Props) {
       <div className="sticky bottom-0 -mx-5 mt-4 flex flex-col gap-3 bg-gradient-to-t from-fundo from-80% to-transparent px-5 pt-6">
         <button
           onClick={() => {
-            prepararSom();
             setAvisoCamera(null);
-            setEtapa("camera");
+            comecar("camera");
           }}
           className={botaoPrimario}
         >
           Começar com a câmera
         </button>
         <button
-          onClick={() => {
-            prepararSom();
-            setEtapa("manual");
-          }}
+          onClick={() => comecar("manual")}
           className={botaoSecundario}
         >
           Fazer sem câmera (metade do XP)
@@ -287,6 +313,8 @@ function PrevisaoFases({ linha }: { linha: ReturnType<typeof compilar> }) {
   );
 }
 
+type FimSalvoDesafio = FimSalvo<ResultadoDesafio, FimDoDesafio & { modo: "camera" | "manual" }, RecordesAnteriores | null>;
+
 interface InfoCard {
   titulo: string;
   modalidade: string;
@@ -296,7 +324,7 @@ interface InfoCard {
 }
 
 function Resultado({
-  id, resultado, fim, nomes, pseAlvo, linha, card, modo,
+  id, resultado, fim, nomes, pseAlvo, linha, card, modo, salvo,
 }: {
   id: string;
   resultado: ResultadoDesafio;
@@ -306,12 +334,19 @@ function Resultado({
   linha: LinhaDoTempo;
   card: InfoCard;
   modo: "camera" | "manual";
+  /** Estado recuperado depois de a página recarregar. */
+  salvo: FimSalvoDesafio | null;
 }) {
   const hive = useHive();
-  const [pse, setPse] = useState<number | null>(null);
-  const [compartilhando, setCompartilhando] = useState(false);
+  const [pse, setPse] = useState<number | null>(salvo?.pse ?? null);
+  const [compartilhando, setCompartilhandoEstado] = useState(salvo?.card?.aberto ?? false);
+  const setCompartilhando = (aberto: boolean) => {
+    setCompartilhandoEstado(aberto);
+    atualizarFim(id, { card: { aberto } });
+    window.scrollTo(0, 0);
+  };
   // Hora em que o treino terminou (fica fixa enquanto a pessoa monta o card).
-  const [quando] = useState(() => new Date());
+  const [quando] = useState(() => (salvo?.quando ? new Date(salvo.quando) : new Date()));
   // Na hive: total anônimo de quem já terminou (eu incluso). Fora dela, o item some.
   const hiveFizeram = hive ? 1 + hive.colegas.filter((c) => c.etapa === "terminou").length : 0;
   const hiveTotal = hive ? 1 + hive.colegas.length : 0;
@@ -347,12 +382,22 @@ function Resultado({
 
   const escolherPse = (valor: number) => {
     setPse(valor);
+    atualizarFim(id, { pse: valor });
     iniciar(async () => {
       await registrarEsforco(id, valor);
     });
   };
 
-  if (compartilhando) return <Compartilhar dados={dadosCard} aoFechar={() => setCompartilhando(false)} />;
+  if (compartilhando) {
+    return (
+      <Compartilhar
+        dados={dadosCard}
+        inicial={salvo?.card}
+        aoMudar={(estado) => atualizarFim(id, { card: estado })}
+        aoFechar={() => setCompartilhando(false)}
+      />
+    );
+  }
 
   return (
     <main className="flex min-h-dvh flex-col gap-4 px-5 pb-6 pt-[max(2rem,env(safe-area-inset-top))]">
@@ -426,13 +471,13 @@ function Resultado({
       </section>
       <ConvitePush />
       <div className="mt-auto flex flex-col gap-3">
-        <Link href={hive ? "/hive" : "/trilha"} className={botaoPrimario}>
+        <Link href={hive ? "/hive" : "/trilha"} onClick={() => apagarFim(id)} className={botaoPrimario}>
           {hive ? "Ver outras hives" : "Continuar"}
         </Link>
         <button onClick={() => setCompartilhando(true)} className={botaoSecundario}>
           Compartilhar treino
         </button>
-        <Link href={hive ? "/trilha" : "/amigos"} className={botaoSecundario}>
+        <Link href={hive ? "/trilha" : "/amigos"} onClick={() => apagarFim(id)} className={botaoSecundario}>
           {hive ? "Voltar para a trilha" : "Convidar amigos"}
         </Link>
       </div>

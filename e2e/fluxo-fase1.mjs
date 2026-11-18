@@ -63,6 +63,8 @@ async function novaPessoa(navegador, identidade) {
   const pagina = await contexto.newPage();
   const externas = [];
   pagina.on("request", (r) => {
+    // blob: e data: são a memória do próprio navegador (ex.: prévia do card), não saem do aparelho.
+    if (/^(blob|data):/.test(r.url())) return;
     const host = new URL(r.url()).host;
     if (host !== new URL(APP).host && host !== new URL(SUPABASE).host) externas.push(r.url());
   });
@@ -270,7 +272,7 @@ try {
   await trilha.getByRole("button", { name: "Compartilhar treino" }).click();
   await trilha.getByRole("heading", { name: "Compartilhar treino" }).waitFor();
   await trilha.getByRole("img", { name: /Prévia do card: 1 dia/ }).waitFor();
-  // Sem câmera não há recorde; a hive ainda não existe: os dois ficam de fora.
+  // Sem câmera não há recorde; fora de uma hive não há total da hive: os dois ficam de fora.
   assert.equal(await trilha.getByText("Recorde pessoal").count(), 0);
   assert.equal(await trilha.getByText("Sua hive hoje").count(), 0);
   // PSE vem desligada por padrão.
@@ -291,6 +293,26 @@ try {
   await trilha.getByRole("button", { name: "Baixar adesivo" }).click();
   assert.equal((await adesivo).suggestedFilename(), "hive-break-adesivo.png");
   await captura(trilha, "ana-desafio-compartilhar", true);
+  // Página recarregada (ex.: Safari descartou a aba durante o Instagram): volta
+  // para o card com as mesmas opções, a selfie e a PSE.
+  // Na volta, simula um iPhone: salvar não pode sair da página.
+  await trilha.addInitScript(() => {
+    if (sessionStorage.getItem("e2e-ios")) {
+      Object.defineProperty(navigator, "userAgent", { get: () => "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1" });
+    }
+  });
+  await trilha.evaluate(() => sessionStorage.setItem("e2e-ios", "1"));
+  const urlCard = trilha.url();
+  await trilha.reload();
+  await trilha.getByRole("heading", { name: "Compartilhar treino" }).waitFor();
+  await trilha.getByRole("button", { name: "4:5 feed", pressed: true }).waitFor();
+  await trilha.getByRole("button", { name: "Tirar selfie", pressed: true }).waitFor();
+  assert.equal(await trilha.getByRole("switch", { name: /Esforço \(PSE\)/ }).isChecked(), true);
+  await trilha.getByRole("button", { name: "Salvar imagem" }).click();
+  await trilha.getByRole("dialog", { name: "Salvar imagem" }).getByRole("img", { name: "Card do treino" }).waitFor();
+  assert.equal(trilha.url(), urlCard);
+  await trilha.getByRole("button", { name: "Voltar para o card" }).click();
+  await trilha.evaluate(() => sessionStorage.removeItem("e2e-ios"));
   await trilha.getByRole("button", { name: "Voltar para o resultado" }).click();
   await trilha.getByText("Anotado: esforço 7.").waitFor();
   await trilha.getByRole("link", { name: "Continuar" }).click();
