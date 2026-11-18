@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- script .mjs sem tipos
 import { juntarSql } from "../../../scripts/juntar-sql.mjs";
@@ -13,7 +14,7 @@ describe("supabase/instalar.sql", () => {
   });
 
   it("roda de uma vez num banco vazio", async () => {
-    const db = new PGlite();
+    const db = new PGlite({ extensions: { pgcrypto } });
     await db.exec(`
       create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
       create schema auth;

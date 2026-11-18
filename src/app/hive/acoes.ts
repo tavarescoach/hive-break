@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { DadosHive } from "@/dominio/hive";
+import { dispararLembretes } from "@/lib/lembretes";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,7 +37,19 @@ export async function entrarHive(id: string): Promise<{ ok: boolean; erro?: stri
   const { error } = await sessao.supabase.rpc("entrar_hive", { p_hive: id });
   if (error) return { ok: false, erro: mensagem(error) };
   revalidatePath("/hive");
+  // S1: avisa o anfitrião.
+  dispararLembretes(async () => (await sessao.supabase.rpc("lembretes_ao_entrar_hive", { p_hive: id })).data);
   return { ok: true };
+}
+
+/** High five dentro da hive: o Realtime mostra na hora; aqui fica o registro e o push agrupado (S6). */
+export async function registrarHighFive(hiveId: string, para: string): Promise<void> {
+  if (!UUID.test(hiveId) || !UUID.test(para)) return;
+  const sessao = await exigirCadastroCompleto();
+  const { data } = await sessao.supabase.rpc("registrar_high_five", { p_hive: hiveId, p_para: para });
+  if (data !== true) return;
+  const amigo = sessao.perfil.apelido ?? "Alguém";
+  dispararLembretes(() => [{ user_id: para, gatilho: "S6", dados: { amigo } }]);
 }
 
 export async function comecarHiveAgora(id: string): Promise<void> {

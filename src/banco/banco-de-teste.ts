@@ -6,6 +6,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 
 const PASTA_SUPABASE = path.resolve(process.cwd(), "supabase");
 
@@ -32,7 +33,7 @@ const AMBIENTE_SUPABASE = `
 `;
 
 export async function criarBanco(): Promise<PGlite> {
-  const db = new PGlite();
+  const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(AMBIENTE_SUPABASE);
   const pasta = path.join(PASTA_SUPABASE, "migrations");
   for (const arquivo of readdirSync(pasta).sort()) {
