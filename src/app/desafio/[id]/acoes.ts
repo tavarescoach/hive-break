@@ -22,6 +22,8 @@ export interface ResultadoDesafio {
   unidade_sessao?: boolean;
   nivel_concluido?: boolean;
   proximo_nivel?: number | null;
+  /** Alguém te chamou de volta e você concluiu em até 48h (docs/RESGATE.md, seção 6). */
+  resgate_voltou?: { amigo: string } | null;
 }
 
 const REGIOES = ["joelho", "ombro", "lombar", "punho", "quadril", "tornozelo", "pescoco", "outra"];
@@ -57,7 +59,17 @@ export async function finalizarDesafio(id: string, modo: "camera" | "manual", bl
     });
     return eventos;
   });
-  return { ok: true, ...(data as Omit<ResultadoDesafio, "ok">) };
+
+  // Resgate (docs/RESGATE.md, seção 6): fecha resgates abertos há até 48h, dá a
+  // recompensa para quem chamou e avisa quem chamou que a pessoa voltou.
+  const { data: voltas } = await sessao.supabase.rpc("resgate_concluir");
+  const quemChamou = (voltas as { de_usuario_id: string; amigo: string }[] | null) ?? [];
+  if (quemChamou.length > 0) {
+    const meuNome = sessao.perfil.apelido ?? "Seu amigo";
+    dispararLembretes(() => quemChamou.map((v) => ({ user_id: v.de_usuario_id, gatilho: "RESGATE_VOLTOU", dados: { amigo: meuNome } })));
+  }
+
+  return { ok: true, ...(data as Omit<ResultadoDesafio, "ok">), resgate_voltou: quemChamou[0] ? { amigo: quemChamou[0].amigo } : null };
 }
 
 /** Botão "Senti dor": registra a região e encerra o desafio (seção 12.4). */

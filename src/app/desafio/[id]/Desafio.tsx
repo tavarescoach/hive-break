@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { prepararSom } from "@/camera/som";
 import { ConvitePush } from "@/componentes/ConvitePush";
+import { PopUpResgate } from "@/componentes/PopUpResgate";
 import { botaoPrimario, botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
 import { Gabarito, dicaDoGabarito } from "@/componentes/Gabarito";
 import type { BlocoEnviado } from "@/dominio/agregar";
@@ -412,6 +413,12 @@ function Resultado({
         <p className="-mt-1 text-2xl font-black">XP</p>
       </div>
 
+      {resultado.resgate_voltou && (
+        <section className={`${cartao} border-mel/50 text-center`}>
+          <p className="text-lg font-black leading-tight">{resultado.resgate_voltou.amigo} te chamou e você voltou 🎉</p>
+        </section>
+      )}
+
       {hive && <CardColetivo hiveId={hive.hiveId} euId={hive.eu.id} />}
 
       <section className={cartao}>
@@ -486,6 +493,8 @@ function Resultado({
           {hive ? "Voltar para a trilha" : "Convidar amigos"}
         </Link>
       </div>
+      {/* Logo depois de concluir o próprio desafio (docs/RESGATE.md, seção 3). */}
+      <PopUpResgate />
     </main>
   );
 }

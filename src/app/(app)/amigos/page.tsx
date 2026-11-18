@@ -3,6 +3,7 @@ import { Avatar } from "@/componentes/Avatar";
 import { cartao, sobrelinha } from "@/componentes/estilos";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 import { CartaoConvite } from "./CartaoConvite";
+import { FaixaAmigosSumidos } from "./FaixaAmigosSumidos";
 
 export const metadata: Metadata = { title: "Amigos · Hive Break" };
 
@@ -36,6 +37,8 @@ export default async function Amigos() {
           Quando seu convidado concluir o 1º desafio, vocês dois ganham um protetor de ofensiva.
         </p>
       </header>
+
+      <FaixaAmigosSumidos />
 
       <CartaoConvite codigo={sessao.perfil.codigo_convite} />
 

@@ -60,7 +60,7 @@ describe("cadastro", () => {
     );
     expect(rows).toEqual([]);
     const total = await db.query<{ n: number }>("select count(*)::int as n from pg_tables where schemaname = 'public'");
-    expect(total.rows[0].n).toBe(39);
+    expect(total.rows[0].n).toBe(41);
   });
 });
 
@@ -322,6 +322,6 @@ describe("liga e conteúdo", () => {
     expect(niveis.rows).toHaveLength(8);
     expect(niveis.rows[0].tema).toBe("Primeiros passos");
     const conquistas = await como(db, { usuario: carla }, (tx) => tx.query("select id from public.achievements"));
-    expect(conquistas.rows).toHaveLength(13);
+    expect(conquistas.rows).toHaveLength(14);
   });
 });

@@ -97,8 +97,8 @@ Imagem da prévia: o próprio card (ou versão sem foto), nunca o logo genérico
 - Botão: "Chamar no WhatsApp" → "Bora um break? Hive aberta agora: {link}"
 
 ### 3.4 Resgate (3 dias sem break)
-- Para quem resgata: "{amigo} tá há 3 dias sem break. Chamar?"
-- Mensagem enviada (escolher uma): "Sentimos sua falta na hive. 3 minutinhos hoje?" · "Bora voltar? Eu faço com você." · "Sua sequência pode recomeçar hoje. Vem comigo."
+- Especificação completa e ganchos próprios (RD, RB, RC) em `RESGATE.md`.
+- Quem resgata escolhe entre 3 mensagens (uma de desafio, uma de benefício, uma de companhia), preenchidas com os dados dele.
 - Nunca mostrar no feed nem para o gestor.
 
 ### 3.5 Bônus de hive completa
