@@ -1,5 +1,6 @@
 import { ConfiguracaoPendente } from "@/componentes/ConfiguracaoPendente";
 import { NavInferior } from "@/componentes/NavInferior";
+import { PopUpResgate } from "@/componentes/PopUpResgate";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 import { supabaseConfigurado } from "@/lib/supabase/env";
 
@@ -17,6 +18,8 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
     <>
       <div className="pb-[calc(5rem+env(safe-area-inset-bottom))]">{children}</div>
       <NavInferior hivesAoVivo={count ?? 0} />
+      {/* Ao abrir o app, se ainda não viu nenhum pop-up hoje (docs/RESGATE.md, seção 3). */}
+      <PopUpResgate />
     </>
   );
 }
