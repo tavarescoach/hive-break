@@ -222,7 +222,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
         ? agregarPorExercicio(blocos.map((b) => b.ordem), sessao.resultados, kpisPorFase, numeros)
         : [];
       window.setTimeout(() => {
-        if (!cancelado) entregar({ numeros: enviados, resumo, porSerie });
+        if (!cancelado) entregar({ numeros: enviados, resumo, porSerie, resultados: [...sessao.resultados] });
       }, 600);
     };
 

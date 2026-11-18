@@ -21,3 +21,4 @@ export default async function PaginaDesafio({ params }: { params: Promise<{ id: 
 
   return <Desafio {...desafio.props} />;
 }
+
