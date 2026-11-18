@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { dispararLembretes } from "@/lib/lembretes";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 
 import type { BlocoEnviado } from "@/dominio/agregar";
@@ -31,6 +32,8 @@ const REGIOES = ["joelho", "ombro", "lombar", "punho", "quadril", "tornozelo", "
  */
 export async function finalizarDesafio(id: string, modo: "camera" | "manual", blocos: BlocoEnviado[]): Promise<ResultadoDesafio> {
   const sessao = await exigirCadastroCompleto();
+  // Pontos da liga antes do desafio: base para avisar amigos ultrapassados (S4).
+  const antes = await sessao.supabase.rpc("lembretes_meus_pontos_liga");
   const { data, error } = await sessao.supabase.rpc("finalizar_desafio", {
     p_challenge_id: id,
     p_modo: modo,
@@ -47,6 +50,13 @@ export async function finalizarDesafio(id: string, modo: "camera" | "manual", bl
     };
   }
   revalidatePath("/trilha");
+  // Dia 1, marco de ofensiva, volta após 14 dias e ultrapassagem na liga.
+  dispararLembretes(async () => {
+    const { data: eventos } = await sessao.supabase.rpc("lembretes_apos_desafio", {
+      p_pontos_antes: antes.error ? null : (antes.data as number | null),
+    });
+    return eventos;
+  });
   return { ok: true, ...(data as Omit<ResultadoDesafio, "ok">) };
 }
 

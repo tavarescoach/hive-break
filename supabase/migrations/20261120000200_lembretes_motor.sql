@@ -652,7 +652,11 @@ begin
     'caminho', case when (v_dados ->> 'caminho') ~ '^/[A-Za-z0-9/_-]{0,80}$' then v_dados ->> 'caminho' end));
 
   if v_teste then
-    v_vars := public.lembrete_vars_exemplo() || public.lembrete_vars_base(p_user_id, v_agora) || v_extra;
+    v_vars := public.lembrete_vars_exemplo() || public.lembrete_vars_base(p_user_id, v_agora);
+    if not v_vars ? 'n' then
+      v_vars := v_vars || jsonb_build_object('n', 12, 'n+1', 13);
+    end if;
+    v_vars := v_vars || v_extra;
     return query select * from public.lembrete_reservar(p_user_id, p_gatilho, v_vars, v_agora, null, true, false);
     return;
   end if;

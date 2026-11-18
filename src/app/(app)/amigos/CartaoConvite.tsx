@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { botaoPrimario, botaoSecundario, cartao } from "@/componentes/estilos";
+import { registrarConviteEnviado } from "./acoes";
 
 const assinar = () => () => {};
 
@@ -12,7 +13,10 @@ export function CartaoConvite({ codigo }: { codigo: string }) {
   const link = `${origem}/c/${codigo}`;
   const mensagem = `Estou treinando 5 minutos por dia no Hive Break. Bora junto? ${link}`;
 
+  const avisarEnvio = () => void registrarConviteEnviado().catch(() => {});
+
   const copiar = async () => {
+    avisarEnvio();
     try {
       await navigator.clipboard.writeText(link);
       setCopiado(true);
@@ -24,6 +28,7 @@ export function CartaoConvite({ codigo }: { codigo: string }) {
 
   const compartilhar = async () => {
     if (!navigator.share) return copiar();
+    avisarEnvio();
     try {
       await navigator.share({ text: mensagem });
     } catch {

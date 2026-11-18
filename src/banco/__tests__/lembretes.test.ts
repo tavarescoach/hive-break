@@ -481,3 +481,101 @@ describe("role do n8n", () => {
     }
   });
 });
+
+describe("funções do app", () => {
+  const comoUsuario = async <T>(usuario: string | null, sql: string, params: unknown[] = []) => {
+    return db.transaction(async (tx) => {
+      const claims = usuario ? { sub: usuario, role: "authenticated" } : { role: "anon" };
+      await tx.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+      await tx.exec(`set local role ${usuario ? "authenticated" : "anon"}`);
+      return (await tx.query<{ r: T }>(`select ${sql} as r`, params)).rows[0].r;
+    });
+  };
+
+  it("desativar pelo link: só com token válido", async () => {
+    const dora = await pessoa();
+    const token = (await db.query<{ t: string }>("select public.lembrete_token($1, 'ofensiva') as t", [dora])).rows[0].t;
+    expect(await comoUsuario(null, "public.desativar_lembretes($1)", [token.slice(0, -1) + "0"])).toEqual({ ok: false });
+    expect(await comoUsuario(null, "public.desativar_lembretes($1)", [""])).toEqual({ ok: false });
+    expect(await comoUsuario(null, "public.desativar_lembretes($1)", [token])).toEqual({ ok: true, categoria: "ofensiva" });
+    let prefs = (await db.query("select ofensiva, lembrete, email_ativo from public.notification_preferences where user_id = $1", [dora])).rows[0];
+    expect(prefs).toEqual({ ofensiva: false, lembrete: true, email_ativo: true });
+    expect(await comoUsuario(null, "public.desativar_lembretes($1, true)", [token])).toEqual({ ok: true, categoria: "todos" });
+    prefs = (await db.query("select ofensiva, lembrete, email_ativo from public.notification_preferences where user_id = $1", [dora])).rows[0];
+    expect(prefs).toEqual({ ofensiva: false, lembrete: false, email_ativo: false });
+  });
+
+  it("dados do push só com o segredo; abertura só com a assinatura", async () => {
+    const ema = await pessoa({ push: true });
+    await treinou(ema, "2026-11-18 11:00");
+    await treinou(ema, "2026-11-19 11:00");
+    const [envio] = await pendentes(ema, "2026-11-20 11:05");
+    await expect(comoUsuario(null, "public.lembrete_push_dados('errado', $1)", [envio.log_id])).rejects.toThrow(/segredo_invalido/);
+    const dados = await comoUsuario<{ titulo: string; inscricoes: { endpoint: string }[] }>(
+      null, "public.lembrete_push_dados('segredo-de-teste', $1)", [envio.log_id]);
+    expect(dados.titulo).toBe(envio.titulo);
+    expect(dados.inscricoes).toHaveLength(1);
+    expect(await comoUsuario(null, "public.lembrete_push_desativar('segredo-de-teste', $1)", [[dados.inscricoes[0].endpoint]])).toBe(1);
+    const assinatura = (await db.query<{ a: string }>("select public.lembrete_assinatura_abertura($1) as a", [envio.log_id])).rows[0].a;
+    expect(await comoUsuario(null, "public.registrar_abertura_lembrete($1, 'x')", [envio.log_id])).toBe(false);
+    expect(await comoUsuario(null, "public.registrar_abertura_lembrete($1, $2)", [envio.log_id, assinatura])).toBe(true);
+  });
+
+  it("depois do desafio: A3 no 1º dia, S5 para os amigos de quem volta, S4 para quem foi ultrapassado", async () => {
+    const fred = await pessoa();
+    const gabi = await pessoa();
+    const [a, b] = [fred, gabi].sort();
+    await db.query("insert into public.friendships (user_a, user_b, origem) values ($1, $2, 'codigo')", [a, b]);
+    await db.query(
+      "insert into public.challenge_attempts (user_id, challenge_id, dificuldade, modo, status, concluido_em) values ($1, 'n1u1d01', 1, 'camera', 'concluido', now())",
+      [fred],
+    );
+    const primeiro = await comoUsuario<{ gatilho: string }[]>(fred, "public.lembretes_apos_desafio(null)");
+    expect(primeiro.map((e) => e.gatilho)).toEqual(["A3"]);
+
+    await db.query("update public.challenge_attempts set concluido_em = now() - interval '20 days' where user_id = $1", [fred]);
+    await db.query(
+      "insert into public.challenge_attempts (user_id, challenge_id, dificuldade, modo, status, concluido_em) values ($1, 'n1u1d01', 1, 'camera', 'concluido', now())",
+      [fred],
+    );
+    const { rows } = await db.query<{ id: string }>(
+      "insert into public.leagues (divisao, semana_inicio, semana_fim) values ('bronze', public.liga_semana_inicio(), public.liga_semana_inicio() + 6) returning id",
+    );
+    await db.query("insert into public.league_members (league_id, user_id, pontos) values ($1, $2, 30), ($1, $3, 25)", [rows[0].id, fred, gabi]);
+    const eventos = await comoUsuario<{ user_id: string; gatilho: string; dados: Record<string, unknown> }[]>(
+      fred, "public.lembretes_apos_desafio(20)");
+    expect(eventos).toEqual([
+      { user_id: gabi, gatilho: "S5", dados: { amigo: expect.any(String), tempo: "20 dias" } },
+      { user_id: gabi, gatilho: "S4", dados: { amigo: expect.any(String), xp: 6 } },
+    ]);
+  });
+
+  it("salvar push liga o push e troca o dono do aparelho", async () => {
+    const hel = await pessoa();
+    await db.query("update public.notification_preferences set push_ativo = false where user_id = $1", [hel]);
+    await comoUsuario(hel, "public.salvar_push('https://push.exemplo.com/compartilhado', '{\"p256dh\":\"a\",\"auth\":\"b\"}', 'Android')");
+    const iris = await pessoa();
+    await comoUsuario(iris, "public.salvar_push('https://push.exemplo.com/compartilhado', '{\"p256dh\":\"a\",\"auth\":\"b\"}', null)");
+    const { rows } = await db.query("select user_id from public.push_subscriptions where endpoint = 'https://push.exemplo.com/compartilhado'");
+    expect(rows).toEqual([{ user_id: iris }]);
+    const pref = await db.query("select push_ativo from public.notification_preferences where user_id = $1", [hel]);
+    expect(pref.rows[0]).toEqual({ push_ativo: true });
+  });
+
+  it("admin: só quem está em ADMINS lê o log e dispara teste para si", async () => {
+    const jo = await pessoa({ push: true });
+    await expect(comoUsuario(jo, "public.lembretes_admin_log(10)")).rejects.toThrow(/sem_permissao/);
+    await config("ADMINS", [jo]);
+    await config("LEMBRETES_SIMULAR", true);
+    const log = await comoUsuario<{ simular: boolean; gatilhos: string[] }>(jo, "public.lembretes_admin_log(10)");
+    expect(log.simular).toBe(true);
+    expect(log.gatilhos).toContain("R1b");
+    // Disparo de teste: ignora simulação e limites, com valores de exemplo.
+    const envios = await imediato(jo, "S4", { teste: true });
+    expect(envios).toHaveLength(1);
+    expect(envios[0].texto).not.toContain("{");
+    expect(await imediato(jo, "R1", { teste: true })).toHaveLength(2);
+    // Quem não é admin não usa o modo teste.
+    expect(await imediato(await pessoa(), "R1", { teste: true })).toEqual([]);
+  });
+});

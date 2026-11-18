@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { ROTULO_ETAPA, type PresencaHive } from "@/dominio/hive";
 import { criarClienteNavegador } from "@/lib/supabase/navegador";
+import { registrarHighFive } from "./acoes";
 
 /**
  * Tempo real da hive: cada pessoa publica no canal `hive:<id>` só a etapa em
@@ -131,10 +132,11 @@ export function ProvedorHive({
   const highFive = useCallback(
     (para: string) => {
       void canalRef.current?.send({ type: "broadcast", event: "high_five", payload: { de: euRef.current.apelido, para } });
+      void registrarHighFive(hiveId, para).catch(() => {});
       const nome = colegas.find((c) => c.id === para)?.apelido;
       if (nome) avisar(`High five para ${nome}`);
     },
-    [avisar, colegas],
+    [avisar, colegas, hiveId],
   );
 
   const valor = useMemo<ContextoHive>(
