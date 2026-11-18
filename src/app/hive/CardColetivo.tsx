@@ -2,13 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { cartao } from "@/componentes/estilos";
-import { ordenarResultado, textoConviteHive, type DadosHive } from "@/dominio/hive";
+import { BONUS_COMPLETA_PCT, ordenarResultado, textoConviteHive, type DadosHive } from "@/dominio/hive";
 import { lerHive } from "./acoes";
 import { Hexagono } from "./AoVivo";
 
+const ROTULO_STATUS: Record<string, string> = {
+  parou_justificado: "parou (justificado)",
+};
+
 /**
  * Card de resultado coletivo: cada participante com reps, tempo e XP. Fica
- * atualizando enquanto alguém ainda está fazendo (quem entrou atrasado também).
+ * atualizando enquanto a hive não fechou de vez (quem entrou atrasado e a
+ * janela de resgate de hive completa também).
  */
 export function CardColetivo({ hiveId, euId, inicial }: { hiveId: string; euId: string; inicial?: DadosHive | null }) {
   const [hive, setHive] = useState<DadosHive | null>(inicial ?? null);
@@ -20,9 +25,9 @@ export function CardColetivo({ hiveId, euId, inicial }: { hiveId: string; euId: 
       const dados = await lerHive(hiveId);
       if (!ativo) return;
       if (dados) setHive(dados);
-      const faltaAlguem = dados ? dados.participantes.some((p) => !p.concluido) && dados.status !== "encerrada" : true;
-      // Atualiza a cada 4 s por até 20 min.
-      if (faltaAlguem && rodada < 300) espera = setTimeout(() => void ler(rodada + 1), 4000);
+      const faltaFechar = dados ? !dados.fechada_em : true;
+      // Atualiza a cada 4 s por até 20 min (cobre também a janela de resgate de 30 min).
+      if (faltaFechar && rodada < 300) espera = setTimeout(() => void ler(rodada + 1), 4000);
     };
     void ler(0);
     return () => {
@@ -33,7 +38,12 @@ export function CardColetivo({ hiveId, euId, inicial }: { hiveId: string; euId: 
 
   if (!hive) return null;
   const lista = ordenarResultado(hive.participantes, hive.modo_competicao);
-  const faltam = hive.participantes.filter((p) => !p.concluido).length;
+  const faltam = hive.participantes.filter((p) => !p.concluido && p.status !== "parou_justificado").length;
+  // O servidor fecha a hive assim que a janela de resgate esgota (ler_hive chama
+  // hive_fechar_se_pronto), então basta conferir se ainda não fechou de vez.
+  const naJanela = !hive.fechada_em && hive.janela_ate !== null;
+  const euConcluido = hive.participantes.find((p) => p.id === euId)?.status === "concluiu";
+  const faltantes = hive.participantes.filter((p) => p.status === "ativo");
   const compartilhar = async () => {
     const link = `${window.location.origin}/hive/${hive.id}`;
     const texto = textoConviteHive(hive, link);
@@ -42,6 +52,11 @@ export function CardColetivo({ hiveId, euId, inicial }: { hiveId: string; euId: 
     } else {
       window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
     }
+  };
+  const chamarFaltante = async () => {
+    const texto = "Só falta você pra fechar o bônus da hive. Bora?";
+    if (navigator.share) await navigator.share({ text: texto }).catch(() => {});
+    else window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
   };
 
   return (
@@ -53,6 +68,30 @@ export function CardColetivo({ hiveId, euId, inicial }: { hiveId: string; euId: 
         </p>
       </div>
       <p className="text-sm text-apagado">{hive.desafio}{hive.modo_competicao ? " · modo competição" : ""}</p>
+
+      {hive.bonus_tamanho_pct > 0 && (
+        <p className="mt-2 text-[15px] font-bold text-mel">
+          Bônus da hive ({hive.n_concluiram} {hive.n_concluiram === 1 ? "pessoa" : "pessoas"}) +{hive.bonus_tamanho_pct}%
+        </p>
+      )}
+      {hive.completa && (
+        <p key="completa" className="surgir text-[15px] font-bold text-bom">✓ Hive completa +{BONUS_COMPLETA_PCT}%</p>
+      )}
+      {!hive.completa && naJanela && (
+        euConcluido && faltantes.length > 0 ? (
+          <div className={`${cartao} mt-2 border-mel/50 text-[14px] leading-relaxed`}>
+            <p>Falta {faltantes.map((p) => p.apelido).join(", ")} para o bônus de hive completa. Chamar para fazer agora?</p>
+            <button onClick={chamarFaltante} className="mt-2 flex h-11 w-full items-center justify-center rounded-xl bg-[#25D366] text-[15px] font-black text-[#0B3A1E] active:opacity-90">
+              Chamar no WhatsApp
+            </button>
+          </div>
+        ) : (
+          <p className="mt-1 text-sm text-apagado">
+            Bônus de hive completa pendente: falta {faltantes.length} {faltantes.length === 1 ? "pessoa" : "pessoas"}.
+          </p>
+        )
+      )}
+
       <ol className="mt-3 flex flex-col divide-y divide-borda">
         {lista.map((p, i) => (
           <li key={p.id} className="flex items-center gap-3 py-2">
@@ -73,7 +112,7 @@ export function CardColetivo({ hiveId, euId, inicial }: { hiveId: string; euId: 
                 <span className="block text-[13px] font-semibold tabular-nums text-mel">+{p.xp ?? 0} XP</span>
               </span>
             ) : (
-              <span className="shrink-0 text-sm font-semibold text-apagado">fazendo…</span>
+              <span className="shrink-0 text-sm font-semibold text-apagado">{ROTULO_STATUS[p.status] ?? "fazendo…"}</span>
             )}
           </li>
         ))}

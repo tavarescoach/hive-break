@@ -13,6 +13,7 @@ import {
   type Estrutura, type ExercicioMetodo, type LinhaDoTempo, type LinhaSerie, type MetodoAntigo, type ResultadoFase, type ResumoMetodo,
 } from "@/dominio/metodos";
 import { ROTULO_EQUIPAMENTO, ROTULO_MODALIDADE } from "@/dominio/trilha";
+import { BONUS_TAMANHO_TETO } from "@/dominio/hive";
 import { montarDadosCard, type RecordesAnteriores } from "@/dominio/card";
 import { Compartilhar } from "@/compartilhar/Compartilhar";
 import { apagarFim, atualizarFim, lerFim, salvarFim, type FimSalvo } from "@/compartilhar/memoria";
@@ -408,6 +409,11 @@ function Resultado({
       </div>
 
       {hive && <CardColetivo hiveId={hive.hiveId} euId={hive.eu.id} />}
+      {!hive && (
+        <p className="text-center text-[15px] leading-relaxed text-apagado">
+          Em hive esse desafio rendia até +{BONUS_TAMANHO_TETO}%. Chame alguém pro próximo.
+        </p>
+      )}
 
       <section className={cartao}>
         <p className="text-xl font-black leading-tight">{fim.resumo.titulo}</p>

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { ROTULO_ETAPA, type PresencaHive } from "@/dominio/hive";
+import { bonusPorTamanho, ROTULO_ETAPA, type PresencaHive } from "@/dominio/hive";
 import { criarClienteNavegador } from "@/lib/supabase/navegador";
 import { registrarHighFive } from "./acoes";
 
@@ -217,6 +217,7 @@ export function FaixaHive({ descansando }: { descansando: boolean }) {
         );
       })}
       <p className="ml-auto shrink-0 pl-1 text-right text-[12px] font-semibold leading-tight text-white/60">
+        {bonusPorTamanho(colegas.length + 1) > 0 && <span className="text-mel">+{bonusPorTamanho(colegas.length + 1)}% · </span>}
         {colegas.length + 1} hiving
         {descansando && colegas.length > 0 && <span className="block text-mel">toque p/ high five</span>}
       </p>

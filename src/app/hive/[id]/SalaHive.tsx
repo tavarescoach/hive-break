@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { Desafio } from "@/app/desafio/[id]/Desafio";
 import { botaoPrimario, botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
-import { relogio, segundosAte, textoConviteHive, type DadosHive } from "@/dominio/hive";
+import { bonusPorTamanho, BONUS_COMPLETA_MINIMO_PESSOAS, BONUS_COMPLETA_PCT, relogio, segundosAte, textoConviteHive, type DadosHive } from "@/dominio/hive";
 import { comecarHiveAgora, definirCompeticao, entrarHive, lerHive } from "../acoes";
 import { Hexagono, ProvedorHive, useHive } from "../AoVivo";
 import { CardColetivo } from "../CardColetivo";
@@ -45,8 +45,10 @@ export function SalaHive({ inicial, desafio, travado, eu }: Props) {
     return () => clearInterval(t);
   }, [hive.id]);
 
-  // Só decide na abertura: quem termina o desafio aqui continua na tela de resultado.
-  const [jaFez] = useState(() => inicial.participantes.some((p) => p.id === eu.id && p.concluido));
+  // Só decide na abertura: quem termina (ou parou por dor/compromisso) continua na tela de resultado.
+  const [jaFez] = useState(() =>
+    inicial.participantes.some((p) => p.id === eu.id && (p.concluido || p.status === "parou_justificado")),
+  );
 
   if (!hive.sou_participante) {
     const entrar = () =>
@@ -155,6 +157,8 @@ function Sala({ hive, desafio, euId, aoMudar }: { hive: DadosHive; desafio: Prop
 
       <Participantes hive={hive} euId={euId} aoVivo={aoVivo?.colegas.map((c) => c.id)} />
 
+      <SeloBonus hive={hive} chamar={chamar} />
+
       <p className={`${cartao} text-[14px] leading-relaxed text-apagado`}>
         Ninguém vê sua câmera, só seus números.
         {hive.modo_competicao ? " Modo competição: os reps de todos aparecem ao vivo." : " Os reps dos colegas aparecem só no card do fim."}
@@ -179,6 +183,31 @@ function Sala({ hive, desafio, euId, aoMudar }: { hive: DadosHive; desafio: Prop
         )}
       </div>
     </main>
+  );
+}
+
+/** Selo de bônus na sala de espera (docs/BONUS_HIVE.md, seção 6.1): motiva a chamar mais gente. */
+function SeloBonus({ hive, chamar }: { hive: DadosHive; chamar: () => void }) {
+  const n = hive.participantes.length;
+  const atual = bonusPorTamanho(n);
+  const comMais1 = bonusPorTamanho(n + 1);
+  return (
+    <section className={`${cartao} text-center`} aria-label="Bônus da hive">
+      {atual > 0 ? (
+        <>
+          <p className="text-sm font-bold uppercase tracking-wide text-apagado">Bônus da hive</p>
+          <p className="text-3xl font-black text-mel">+{atual}%</p>
+        </>
+      ) : (
+        <p className="text-[15px] font-bold">Chame mais gente e ganhe bônus de XP</p>
+      )}
+      <button onClick={chamar} className="mt-1 text-[15px] font-bold text-mel underline underline-offset-4">
+        Com mais 1 pessoa: +{comMais1}% · Chamar no WhatsApp
+      </button>
+      {n >= BONUS_COMPLETA_MINIMO_PESSOAS && (
+        <p className="mt-1 text-sm text-apagado">Todo mundo concluindo: +{BONUS_COMPLETA_PCT}% de hive completa.</p>
+      )}
+    </section>
   );
 }
 

@@ -2,6 +2,10 @@
 
 export type StatusHive = "sala" | "andamento" | "encerrada";
 
+/** `saiu` existe no banco (abandono explícito), mas nenhuma tela ainda escreve nele. */
+export type StatusParticipanteHive = "ativo" | "concluiu" | "saiu" | "parou_justificado";
+export type MotivoParada = "dor" | "compromisso";
+
 export interface ParticipanteHive {
   id: string;
   apelido: string;
@@ -12,6 +16,11 @@ export interface ParticipanteHive {
   xp: number | null;
   reps: number | null;
   tempo_valido_s: number | null;
+  status: StatusParticipanteHive;
+  motivo_parada: MotivoParada | null;
+  xp_base: number | null;
+  xp_bonus_tamanho: number;
+  xp_bonus_completa: number;
 }
 
 /** O que ler_hive e listar_hives devolvem para cada hive. */
@@ -30,8 +39,34 @@ export interface DadosHive {
   sou_participante: boolean;
   amigo: boolean;
   participantes: ParticipanteHive[];
+  /** Quantos concluíram contando pro bônus (câmera, ≤30% fora do quadro). */
+  n_concluiram: number;
+  /** Bônus por tamanho (seção 3 de docs/BONUS_HIVE.md), em %. 0 enquanto ninguém concluiu. */
+  bonus_tamanho_pct: number;
+  /** Todo mundo que entrou (menos quem se justificou) concluiu, com 4+ pessoas na hive. */
+  completa: boolean;
+  /** Janela de resgate de 30 min: até quando dá pra fechar como completa. null = sem janela aberta. */
+  janela_ate: string | null;
+  /** A hive já fechou de vez (bônus já creditados). */
+  fechada_em: string | null;
   /** Só em ler_hive: estado do desafio na trilha de quem está vendo. */
   estado_desafio?: string | null;
+}
+
+/** Teto do bônus por tamanho (seção 3), sem contar o bônus de hive completa. */
+export const BONUS_TAMANHO_TETO = 60;
+/** Bônus extra de hive completa (seção 4.1): só com 4+ pessoas na hive. */
+export const BONUS_COMPLETA_PCT = 20;
+export const BONUS_COMPLETA_MINIMO_PESSOAS = 4;
+
+/**
+ * Bônus por tamanho da hive (seção 3): `min(60, round(18,5·ln(n) − 2,8))` pra
+ * n ≥ 2 pessoas que concluíram; com 1 (ou 0), não tem bônus. Espelha
+ * `hive_bonus_tamanho_pct` no banco — os dois precisam bater.
+ */
+export function bonusPorTamanho(n: number): number {
+  if (n < 2) return 0;
+  return Math.min(BONUS_TAMANHO_TETO, Math.round(18.5 * Math.log(n) - 2.8));
 }
 
 /** Estado ao vivo de cada pessoa, publicado no canal Realtime da hive. Só números. */

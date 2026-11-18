@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { AvisosHive, FaixaHive, useHive } from "@/app/hive/AoVivo";
+import { pararPorJustificativa } from "@/app/hive/acoes";
 import { abrirCameraFrontal, fecharCamera } from "@/camera/camera";
 import { desenharAlvo, desenharEsqueleto } from "@/camera/desenhar-esqueleto";
 import { criarDetector, type Detector } from "@/camera/pose";
@@ -117,8 +118,9 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
   const manualRepsRef = useRef(0);
   const acaoRef = useRef<(qual: "pular" | "encerrar" | "feito") => void>(() => {});
   const [hud, setHud] = useState<Hud>(HUD_INICIAL);
-  const [modal, setModal] = useState<"dor" | "sair" | null>(null);
+  const [modal, setModal] = useState<"dor" | "sair" | "hive-parar" | null>(null);
   const [enviandoDor, setEnviandoDor] = useState(false);
+  const [enviandoParada, setEnviandoParada] = useState(false);
   const entregar = useEffectEvent(aoFim);
   const semCamera = useEffectEvent(aoSemCamera);
   const hive = useHive();
@@ -419,6 +421,13 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
     await registrarDor(id, bloco.exercicioId, regiao);
     router.push("/trilha");
   };
+  /** "Parei por dor ou compromisso" dentro de uma hive (docs/BONUS_HIVE.md, seção 4.1). */
+  const pararNaHive = async (motivo: "dor" | "compromisso") => {
+    if (!hive) return;
+    setEnviandoParada(true);
+    await pararPorJustificativa(hive.hiveId, motivo);
+    router.push(`/hive/${hive.hiveId}`);
+  };
 
   // ------------------------------------------------------------- painel da fase
   let principal: React.ReactNode = null;
@@ -639,7 +648,34 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
               >
                 Encerrar e registrar
               </button>
+              {hive && (
+                <button onClick={() => setModal("hive-parar")} className="h-14 rounded-2xl border border-borda text-lg font-bold active:bg-fundo">
+                  Parei por dor ou compromisso
+                </button>
+              )}
               <button onClick={retomar} className="h-14 rounded-2xl border border-borda text-lg font-bold active:bg-fundo">
+                Continuar o desafio
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal === "hive-parar" && (
+        <div role="dialog" aria-modal="true" aria-label="Parei por dor ou compromisso" className="absolute inset-0 z-20 flex items-end bg-black/75">
+          <div className="w-full rounded-t-3xl bg-superficie p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-texto">
+            <h2 className="text-2xl font-black">Foi dor ou compromisso?</h2>
+            <p className="mt-1 text-[15px] leading-relaxed text-apagado">
+              Você sai da hive sem travar o bônus dos outros: ninguém vai ver seu nome em aviso nenhum.
+            </p>
+            <div className="mt-4 flex flex-col gap-2.5">
+              <button disabled={enviandoParada} onClick={() => pararNaHive("dor")} className="h-14 rounded-2xl bg-mel text-lg font-black text-black active:bg-mel-forte disabled:opacity-50">
+                Foi dor
+              </button>
+              <button disabled={enviandoParada} onClick={() => pararNaHive("compromisso")} className="h-14 rounded-2xl border border-borda text-lg font-bold active:bg-fundo disabled:opacity-50">
+                Foi um compromisso
+              </button>
+              <button disabled={enviandoParada} onClick={retomar} className="h-14 rounded-2xl border border-borda text-lg font-bold active:bg-fundo disabled:opacity-50">
                 Continuar o desafio
               </button>
             </div>

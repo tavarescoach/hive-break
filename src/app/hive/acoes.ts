@@ -72,6 +72,17 @@ export async function registrarResultadoHive(id: string): Promise<boolean> {
   return !error && data === true;
 }
 
+/**
+ * Botão "parei por dor ou compromisso" (docs/BONUS_HIVE.md, seção 4.1): sai
+ * da conta da hive sem travar o bônus dos outros. Não finaliza o desafio.
+ */
+export async function pararPorJustificativa(hiveId: string, motivo: "dor" | "compromisso"): Promise<boolean> {
+  if (!UUID.test(hiveId)) return false;
+  const sessao = await exigirCadastroCompleto();
+  const { data, error } = await sessao.supabase.rpc("hive_parar_justificado", { p_hive: hiveId, p_motivo: motivo });
+  return !error && data === true;
+}
+
 export async function lerHive(id: string): Promise<DadosHive | null> {
   if (!UUID.test(id)) return null;
   const sessao = await exigirCadastroCompleto();
