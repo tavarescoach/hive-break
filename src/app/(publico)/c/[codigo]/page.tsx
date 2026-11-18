@@ -5,13 +5,12 @@ import { Avatar } from "@/componentes/Avatar";
 import { BotaoEnviar } from "@/componentes/BotaoEnviar";
 import { ConfiguracaoPendente } from "@/componentes/ConfiguracaoPendente";
 import { botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
-import { normalizarCodigo } from "@/lib/convite";
+import { OG_POR_FAMILIA } from "@/conteudo/ganchos";
+import { familiaDaQuery, ganchoIdDaQuery, normalizarCodigo } from "@/lib/convite";
 import { seguirSeLogado } from "@/lib/sessao";
 import { supabaseConfigurado } from "@/lib/supabase/env";
 import { criarClienteServidor } from "@/lib/supabase/servidor";
 import { aceitarConvite } from "./acoes";
-
-export const metadata: Metadata = { title: "Você foi convidado · Hive Break", robots: { index: false } };
 
 interface Convite {
   apelido: string;
@@ -19,15 +18,59 @@ interface Convite {
   ofensiva: number;
 }
 
-export default async function LandingConvite({ params }: { params: Promise<{ codigo: string }> }) {
+type ParamsConvite = { codigo: string };
+type QueryGancho = { g?: string; h?: string };
+
+async function lerConvite(codigo: string | null): Promise<Convite | null> {
+  if (!codigo || !supabaseConfigurado) return null;
+  const supabase = await criarClienteServidor();
+  const { data } = await supabase.rpc("convite_publico", { p_codigo: codigo }).maybeSingle();
+  return (data as Convite | null) ?? null;
+}
+
+/** Prévia do link no WhatsApp, por família (seção 3.2). A imagem é a rota /imagem, nunca o logo genérico. */
+export async function generateMetadata(
+  { params, searchParams }: { params: Promise<ParamsConvite>; searchParams: Promise<QueryGancho> },
+): Promise<Metadata> {
+  const codigo = normalizarCodigo((await params).codigo);
+  const familia = familiaDaQuery((await searchParams).g);
+  const convite = await lerConvite(codigo);
+  if (!convite || !familia) {
+    return { title: "Você foi convidado · Hive Break", robots: { index: false } };
+  }
+  const nome = convite.apelido;
+  const og = OG_POR_FAMILIA[familia];
+  const titulo = og.titulo.replace("{nome}", nome);
+  const descricao =
+    familia === "D" && convite.ofensiva > 0
+      ? `${nome} está numa sequência de ${convite.ofensiva} ${convite.ofensiva === 1 ? "dia" : "dias"}. Leva 3 minutos, direto no navegador.`
+      : og.descricao.replace("{nome}", nome).replace(/\{exercicio\}: \{reps\}\. /, "");
+  const imagem = `/c/${codigo}/imagem?g=${familia}`;
+  return {
+    title: titulo,
+    robots: { index: false },
+    openGraph: { title: titulo, description: descricao, images: [imagem] },
+    twitter: { card: "summary_large_image", title: titulo, description: descricao, images: [imagem] },
+  };
+}
+
+export default async function LandingConvite(
+  { params, searchParams }: { params: Promise<ParamsConvite>; searchParams: Promise<QueryGancho> },
+) {
   if (!supabaseConfigurado) return <ConfiguracaoPendente />;
   await seguirSeLogado();
   const codigo = normalizarCodigo((await params).codigo);
-  let convite: Convite | null = null;
-  if (codigo) {
+  const query = await searchParams;
+  const familia = familiaDaQuery(query.g);
+  const ganchoId = ganchoIdDaQuery(query.h);
+  const convite = await lerConvite(codigo);
+
+  if (convite && codigo && familia && ganchoId) {
     const supabase = await criarClienteServidor();
-    const { data } = await supabase.rpc("convite_publico", { p_codigo: codigo }).maybeSingle();
-    convite = (data as Convite | null) ?? null;
+    await supabase.rpc("registrar_link_aberto", { p_codigo: codigo, p_familia: familia, p_gancho_id: ganchoId }).then(
+      () => {},
+      () => {},
+    );
   }
 
   if (!convite) {
@@ -72,6 +115,8 @@ export default async function LandingConvite({ params }: { params: Promise<{ cod
 
       <form action={aceitarConvite} className="mt-auto flex flex-col gap-4">
         <input type="hidden" name="codigo" value={codigo ?? ""} />
+        <input type="hidden" name="g" value={familia ?? ""} />
+        <input type="hidden" name="h" value={ganchoId ?? ""} />
         <BotaoEnviar>Aceitar convite</BotaoEnviar>
         <p className="text-center text-xs leading-relaxed text-apagado">
           A câmera é processada no seu aparelho. Nenhuma imagem ou vídeo é gravado ou enviado.

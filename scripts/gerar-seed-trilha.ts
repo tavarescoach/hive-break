@@ -56,7 +56,7 @@ export const UNIDADES: Record<number, [string, string][]> = {
   5: [["No tapete", "Hora de ir para o chão."], ["Prancha e ponte", "Força de tronco e glúteos."], ["Força de chão", "Empurrar o próprio peso."]],
   6: [["Explosão", "Mais velocidade, mesma qualidade."], ["Empurrar e subir", "Braços e pernas trabalhando juntos."], ["Motor ligado", "Sessões longas de fôlego."]],
   7: [["Com o bastão", "O cabo de vassoura entra no treino."], ["Ombros livres", "Amplitude acima da cabeça."], ["Quadril solto", "Mobilidade de posterior e quadril."]],
-  8: [["Tudo junto", "Todos os movimentos numa sessão."], ["No limite", "Seu melhor em cada desafio."], ["Colmeia completa", "A última unidade da trilha."]],
+  8: [["Tudo junto", "Todos os movimentos numa sessão."], ["No limite", "Seu melhor em cada desafio."], ["Hive completa", "A última unidade da trilha."]],
 };
 
 interface Posicao {
