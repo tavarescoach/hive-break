@@ -19,6 +19,9 @@ export default async function PaginaDesafio({ params }: { params: Promise<{ id: 
   // Bloqueado ou travado pela triagem: volta para a trilha.
   if (desafio.estado === "bloqueado" || desafio.estado === "travado") redirect("/trilha");
 
+  // Funil do convite (seção 4): não erra a tela se o evento não gravar.
+  await sessao.supabase.rpc("registrar_desafio_iniciado").then(() => {}, () => {});
+
   return <Desafio {...desafio.props} />;
 }
 

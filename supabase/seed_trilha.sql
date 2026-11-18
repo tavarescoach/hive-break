@@ -49,7 +49,7 @@ insert into public.units (id, level_id, ordem, titulo, descricao) values
   ('n7u3', 7, 3, 'Quadril solto', 'Mobilidade de posterior e quadril.'),
   ('n8u1', 8, 1, 'Tudo junto', 'Todos os movimentos numa sessão.'),
   ('n8u2', 8, 2, 'No limite', 'Seu melhor em cada desafio.'),
-  ('n8u3', 8, 3, 'Colmeia completa', 'A última unidade da trilha.')
+  ('n8u3', 8, 3, 'Hive completa', 'A última unidade da trilha.')
 on conflict (id) do update set titulo = excluded.titulo, descricao = excluded.descricao, ordem = excluded.ordem;
 
 insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, equipamento, opcional_em_8, extra_em_12, tipo, metodo, estrutura) values

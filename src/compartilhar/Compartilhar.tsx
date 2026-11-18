@@ -1,14 +1,37 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { botaoPrimario, botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
+import type { Gancho } from "@/conteudo/ganchos";
 import type { DadosCard } from "@/dominio/card";
+import { escolherGancho, preencherGancho, trocarGancho, type EstadoDoTreino } from "@/dominio/ganchos";
+import { montarLinkConvite } from "@/lib/convite";
+import { registrarConviteComGancho } from "./acoes";
 import {
   carregarFontes, desenharAdesivo, desenharCard, paraPng, TAMANHOS,
   type Formato, type Fundo, type Toggles,
 } from "./desenhar-card";
 
 type Origem = "hive" | "selfie" | "galeria";
+
+const assinarOrigem = () => () => {};
+
+/** Estado do treino para a tabela 3.1 (docs/GANCHOS_CONVITE.md) a partir do card já montado. */
+function estadoDoTreino(dados: DadosCard): EstadoDoTreino {
+  const bloco = dados.blocos[0];
+  return {
+    recordeNovo: dados.recorde?.novo ?? false,
+    ofensivaDias: dados.ofensiva,
+    emHive: dados.hive !== null,
+    variaveis: {
+      nome: dados.usuario,
+      dias: dados.ofensiva,
+      exercicio: bloco?.exercicio.toLowerCase(),
+      reps: bloco && bloco.tipo !== "tempo" ? bloco.numero : undefined,
+      tempo: bloco?.tipo === "tempo" ? bloco.valor : undefined,
+    },
+  };
+}
 
 const NOME_CARD = "hive-break-treino.png";
 const NOME_ADESIVO = "hive-break-adesivo.png";
@@ -20,9 +43,9 @@ const botaoMenor =
  * galeria só passam pelo <canvas>; o PNG sai pelo menu de compartilhar do
  * celular ou pelo download. Nada é enviado ao servidor.
  */
-export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: () => void }) {
+export function Compartilhar({ dados, codigoConvite, aoFechar }: { dados: DadosCard; codigoConvite: string; aoFechar: () => void }) {
   const [formato, setFormato] = useState<Formato>("9:16");
-  const [origem, setOrigem] = useState<Origem>("hive");
+  const [fundoOrigem, setFundoOrigem] = useState<Origem>("hive");
   const [foto, setFoto] = useState<Fundo | null>(null);
   const [toggles, setToggles] = useState<Toggles>({ recorde: true, hive: true, pse: false });
   const [camera, setCamera] = useState(false);
@@ -34,6 +57,19 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
   const canvasAdesivo = useRef<HTMLCanvasElement>(null);
   const arquivo = useRef<HTMLInputElement>(null);
 
+  const estado = useMemo(() => estadoDoTreino(dados), [dados]);
+  const [usarFrase, setUsarFrase] = useState(true);
+  const [gancho, setGancho] = useState<Gancho | null>(() => escolherGancho("compartilhar_treino", estado));
+  const origemLink = useSyncExternalStore(assinarOrigem, () => window.location.origin, () => "");
+  const link = montarLinkConvite(origemLink || "https://hivebreak.app", codigoConvite, gancho ? { familia: gancho.familia, id: gancho.id } : null);
+  const textoCompartilhar = usarFrase && gancho ? `${preencherGancho(gancho.texto, estado.variaveis)}\n${link}` : link;
+
+  const trocarFrase = () => {
+    if (!gancho) return;
+    const outro = trocarGancho(gancho, "compartilhar_treino", estado.variaveis);
+    if (outro) setGancho(outro);
+  };
+
   useEffect(() => {
     let vivo = true;
     carregarFontes().then(() => vivo && setFontesProntas(true));
@@ -42,7 +78,7 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
     };
   }, []);
 
-  const fundo: Fundo = origem !== "hive" && foto ? foto : { tipo: "hive" };
+  const fundo: Fundo = fundoOrigem !== "hive" && foto ? foto : { tipo: "hive" };
 
   // Redesenha e já deixa o PNG pronto: o navigator.share precisa ser chamado
   // logo no toque, sem esperar o toBlob (o Safari perde o gesto).
@@ -65,16 +101,16 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
     return () => {
       vivo = false;
     };
-    // `fundo` muda junto com `origem` e `foto`.
+    // `fundo` muda junto com `fundoOrigem` e `foto`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fontesProntas, dados, formato, origem, foto, toggles]);
+  }, [fontesProntas, dados, formato, fundoOrigem, foto, toggles]);
 
   const escolherGaleria = async (f: File | undefined) => {
     if (!f) return;
     setAviso(null);
     try {
       setFoto(await carregarImagem(f));
-      setOrigem("galeria");
+      setFundoOrigem("galeria");
     } catch {
       setAviso("Não consegui abrir essa imagem. Tente outra foto.");
     }
@@ -83,9 +119,10 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
   const compartilhar = async () => {
     if (!card) return;
     setAviso(null);
+    if (gancho) void registrarConviteComGancho(gancho.familia, gancho.id).catch(() => {});
     const file = new File([card.blob], NOME_CARD, { type: "image/png" });
     try {
-      await navigator.share({ files: [file] });
+      await navigator.share({ files: [file], text: textoCompartilhar });
     } catch (e) {
       if ((e as DOMException).name !== "AbortError") baixar(card.blob, NOME_CARD);
     }
@@ -116,7 +153,7 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
       <Selfie
         aoTirar={(f) => {
           setFoto(f);
-          setOrigem("selfie");
+          setFundoOrigem("selfie");
           setCamera(false);
         }}
         aoCancelar={(erro) => {
@@ -155,9 +192,9 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
       <section aria-label="Fundo">
         <p className={sobrelinha}>Fundo</p>
         <div className="mt-2 grid grid-cols-3 gap-2">
-          <OpcaoFundo ativa={origem === "selfie" && Boolean(foto)} onClick={() => setCamera(true)} rotulo="Tirar selfie" />
-          <OpcaoFundo ativa={origem === "galeria" && Boolean(foto)} onClick={() => arquivo.current?.click()} rotulo="Da galeria" />
-          <OpcaoFundo ativa={origem === "hive"} onClick={() => setOrigem("hive")} rotulo="Sem foto" />
+          <OpcaoFundo ativa={fundoOrigem === "selfie" && Boolean(foto)} onClick={() => setCamera(true)} rotulo="Tirar selfie" />
+          <OpcaoFundo ativa={fundoOrigem === "galeria" && Boolean(foto)} onClick={() => arquivo.current?.click()} rotulo="Da galeria" />
+          <OpcaoFundo ativa={fundoOrigem === "hive"} onClick={() => setFundoOrigem("hive")} rotulo="Sem foto" />
         </div>
         <input
           ref={arquivo}
@@ -213,6 +250,31 @@ export function Compartilhar({ dados, aoFechar }: { dados: DadosCard; aoFechar: 
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {gancho && (
+        <section aria-label="Frase de convite" className={`${cartao} flex flex-col gap-3`}>
+          <label className="flex min-h-14 cursor-pointer items-center justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block font-bold">Frase de convite</span>
+              <span className="block truncate text-[13px] text-apagado">Vai junto com a imagem e o link</span>
+            </span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={usarFrase}
+              onChange={(e) => setUsarFrase(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span aria-hidden className="relative h-8 w-14 shrink-0 rounded-full bg-superficie-2 transition-colors peer-checked:bg-mel peer-focus-visible:outline peer-focus-visible:outline-3 peer-focus-visible:outline-mel after:absolute after:left-1 after:top-1 after:h-6 after:w-6 after:rounded-full after:bg-texto after:transition-transform peer-checked:after:translate-x-6 peer-checked:after:bg-black" />
+          </label>
+          {usarFrase && (
+            <>
+              <p className="text-[15px] font-semibold leading-snug">“{preencherGancho(gancho.texto, estado.variaveis)}”</p>
+              <button onClick={trocarFrase} className={`${botaoMenor} w-full`}>Trocar frase</button>
+            </>
+          )}
         </section>
       )}
 

@@ -50,6 +50,8 @@ interface Props {
   instagram: string | null;
   /** Melhores marcas anteriores neste desafio (com câmera). null: não deu para ler. */
   recordes: RecordesAnteriores | null;
+  /** Código de convite de quem está compartilhando (gera o link com o gancho). */
+  codigoConvite: string;
 }
 
 type Etapa = "pronto" | "camera" | "manual";
@@ -106,7 +108,10 @@ export function Desafio(props: Props) {
         pseAlvo={pseAlvo.length ? Math.max(...pseAlvo) : null}
         linha={linha}
         modo={envio.modo}
-        card={{ titulo, modalidade: ROTULO_MODALIDADE[modalidade] ?? modalidade, usuario: props.usuario, instagram: props.instagram, recordes: props.recordes }}
+        card={{
+          titulo, modalidade: ROTULO_MODALIDADE[modalidade] ?? modalidade, usuario: props.usuario,
+          instagram: props.instagram, recordes: props.recordes, codigoConvite: props.codigoConvite,
+        }}
       />
     );
   }
@@ -293,6 +298,7 @@ interface InfoCard {
   usuario: string;
   instagram: string | null;
   recordes: RecordesAnteriores | null;
+  codigoConvite: string;
 }
 
 function Resultado({
@@ -352,7 +358,9 @@ function Resultado({
     });
   };
 
-  if (compartilhando) return <Compartilhar dados={dadosCard} aoFechar={() => setCompartilhando(false)} />;
+  if (compartilhando) {
+    return <Compartilhar dados={dadosCard} codigoConvite={card.codigoConvite} aoFechar={() => setCompartilhando(false)} />;
+  }
 
   return (
     <main className="flex min-h-dvh flex-col gap-4 px-5 pb-6 pt-[max(2rem,env(safe-area-inset-top))]">

@@ -25,6 +25,8 @@ export interface DesafioCarregado {
     usuario: string;
     instagram: string | null;
     recordes: RecordesAnteriores | null;
+    /** Código de convite de quem está compartilhando (gera o link com o gancho). */
+    codigoConvite: string;
   };
 }
 
@@ -74,6 +76,7 @@ export async function carregarDesafio(sessao: Sessao, id: string): Promise<Desaf
       // Campo ainda não existe no perfil: quando existir, aparece no card sozinho.
       instagram: (sessao.perfil as { instagram?: string | null }).instagram ?? null,
       recordes,
+      codigoConvite: sessao.perfil.codigo_convite,
     },
   };
 }
