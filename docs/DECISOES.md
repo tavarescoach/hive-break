@@ -444,3 +444,35 @@ Regras completas na seção 9.3 da especificação. Código em
      tira o desafio da liga (o XP continua valendo para a trilha).
 126. **Nível concluído** vale para a liga quando o desafio que fechou o nível foi feito com
      a câmera.
+
+## Liga para todos (17/11/2026, 21h45)
+
+Código em `supabase/migrations/20261120001000_liga_todos.sql`. Substitui parte das decisões
+117 a 126.
+
+### Respondidas pelo Luan
+
+127. **Todo mundo participa:** quem tem cadastro completo está num grupo toda semana, mesmo
+     com 0 XP. A tela mostra todo mundo que treinou; quem tem 0 XP vira contagem.
+128. **Grupos de até 15, do mesmo tamanho** (20 → 10 + 10; 30 → 15 + 15; 40 → 14 + 13 + 13),
+     para o convite pesar mais.
+129. **Respiração guiada vale XP de liga**, com ou sem câmera.
+130. **XP de convite vale na liga** quando o convidado já treinou.
+131. **Modo manual continua fora da liga.** Ranking entre amigos não é a liga: vai para o
+     friend streak / friends hive.
+
+### Decididas na implementação (revisar)
+
+132. **Ativação de convite implementada** (seção 9.4, estava pendente): no 1º desafio
+     concluído do convidado (com ou sem câmera), os dois viram amigos, ganham 1 protetor de
+     ofensiva e quem convidou ganha 20 XP (até 10 por mês). Convites de quem já tinha
+     treinado foram ativados ao rodar a migração.
+133. **Grupos iguais em vez de 15 + 15 + 10:** com 40 pessoas ficam 14, 13 e 13, para nenhum
+     grupo ficar bem menor que os outros.
+134. **Quem chega no meio da semana** vai para o grupo de quem convidou (se tiver vaga) ou para
+     o menor; com todos em 15, abre um grupo novo.
+135. **Só sobe quem fez pelo menos 1 XP**, mesmo que esteja no topo de um grupo parado.
+136. **A semana de 16 a 22/11 foi refeita** ao rodar a migração: grupos montados de novo com
+     todos e pontos recalculados com todo o XP desde segunda, inclusive o de antes da liga
+     existir.
+137. **A respiração não tem a regra do corpo fora do quadro.**
