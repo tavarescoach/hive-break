@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { COOKIE_CONVITE, COOKIE_GANCHO, normalizarCodigo, normalizarGanchoCookie } from "@/lib/convite";
+import { COOKIE_CONVITE, COOKIE_GANCHO, COOKIE_MIGRACAO, normalizarCodigo, normalizarGanchoCookie } from "@/lib/convite";
 import { criarClienteServidor } from "@/lib/supabase/servidor";
 
 /**
@@ -12,13 +12,26 @@ import { criarClienteServidor } from "@/lib/supabase/servidor";
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const codigo = url.searchParams.get("code");
-  if (!codigo) return NextResponse.redirect(new URL("/entrar?erro=login", url.origin));
+  const jarra = await cookies();
+  const migracao = jarra.get(COOKIE_MIGRACAO)?.value;
+  // Visitante vinculando o Google: essa conta Google já existe. Oferece entrar nela e levar o resultado.
+  if (!codigo && migracao && /identity_already_exists|already/i.test(`${url.searchParams.get("error_code")} ${url.searchParams.get("error_description")}`)) {
+    return NextResponse.redirect(new URL("/salvar?google=existe", url.origin));
+  }
+  if (!codigo) return NextResponse.redirect(new URL(migracao ? "/salvar?erro=google" : "/entrar?erro=login", url.origin));
 
   const supabase = await criarClienteServidor();
   const { error } = await supabase.auth.exchangeCodeForSession(codigo);
-  if (error) return NextResponse.redirect(new URL("/entrar?erro=login", url.origin));
+  if (error) return NextResponse.redirect(new URL(migracao ? "/salvar?erro=google" : "/entrar?erro=login", url.origin));
 
-  const jarra = await cookies();
+  // Visitante (docs/VISITANTE.md): se entrou numa conta Google que já existia,
+  // leva o resultado para ela; se vinculou o Google ao próprio visitante, só confirma.
+  if (migracao) {
+    await supabase.rpc("migrar_visitante_por_token", { p_token: migracao });
+    jarra.delete(COOKIE_MIGRACAO);
+  }
+  await supabase.rpc("confirmar_visitante").then(() => {}, () => {});
+
   const convite = normalizarCodigo(jarra.get(COOKIE_CONVITE)?.value ?? "");
   const gancho = normalizarGanchoCookie(jarra.get(COOKIE_GANCHO)?.value);
   if (convite) {

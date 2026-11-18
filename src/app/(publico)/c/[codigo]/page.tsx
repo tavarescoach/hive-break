@@ -21,6 +21,28 @@ interface Convite {
 type ParamsConvite = { codigo: string };
 type QueryGancho = { g?: string; h?: string };
 
+interface DesafioConvite {
+  titulo: string;
+  duracao_s: number;
+  reps: number;
+  tempo_valido_s: number;
+  estrelas: number | null;
+}
+
+/** O desafio que quem convidou fez por último e o placar dele (passo 1 do VISITANTE.md). */
+async function lerDesafioConvite(codigo: string | null): Promise<DesafioConvite | null> {
+  if (!codigo || !supabaseConfigurado) return null;
+  const supabase = await criarClienteServidor();
+  const { data } = await supabase.rpc("convite_desafio", { p_codigo: codigo }).maybeSingle();
+  return (data as DesafioConvite | null) ?? null;
+}
+
+function placar(d: DesafioConvite): string | null {
+  if (d.reps > 0) return `${d.reps} ${d.reps === 1 ? "repetição" : "repetições"}`;
+  if (Number(d.tempo_valido_s) > 0) return `${Math.round(Number(d.tempo_valido_s))} s de execução válida`;
+  return null;
+}
+
 async function lerConvite(codigo: string | null): Promise<Convite | null> {
   if (!codigo || !supabaseConfigurado) return null;
   const supabase = await criarClienteServidor();
@@ -63,7 +85,7 @@ export default async function LandingConvite(
   const query = await searchParams;
   const familia = familiaDaQuery(query.g);
   const ganchoId = ganchoIdDaQuery(query.h);
-  const convite = await lerConvite(codigo);
+  const [convite, desafio] = await Promise.all([lerConvite(codigo), lerDesafioConvite(codigo)]);
 
   if (convite && codigo && familia && ganchoId) {
     const supabase = await criarClienteServidor();
@@ -105,19 +127,37 @@ export default async function LandingConvite(
         </div>
       </header>
 
-      <section className={cartao}>
-        <p className="text-lg font-bold leading-snug">Um desafio de 5 minutos por dia, com um treinador na câmera.</p>
-        <p className="mt-2 text-[15px] leading-relaxed text-apagado">
-          Quando você concluir o 1º desafio, você e {convite.apelido} ganham um protetor de ofensiva e viram amigos no
-          app.
-        </p>
-      </section>
+      {desafio ? (
+        <section className={cartao}>
+          <p className="text-sm font-semibold uppercase tracking-[0.14em] text-apagado">O desafio</p>
+          <p className="mt-1 text-2xl font-black leading-tight">{desafio.titulo}</p>
+          <p className="mt-1 text-[15px] text-apagado">
+            Cerca de {Math.max(1, Math.round(desafio.duracao_s / 60))} min · com a câmera, direto no navegador
+          </p>
+          {placar(desafio) && (
+            <p className="mt-3 rounded-xl bg-mel/10 px-3 py-2 text-[15px] font-bold text-texto">
+              Placar a bater: <span className="text-mel">{placar(desafio)}</span> de {convite.apelido}
+            </p>
+          )}
+        </section>
+      ) : (
+        <section className={cartao}>
+          <p className="text-lg font-bold leading-snug">Um desafio de 5 minutos por dia, com um treinador na câmera.</p>
+        </section>
+      )}
+      <p className="-mt-4 text-[15px] leading-relaxed text-apagado">
+        Sem cadastro para jogar: escolha um username e vá. Quando salvar seu resultado, você e {convite.apelido} ganham um
+        protetor de ofensiva e viram amigos no app.
+      </p>
 
       <form action={aceitarConvite} className="mt-auto flex flex-col gap-4">
         <input type="hidden" name="codigo" value={codigo ?? ""} />
         <input type="hidden" name="g" value={familia ?? ""} />
         <input type="hidden" name="h" value={ganchoId ?? ""} />
-        <BotaoEnviar>Aceitar convite</BotaoEnviar>
+        <BotaoEnviar>Aceitar e jogar</BotaoEnviar>
+        <Link href="/entrar" className="py-1 text-center text-[15px] font-semibold text-apagado underline underline-offset-4">
+          Já tenho conta · Entrar
+        </Link>
         <p className="text-center text-xs leading-relaxed text-apagado">
           A câmera é processada no seu aparelho. Nenhuma imagem ou vídeo é gravado ou enviado.
         </p>

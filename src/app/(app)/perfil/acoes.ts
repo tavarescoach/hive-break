@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { EstadoFormulario } from "@/app/onboarding/acoes";
 import { ESTILOS_MUSICA, LIMITACOES, METAS_DIARIAS, validarCampo, validarInteiro, type CampoPerfil } from "@/dominio/perfil";
+import { VERSAO_DECLARACAO } from "@/dominio/declaracao-saude";
+import { erroDeFormato, mensagemDoMotivo, normalizarUsername } from "@/dominio/username";
 import { exigirSessao } from "@/lib/sessao";
 
 const FALHA = "Não consegui salvar. Confira a internet e tente de novo.";
@@ -16,6 +18,32 @@ export async function declararLiberacao(_anterior: EstadoFormulario, formulario:
   if (error) return { erro: FALHA };
   revalidatePath("/perfil");
   return {};
+}
+
+/** Refazer a declaração de saúde (docs/VISITANTE.md, seção 4). */
+export async function refazerDeclaracao(todasNao: boolean): Promise<{ erro?: string; destino?: string }> {
+  const sessao = await exigirSessao();
+  const { error } = await sessao.supabase.rpc("registrar_declaracao_saude", {
+    p_todas_nao: todasNao,
+    p_ciente: true,
+    p_versao: VERSAO_DECLARACAO,
+  });
+  if (error) return { erro: FALHA };
+  revalidatePath("/trilha");
+  return { destino: "/perfil/config?salvo=saude" };
+}
+
+/** Trocar o username: no máximo 1 vez a cada 30 dias (seção 5). */
+export async function trocarUsername(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
+  const sessao = await exigirSessao();
+  const bruto = String(formulario.get("username") ?? "");
+  const formato = erroDeFormato(bruto);
+  if (formato) return { erro: formato };
+  const { data, error } = await sessao.supabase.rpc("trocar_username", { p_username: normalizarUsername(bruto) });
+  if (error) return { erro: FALHA };
+  if (data) return { erro: mensagemDoMotivo(data as string) ?? FALHA };
+  revalidatePath("/perfil");
+  redirect("/perfil/config?salvo=username");
 }
 
 export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {

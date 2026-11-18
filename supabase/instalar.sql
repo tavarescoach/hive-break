@@ -4996,6 +4996,26 @@ create or replace view public.perfis_publicos with (security_invoker = false) as
   from public.profiles
   where onboarding_concluido_em is not null or (visitante and username is not null);
 
+-- O desafio do convite: o último que quem convidou concluiu antes de o
+-- visitante chegar. O visitante pode fazê-lo mesmo bloqueado na trilha (não
+-- se estiver travado pela declaração de saúde).
+create function public.desafio_do_convite(p_user uuid) returns text
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select a.challenge_id
+  from public.profiles v
+  join public.challenge_attempts a on a.user_id = v.convidado_por and a.status = 'concluido' and a.concluido_em <= v.criado_em
+  where v.id = p_user and v.visitante
+  order by a.concluido_em desc
+  limit 1
+$$;
+
+create function public.meu_desafio_do_convite() returns text
+language sql stable security definer
+set search_path = public, pg_temp
+as $$ select public.desafio_do_convite(auth.uid()) $$;
+
 -- ---------------------------------------------------------------------------
 -- finalizar_desafio: igual à da migração da hive, liberada para o visitante
 -- ---------------------------------------------------------------------------
@@ -5049,7 +5069,9 @@ begin
   end if;
   select estado into v_estado from public.trilha_estados(v_user) where challenge_id = c.id;
   -- Bloqueado na trilha, mas a pessoa está numa hive deste desafio: pode fazer.
-  if v_estado = 'travado' or (v_estado = 'bloqueado' and not public.em_hive_do_desafio(v_user, c.id)) then
+  -- Visitante: também pode o desafio do convite.
+  if v_estado = 'travado' or (v_estado = 'bloqueado' and not public.em_hive_do_desafio(v_user, c.id)
+                              and c.id is distinct from public.desafio_do_convite(v_user)) then
     raise exception 'desafio_bloqueado' using errcode = '22023';
   end if;
   v_refeito := v_estado = 'concluido';
@@ -5652,12 +5674,18 @@ begin
 end;
 $$;
 
--- Tentativas que ainda restam para o código atual (0 = pedir outro).
-create function public.codigo_restantes(p_email text) returns integer
+-- Estado do código atual: tentativas que restam (0 = pedir outro) e há quantos
+-- segundos ele foi enviado (null = nenhum envio registrado). O Supabase
+-- responde "expirado ou inválido" nos dois casos; a idade separa um do outro.
+create function public.codigo_estado(p_email text) returns jsonb
 language sql stable security definer
 set search_path = public, pg_temp
 as $$
-  select greatest(0, 5 - coalesce((select erros from public.codigo_email_tentativas where email_hash = public.codigo_hash(p_email)), 0))::int
+  select jsonb_build_object(
+    'restantes', greatest(0, 5 - coalesce(t.erros, 0)),
+    'enviado_ha_s', floor(extract(epoch from now() - t.enviado_em))::int)
+  from (select 1) x
+  left join public.codigo_email_tentativas t on t.email_hash = public.codigo_hash(p_email)
 $$;
 
 -- Conta um erro e devolve quantas tentativas restam.
@@ -5687,17 +5715,17 @@ revoke execute on function
   public.evento_visitante(text, uuid, jsonb), public.registrar_evento_codigo(text, text),
   public.username_motivo(text, uuid), public.username_sugestoes(text), public.username_verificar(text), public.trocar_username(text),
   public.registrar_declaracao_saude(boolean, boolean, text), public.criar_visitante(text, boolean, text, text, text, text),
-  public.liga_lancar_pendentes(uuid, bigint[]), public.convite_desafio(text),
+  public.liga_lancar_pendentes(uuid, bigint[]), public.convite_desafio(text), public.desafio_do_convite(uuid), public.meu_desafio_do_convite(),
   public.converter_visitante(uuid), public.ao_confirmar_email(), public.confirmar_visitante(),
   public.preparar_migracao_visitante(), public.migrar_visitante(uuid, uuid), public.migrar_visitante_por_token(text),
-  public.limpar_visitantes(), public.codigo_hash(text), public.codigo_pode_enviar(text), public.codigo_restantes(text),
+  public.limpar_visitantes(), public.codigo_hash(text), public.codigo_pode_enviar(text), public.codigo_estado(text),
   public.codigo_erro(text), public.codigo_ok(text)
   from public, anon, authenticated;
 grant execute on function public.username_verificar(text), public.registrar_evento_codigo(text, text),
-  public.convite_desafio(text), public.codigo_pode_enviar(text), public.codigo_restantes(text),
+  public.convite_desafio(text), public.codigo_pode_enviar(text), public.codigo_estado(text),
   public.codigo_erro(text), public.codigo_ok(text)
   to anon, authenticated;
-grant execute on function public.trocar_username(text), public.registrar_declaracao_saude(boolean, boolean, text),
+grant execute on function public.meu_desafio_do_convite(), public.trocar_username(text), public.registrar_declaracao_saude(boolean, boolean, text),
   public.criar_visitante(text, boolean, text, text, text, text), public.confirmar_visitante(),
   public.preparar_migracao_visitante(), public.migrar_visitante_por_token(text)
   to authenticated;

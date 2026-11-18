@@ -95,6 +95,12 @@ export default async function Configuracoes() {
           <Link href="/camera" className={botaoSecundario}>
             Reposicionar a câmera
           </Link>
+          <Link href="/perfil/username" className={botaoSecundario}>
+            {perfil.username ? `Trocar username (@${perfil.username})` : "Criar username"}
+          </Link>
+          <Link href="/perfil/saude" className={botaoSecundario}>
+            Refazer a declaração de saúde
+          </Link>
           <p className="text-sm leading-relaxed text-apagado">
             Exportar dados e excluir a conta entram nas próximas versões do teste.
           </p>

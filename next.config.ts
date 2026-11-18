@@ -12,7 +12,10 @@ const dev = process.env.NODE_ENV !== "production";
 const supabase = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin : "";
 // O tempo real da hive (Supabase Realtime) usa WebSocket no mesmo projeto: só números.
 const supabaseWs = supabase.replace(/^http/, "ws");
-const csp = ["connect-src 'self'", supabase, supabaseWs, dev ? "ws: wss:" : ""].filter(Boolean).join(" ");
+// CAPTCHA invisível do login de visitante (Cloudflare Turnstile, docs/VISITANTE.md):
+// recebe só o desafio anti-robô, nunca imagem ou dado de treino.
+const turnstile = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ? "https://challenges.cloudflare.com" : "";
+const csp = ["connect-src 'self'", supabase, supabaseWs, turnstile, dev ? "ws: wss:" : ""].filter(Boolean).join(" ");
 
 const config: NextConfig = {
   reactStrictMode: true,

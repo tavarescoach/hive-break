@@ -239,6 +239,23 @@ describe("visitante → conta", () => {
     expect(depois.rows[0].ativado_em).not.toBeNull();
   });
 
+  it("o visitante pode fazer o desafio do convite, mesmo bloqueado na trilha", async () => {
+    const dani = await pessoa("Dani");
+    await db.query("update public.profiles set liberado_alta_intensidade = true where id = $1", [dani]);
+    await db.query(
+      `insert into public.challenge_attempts (user_id, challenge_id, dificuldade, modo, status, concluido_em, xp)
+       values ($1, 'n1u1d05', 1, 'camera', 'concluido', now() - interval '1 hour', 10)`, [dani]);
+    const vis = await visitante("vis.do.convite", { ref: await codigo(dani) });
+    expect(await rpc(vis, "public.meu_desafio_do_convite()")).toBe("n1u1d05");
+    expect(await rpc(null, "(select challenge_id from public.convite_desafio($1))", [await codigo(dani)])).toBe("n1u1d05");
+    await concluir(vis, "n1u1d05");
+    // Outro desafio bloqueado continua bloqueado.
+    await expect(concluir(vis, "n1u1d06")).rejects.toThrow(/desafio_bloqueado/);
+    // Com restrição, o desafio intenso do convite fica travado.
+    const restrito = await visitante("vis.restrito", { ref: await codigo(dani), restricao: true });
+    await expect(concluir(restrito, "n1u1d05")).rejects.toThrow(/desafio_bloqueado/);
+  });
+
   it("o código de um visitante não vale como convite", async () => {
     const vis = await visitante("vis.convida");
     expect(await rpc(null, "(select count(*)::int from public.convite_publico($1))", [await codigo(vis)])).toBe(0);
@@ -326,13 +343,17 @@ describe("código por e-mail", () => {
     const restantes: number[] = [];
     for (let i = 0; i < 6; i++) restantes.push(await rpc<number>(null, "public.codigo_erro('erra@exemplo.com')"));
     expect(restantes).toEqual([4, 3, 2, 1, 0, 0]);
-    expect(await rpc(null, "public.codigo_restantes('erra@exemplo.com')")).toBe(0);
+    expect(await rpc(null, "public.codigo_estado('erra@exemplo.com')")).toMatchObject({ restantes: 0 });
     await db.query("update public.codigo_email_tentativas set enviado_em = now() - interval '61 seconds'");
     await rpc(null, "public.codigo_pode_enviar('erra@exemplo.com')");
-    expect(await rpc(null, "public.codigo_restantes('erra@exemplo.com')")).toBe(5);
+    expect(await rpc(null, "public.codigo_estado('erra@exemplo.com')")).toMatchObject({ restantes: 5, enviado_ha_s: 0 });
     await rpc(null, "public.codigo_ok('erra@exemplo.com')");
     const linhas = await db.query("select 1 from public.codigo_email_tentativas where email_hash = public.codigo_hash('erra@exemplo.com')");
     expect(linhas.rows).toEqual([]);
+  });
+
+  it("sem envio registrado: 5 tentativas e idade nula", async () => {
+    expect(await rpc(null, "public.codigo_estado('nunca@exemplo.com')")).toEqual({ restantes: 5, enviado_ha_s: null });
   });
 
   it("guarda só o hash do e-mail", async () => {

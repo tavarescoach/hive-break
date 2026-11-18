@@ -227,4 +227,11 @@ export interface Perfil {
   convidado_por: string | null;
   onboarding_concluido_em: string | null;
   criado_em: string;
+  /** Visitante (docs/VISITANTE.md, migração 20261122000100; ausentes antes dela). */
+  username?: string | null;
+  username_trocado_em?: string | null;
+  ref_convite?: string | null;
+  triagem_respondida_em?: string | null;
+  triagem_restricao?: boolean;
+  visitante?: boolean;
 }

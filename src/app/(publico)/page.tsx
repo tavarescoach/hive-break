@@ -40,8 +40,11 @@ export default async function Landing() {
 
       <div className="mt-auto flex flex-col gap-4">
         <InstalarApp />
-        <Link href="/entrar" className={botaoPrimario}>
+        <Link href="/comecar" className={botaoPrimario}>
           Começar
+        </Link>
+        <Link href="/entrar" className="py-1 text-center text-[15px] font-semibold text-apagado underline underline-offset-4">
+          Já tenho conta · Entrar
         </Link>
         <p className="text-center text-xs leading-relaxed text-apagado">
           A câmera é processada no seu aparelho. Nenhuma imagem ou vídeo é gravado ou enviado.
