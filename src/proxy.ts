@@ -8,6 +8,23 @@ import { SUPABASE_CHAVE_PUBLICA, SUPABASE_URL, supabaseConfigurado } from "@/lib
  * (src/lib/sessao.ts), não aqui.
  */
 export async function proxy(request: NextRequest) {
+  return lembrarModoTV(request, await renovarSessao(request));
+}
+
+/**
+ * Modo TV (src/lib/modo-tv.ts): guarda `?girar` num cookie já no servidor. Várias páginas
+ * redirecionam (por exemplo, "/" logado vai para "/trilha") e o redirecionamento perde o
+ * parâmetro antes de o script da página rodar; o cookie chega à página seguinte.
+ */
+function lembrarModoTV(request: NextRequest, resposta: NextResponse): NextResponse {
+  const giro = request.nextUrl.searchParams.get("girar");
+  if (giro === "0" || giro === "90" || giro === "270") {
+    resposta.cookies.set("modoTV", giro, { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
+  }
+  return resposta;
+}
+
+async function renovarSessao(request: NextRequest): Promise<NextResponse> {
   if (!supabaseConfigurado) return NextResponse.next({ request });
 
   let resposta = NextResponse.next({ request });

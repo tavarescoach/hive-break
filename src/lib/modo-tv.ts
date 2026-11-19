@@ -6,7 +6,9 @@
  * em pé. Com o celular em pé, nada gira.
  *
  * Ligar: abrir qualquer tela com `?girar=270` (ou `?girar=90`). Fica salvo no aparelho
- * (localStorage "modoTV") e vale em todas as telas. Desligar: `?girar=0`.
+ * (localStorage e cookie "modoTV") e vale em todas as telas. Desligar: `?girar=0`.
+ * O cookie é gravado também pelo servidor (src/proxy.ts), porque redirecionamentos como
+ * "/" → "/trilha" perdem o `?girar` antes de o script da página rodar.
  *
  * App na tela de início: o <link rel="manifest"> é criado por este script; com o modo TV
  * ligado, aponta para /manifest-tv.webmanifest, cujo start_url já traz o ?girar. O app salvo tem armazenamento
@@ -27,7 +29,10 @@ export function aplicarModoTV(): void {
   const raiz = document.documentElement;
   const chave = "modoTV";
   let giro: string | null = null;
-  const pedido = new URLSearchParams(window.location.search).get("girar");
+  // A URL manda; sem ela, vale o cookie que o servidor gravou (sobrevive a redirecionamentos).
+  const daUrl = new URLSearchParams(window.location.search).get("girar");
+  const doCookie = /(?:^|;\s*)modoTV=(0|90|270)(?:;|$)/.exec(document.cookie)?.[1] ?? null;
+  const pedido = daUrl === "0" || daUrl === "90" || daUrl === "270" ? daUrl : doCookie;
   try {
     if (pedido === "90" || pedido === "270") window.localStorage.setItem(chave, pedido);
     else if (pedido === "0") window.localStorage.removeItem(chave);
@@ -37,6 +42,8 @@ export function aplicarModoTV(): void {
     giro = pedido === "0" ? null : pedido === "90" || pedido === "270" ? pedido : raiz.dataset.tvGiro ?? null;
   }
   const ligado = giro === "90" || giro === "270";
+  // Cookie e localStorage sempre com a mesma escolha (sem cookie novo para quem nunca usou).
+  if (ligado || doCookie !== null) document.cookie = `modoTV=${ligado ? giro : "0"}; path=/; max-age=31536000; samesite=lax`;
   if (ligado) {
     raiz.classList.add("modo-tv");
     raiz.dataset.tvGiro = giro!;
