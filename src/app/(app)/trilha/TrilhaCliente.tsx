@@ -18,6 +18,8 @@ import { PopupTrilhaAcessoria } from "./PopupTrilhaAcessoria";
 const PASSO = 36;
 /** Altura do topo fixo (barra + banner), para rolagem e detecção da unidade visível. */
 const ALTURA_TOPO = 132;
+/** Fração do caminho de cada seção em que a trilha acessória i aparece (gira a cada seção). */
+const FRACOES_ACESSORIA = [0.12, 0.38, 0.64, 0.88];
 
 function aparencia(item: ItemCaminho): { visual: Visual; icone: Icone; tamanho: number; nome: string } {
   if (item.tipo === "bau") {
@@ -56,16 +58,23 @@ export function TrilhaCliente({ dados, acessorias: hivesAcessorias }: { dados: D
   );
   const acessorias = useMemo(() => montarTrilhasAcessorias(hivesAcessorias), [hivesAcessorias]);
   // Personagens das trilhas acessórias, intercalados ao lado dos nós da trilha
-  // principal: espalhados por igual ao longo do caminho (sem baús), alternando
-  // de lado. Com poucos itens (conta nova), dois podem cair no mesmo nó.
+  // principal: as 4 aparecem em TODA seção (não só uma vez no caminho inteiro),
+  // pra dar pra achar uma sem rolar demais. A fração de cada trilha gira a cada
+  // seção, pra não empilhar sempre no mesmo ponto visual.
   const ancorasAcessorias = useMemo(() => {
-    const itens = caminho.secoes.flatMap((s) => s.unidades.flatMap((u) => u.itens.filter((i) => i.tipo !== "bau")));
     const mapa = new Map<string, { trilha: TrilhaAcessoriaMontada; lado: "left" | "right" }[]>();
-    if (itens.length === 0) return mapa;
-    acessorias.forEach((trilha, i) => {
-      const posicao = Math.min(itens.length - 1, Math.floor(((i + 1) / (acessorias.length + 1)) * itens.length));
-      const chave = itens[posicao].chave;
-      mapa.set(chave, [...(mapa.get(chave) ?? []), { trilha, lado: i % 2 === 0 ? "left" : "right" }]);
+    if (acessorias.length === 0) return mapa;
+    caminho.secoes.forEach((secao, s) => {
+      const itens = secao.unidades.flatMap((u) => u.itens.filter((i) => i.tipo !== "bau"));
+      if (itens.length === 0) return;
+      acessorias.forEach((trilha, i) => {
+        const fracao = FRACOES_ACESSORIA[(i + s) % FRACOES_ACESSORIA.length];
+        const posicao = Math.min(itens.length - 1, Math.floor(fracao * itens.length));
+        const chave = itens[posicao].chave;
+        const atual = mapa.get(chave) ?? [];
+        if (atual.some((a) => a.trilha.id === trilha.id)) return;
+        mapa.set(chave, [...atual, { trilha, lado: i % 2 === 0 ? "left" : "right" }]);
+      });
     });
     return mapa;
   }, [caminho, acessorias]);
@@ -263,11 +272,11 @@ export function TrilhaCliente({ dados, acessorias: hivesAcessorias }: { dados: D
                             onClick={() => setTrilhaAberta(trilha)}
                             aria-label={`Trilha acessória ${trilha.nome}, ${trilha.progresso} de ${trilha.total} hives`}
                             data-hex
-                            className={`absolute top-2 z-[6] flex flex-col items-center gap-1 ${lado === "left" ? "left-0" : "right-0"}`}
+                            className={`absolute top-0 z-[6] flex w-[108px] flex-col items-center gap-1.5 ${lado === "left" ? "left-0" : "right-0"}`}
                           >
-                            <HexagonoAcessorio trilha={trilha.id} cor={trilha.cor} corSombra={trilha.corSombra} tamanho={48} />
-                            <span className="rounded-full border border-borda bg-superficie px-2 py-0.5 text-[11px] font-black tabular-nums">
-                              {trilha.progresso}/{trilha.total}
+                            <HexagonoAcessorio trilha={trilha.id} cor={trilha.cor} corSombra={trilha.corSombra} tamanho={72} />
+                            <span className="whitespace-nowrap rounded-full border-2 border-borda bg-superficie px-2.5 py-1 text-[13px] font-black">
+                              {trilha.nome}
                             </span>
                           </button>
                         ))}
