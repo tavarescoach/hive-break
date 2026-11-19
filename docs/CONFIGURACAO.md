@@ -120,6 +120,18 @@ conforme ela for implementada (depois da migração do Visitante acima, que já 
    que fecha a definição final de `perfis_publicos` (identidade + username + objetivo/meta da
    semana + vitrine), depois que a migração do Visitante já tinha simplificado a view.
 
+### Trilhas acessórias (25/11/2026)
+
+Rode, nesta ordem (**não** cole o `instalar.sql` — ele só serve para projeto novo, e falha
+com "already exists" num banco que já tem as tabelas):
+
+1. [`supabase/migrations/20261125000100_trilhas_acessorias.sql`](../supabase/migrations/20261125000100_trilhas_acessorias.sql)
+   — cria `levels.categoria` ('principal'/'acessoria'), ajusta `trilha_estados` e `ler_trilha`
+   (sem mudar o comportamento da trilha principal) e cria `ler_trilhas_acessorias()`.
+2. [`supabase/seed_trilha_acessoria.sql`](../supabase/seed_trilha_acessoria.sql) — as 4 trilhas
+   (Hive Office, Hive Coluna em Dia, Hive Heat, Hive Desacelerar) e suas hives; pode ser rodado
+   de novo sempre que o conteúdo mudar.
+
 ## 2. Login com Google
 
 1. No Google Cloud Console, crie um projeto e, em **APIs e serviços > Tela de consentimento
