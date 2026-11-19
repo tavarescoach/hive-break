@@ -5,6 +5,8 @@ import { exigirCadastroCompleto } from "@/lib/sessao";
 import { buscarSugestoes } from "./buscar/acoes";
 import { CartaoConvite } from "./CartaoConvite";
 import { FaixaAmigosSumidos } from "./FaixaAmigosSumidos";
+import { FeedAmigos, type EventoFeed } from "./FeedAmigos";
+import { ListaRede, type PessoaRede } from "./ListaRede";
 import { ModalBuscarAmigos } from "./ModalBuscarAmigos";
 
 export const metadata: Metadata = { title: "Amigos · Hive Break" };
@@ -17,12 +19,17 @@ interface Convite {
 
 export default async function Amigos() {
   const sessao = await exigirCadastroCompleto();
-  const sugestoes = await buscarSugestoes();
-  const { data: convites } = await sessao.supabase
-    .from("invites")
-    .select("invitee_id,cadastrado_em,ativado_em")
-    .eq("inviter_id", sessao.usuarioId)
-    .order("cadastrado_em", { ascending: false });
+  const [sugestoes, feed, seguindo, seguidores, { data: convites }] = await Promise.all([
+    buscarSugestoes(),
+    sessao.supabase.rpc("feed_amigos").then((r) => (r.data as EventoFeed[] | null) ?? []),
+    sessao.supabase.rpc("minha_rede", { p_tipo: "seguindo" }).then((r) => (r.data as PessoaRede[] | null) ?? []),
+    sessao.supabase.rpc("minha_rede", { p_tipo: "seguidores" }).then((r) => (r.data as PessoaRede[] | null) ?? []),
+    sessao.supabase
+      .from("invites")
+      .select("invitee_id,cadastrado_em,ativado_em")
+      .eq("inviter_id", sessao.usuarioId)
+      .order("cadastrado_em", { ascending: false }),
+  ]);
   const lista = (convites ?? []) as Convite[];
   // Dos convidados só dá para ver o que é público: apelido e foto.
   const { data: publicos } = lista.length
@@ -40,6 +47,10 @@ export default async function Amigos() {
           Quando seu convidado concluir o 1º desafio, vocês dois ganham um protetor de ofensiva.
         </p>
       </header>
+
+      <FeedAmigos eventos={feed} />
+
+      <ListaRede seguindo={seguindo} seguidores={seguidores} />
 
       <FaixaAmigosSumidos />
 

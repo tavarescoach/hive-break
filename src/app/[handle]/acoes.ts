@@ -19,13 +19,6 @@ export async function definirVitrine(ids: string[]): Promise<{ ok: boolean; erro
   return { ok: true };
 }
 
-/** High five no feed de amigos (seção 3.3): 1 por pessoa por dia. */
-export async function darHighFive(paraId: string): Promise<{ ok: boolean }> {
-  const sessao = await exigirSessao();
-  const { error } = await sessao.supabase.rpc("dar_high_five", { p_para: paraId });
-  return { ok: !error };
-}
-
 /** Registra o peso de hoje (docs/PERFIL.md, seção 2.3). No máximo 1 por dia. */
 export async function registrarPeso(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
   const sessao = await exigirSessao();

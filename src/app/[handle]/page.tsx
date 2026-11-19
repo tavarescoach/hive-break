@@ -8,8 +8,6 @@ import { criarClienteServidor } from "@/lib/supabase/servidor";
 import { CalendarioHexagonos, type DiaCalendario } from "./CalendarioHexagonos";
 import { CapaIdentidade, type PerfilResumo, type VarianteNoBanner } from "./CapaIdentidade";
 import { EstatisticasGrid, type EstatisticasPerfil } from "./EstatisticasGrid";
-import { FeedAmigos, type EventoFeed } from "./FeedAmigos";
-import { ListaRede, type PessoaRede } from "./ListaRede";
 import { MetaSemanaCard, type MetaSemanaDados } from "./MetaSemanaCard";
 import { ObjetivoCard, type PesoCard } from "./ObjetivoCard";
 import { PerfilColunas } from "./PerfilColunas";
@@ -54,7 +52,7 @@ async function carregarEstatisticas(sessao: Sessao | null, perfilId: string, ano
   return { estatisticas: dados, dias: (calendario.data as DiaCalendario[] | null) ?? [] };
 }
 
-/** Coluna da direita (seção 3): vitrine sempre; feed e seguindo/seguidores só no próprio perfil. */
+/** Coluna da direita (seção 3): só a vitrine de conquistas — feed e seguindo/seguidores moraram para /amigos. */
 async function carregarColunaDaDireita(sessao: Sessao | null, variante: VarianteNoBanner, perfilId: string) {
   const supabase = sessao ? sessao.supabase : await criarClienteServidor();
   const conquistas = await supabase.rpc("progresso_conquistas", { p_user: perfilId });
@@ -65,21 +63,7 @@ async function carregarColunaDaDireita(sessao: Sessao | null, variante: Variante
     conquistasViewer = (r.data as ProgressoConquista[] | null) ?? null;
   }
 
-  let feed: EventoFeed[] = [];
-  let seguindo: PessoaRede[] = [];
-  let seguidores: PessoaRede[] = [];
-  if (variante === "proprio" && sessao) {
-    const [f, s1, s2] = await Promise.all([
-      sessao.supabase.rpc("feed_amigos"),
-      sessao.supabase.rpc("minha_rede", { p_tipo: "seguindo" }),
-      sessao.supabase.rpc("minha_rede", { p_tipo: "seguidores" }),
-    ]);
-    feed = (f.data as EventoFeed[] | null) ?? [];
-    seguindo = (s1.data as PessoaRede[] | null) ?? [];
-    seguidores = (s2.data as PessoaRede[] | null) ?? [];
-  }
-
-  return { conquistas: (conquistas.data as ProgressoConquista[] | null) ?? [], conquistasViewer, feed, seguindo, seguidores };
+  return { conquistas: (conquistas.data as ProgressoConquista[] | null) ?? [], conquistasViewer };
 }
 
 /** "Vocês dois" (seção 2.7): a semana de cada um e as hives feitas juntos. */
@@ -193,12 +177,6 @@ export default async function PaginaPerfil({
         souEu={variante === "proprio"}
         conquistasViewer={direitaDados.conquistasViewer}
       />
-      {variante === "proprio" && (
-        <>
-          <FeedAmigos eventos={direitaDados.feed} />
-          <ListaRede seguindo={direitaDados.seguindo} seguidores={direitaDados.seguidores} />
-        </>
-      )}
     </div>
   );
 
