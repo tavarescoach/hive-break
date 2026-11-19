@@ -37,6 +37,11 @@ export const EQUIPAMENTOS: Opcao[] = [
   { valor: "cabo_vassoura", rotulo: "Cabo de vassoura", ajuda: "Ou um bastão leve" },
 ];
 
+export const ESTILOS_PROGRESSO: Opcao[] = [
+  { valor: "barra", rotulo: "Barra", ajuda: "Número centralizado com a barra embaixo dele" },
+  { valor: "moldura", rotulo: "Moldura", ajuda: "A borda da tela vira a barra de progresso" },
+];
+
 export const ESTILOS_MUSICA: Opcao[] = [
   { valor: "eletronica", rotulo: "Eletrônica", ajuda: "Batida constante para manter o ritmo" },
   { valor: "lofi", rotulo: "Lo-fi", ajuda: "Calma, boa para mobilidade e alongamento" },
@@ -217,6 +222,8 @@ export interface Perfil {
   fuso_horario: string;
   /** Segundos da contagem do pop-up "PREPARE-SE" (migração 0009; ausente antes dela). */
   contagem_preparo_s?: number;
+  /** Estilo do HUD de treino: "barra" (padrão) ou "moldura" (docs/HUD_TREINO.md). */
+  estilo_progresso?: "barra" | "moldura";
   limitacoes: string[];
   dificuldade_atual: number;
   liberado_alta_intensidade: boolean;

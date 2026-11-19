@@ -12,7 +12,7 @@ import { Gabarito, dicaDoGabarito } from "@/componentes/Gabarito";
 import { agregarPorExercicio, type BlocoEnviado } from "@/dominio/agregar";
 import {
   descreverBloco, descreverScore, etiquetasDoBloco, explicarCadencia, formatarTempo, resumir, SessaoTreino,
-  type Bloco, type EventoSessao, type ExercicioMetodo, type Fase, type LinhaDoTempo,
+  type Bloco, type EventoSessao, type ExercicioMetodo, type Fase, type FaseTrabalho, type LinhaDoTempo,
 } from "@/dominio/metodos";
 import { ehSustentacao, exercicioPorId } from "@/exercicios";
 import { Motor, VISIBILIDADE_MINIMA_PADRAO } from "@/motor/motor";
@@ -28,13 +28,7 @@ const REGIOES = [
   ["quadril", "Quadril"], ["tornozelo", "Tornozelo"], ["pescoco", "Pescoço"], ["outra", "Outro lugar"],
 ] as const;
 
-/** Cores das fases: trabalho em amarelo-mel, descanso em cinza, preparo e transição em branco. */
-const COR_FASE: Record<Fase["tipo"], string> = {
-  trabalho: "bg-mel text-black",
-  descanso: "bg-[#3A3E48] text-white",
-  preparo: "bg-[#F5F2EA] text-black",
-  transicao: "bg-[#F5F2EA] text-black",
-};
+type EstadoRep = "valida" | "parcial";
 
 interface Indicador {
   rotulo: string;
@@ -53,10 +47,16 @@ interface Hud {
   tempoValidoMs: number;
   naPosicao: boolean;
   emomCumprido: boolean;
+  /** Aviso de correção em voga (coral, centro da tela, 1,5 s — docs/HUD_TREINO.md seção 6). */
   feedback: string | null;
   fora: boolean;
   corpoVisivel: boolean;
-  indicadores: Indicador[];
+  /** Amplitude/ritmo/técnica da série que acabou. Só aparecem no descanso (seção 5). */
+  kpisDescanso: Indicador[];
+  /** Último aviso de técnica da série anterior, mostrado como dica no descanso. */
+  dicaCorrecao: string | null;
+  /** Estado de cada repetição da meta (para a barra/moldura segmentada). */
+  segmentosRep: EstadoRep[];
   ultimoResultado: string | null;
   lento: boolean;
   /** Aviso de posicionamento (o que a câmera não vê e como corrigir). */
@@ -66,14 +66,14 @@ interface Hud {
 const HUD_INICIAL: Hud = {
   carregando: true, indice: 0, restanteMs: null, restanteTetoMs: null, progresso: 0, reps: 0, parciais: 0,
   tempoValidoMs: 0, naPosicao: false, emomCumprido: false, feedback: null, fora: false, corpoVisivel: false,
-  indicadores: [], ultimoResultado: null, lento: false, enquadramento: null,
+  kpisDescanso: [], dicaCorrecao: null, segmentosRep: [], ultimoResultado: null, lento: false, enquadramento: null,
 };
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 /** Tempo em m:ss, arredondando para cima (contagem regressiva). */
 const regressivo = (ms: number) => formatarTempo(Math.ceil(ms / 1000));
 
-/** Dois ou três KPIs ao vivo, conforme o tipo de exercício (seção 8.5). */
+/** Dois ou três KPIs da série que acabou (seção 8.3), mostrados só no descanso. */
 function indicadores(def: DefinicaoExercicio, k: Kpis): Indicador[] {
   const lista: Indicador[] = [];
   if (def.formato === "precisao") {
@@ -91,12 +91,23 @@ function indicadores(def: DefinicaoExercicio, k: Kpis): Indicador[] {
   return lista.slice(0, 3);
 }
 
+/** Legenda curta sob o número hero (meta da faixa, parciais, minuto cumprido…). */
+function legendaHero(fase: FaseTrabalho, hud: Hud): string | null {
+  if (fase.sustentar) return hud.naPosicao ? null : "Entre na posição do gabarito";
+  if (fase.emom && hud.emomCumprido) return "Minuto cumprido · descanse até o próximo";
+  if (fase.faixa) return `Meta: ${fase.faixa.min} a ${fase.faixa.max} repetições`;
+  if (hud.parciais > 0 && fase.duracaoMs === undefined) return `${hud.parciais} ${hud.parciais === 1 ? "parcial" : "parciais"} (não contam)`;
+  return null;
+}
+
 interface Props {
   id: string;
   blocos: BlocoDesafio[];
   exercicios: ExercicioMetodo[];
   linha: LinhaDoTempo;
   comCamera: boolean;
+  /** Visual do HUD de treino: "barra" (padrão) ou "moldura" (docs/HUD_TREINO.md). */
+  estiloProgresso: "barra" | "moldura";
   /** Fim do desafio: números por bloco (vazio no modo sem câmera), resumo geral e por série. */
   aoFim: (fim: FimDoDesafio) => void;
   /** A câmera não abriu: a tela troca para o modo sem câmera. */
@@ -106,23 +117,43 @@ interface Props {
 /**
  * Execução do desafio: percorre as fases do método (preparo, trabalho,
  * descanso, transição) com a câmera contando, ou com o timer e o botão "Feito"
- * no modo sem câmera. O vídeo é analisado no aparelho.
+ * no modo sem câmera. O vídeo é analisado no aparelho. O HUD segue
+ * docs/HUD_TREINO.md: nunca dois números grandes lado a lado.
  */
-export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSemCamera }: Props) {
+export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgresso, aoFim, aoSemCamera }: Props) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const telaRef = useRef<HTMLDivElement>(null);
   const sessaoRef = useRef<SessaoTreino>(null);
   const pausadoRef = useRef(false);
+  const vozDesligadaRef = useRef(false);
   const manualRepsRef = useRef(0);
   const acaoRef = useRef<(qual: "pular" | "encerrar" | "feito") => void>(() => {});
+  const timerOverlayRef = useRef<number | undefined>(undefined);
   const [hud, setHud] = useState<Hud>(HUD_INICIAL);
   const [modal, setModal] = useState<"dor" | "sair" | null>(null);
   const [enviandoDor, setEnviandoDor] = useState(false);
+  const [overlayAberto, setOverlayAberto] = useState(false);
+  const [pausadoUI, setPausadoUI] = useState(false);
+  const [vozDesligada, setVozDesligada] = useState(false);
+  const [tela, setTela] = useState({ w: 0, h: 0 });
   const entregar = useEffectEvent(aoFim);
   const semCamera = useEffectEvent(aoSemCamera);
   const hive = useHive();
   const repsPorFaseRef = useRef(new Map<number, number>());
+
+  // Mede a tela para desenhar a moldura (borda) de progresso no tamanho certo.
+  useEffect(() => {
+    const el = telaRef.current;
+    if (!el) return;
+    const observador = new ResizeObserver(([entrada]) => {
+      const { width, height } = entrada.contentRect;
+      setTela({ w: Math.round(width), h: Math.round(height) });
+    });
+    observador.observe(el);
+    return () => observador.disconnect();
+  }, []);
 
   useEffect(() => {
     const sessao = new SessaoTreino(linha);
@@ -146,15 +177,25 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
     let fps = 30;
     let ultimoHud = 0;
     let ultimosKpis = 0;
-    let chips: Indicador[] = [];
+    let chipsAoVivo: Indicador[] = [];
+    let chipsDescanso: Indicador[] = [];
+    let ultimoErro: string | null = null;
+    let dicaDescanso: string | null = null;
+    let segmentosRep: EstadoRep[] = [];
+    let avisouFaltam10 = false;
+    let avisouFaltam5 = false;
     let feedback: { texto: string; ate: number } | null = null;
     let ultimoResultado: string | null = null;
     let encerrado = false;
 
+    const falarSeAtivo = (texto: string, forcar = false) => {
+      if (!vozDesligadaRef.current) falar(texto, forcar);
+    };
+
     const avisar = (texto: string | undefined, agora: number) => {
       if (!texto) return;
-      feedback = { texto, ate: agora + 2500 };
-      falar(texto);
+      feedback = { texto, ate: agora + 1500 };
+      falarSeAtivo(texto);
     };
 
     const nomeEx = (i: number) => blocos[i]?.exercicio ?? "";
@@ -162,23 +203,29 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
     /** Começo de cada fase: som, voz e um motor novo nas fases de trabalho. */
     const iniciarFase = (f: Fase) => {
       motor = null;
-      chips = [];
       manualRepsRef.current = 0;
       if (f.tipo === "trabalho") {
+        chipsAoVivo = [];
+        segmentosRep = [];
+        ultimoErro = null;
+        avisouFaltam10 = false;
+        avisouFaltam5 = false;
         som.largada();
         const def = defs[f.exercicio];
         if (comCamera && def) motor = new Motor(def, { proporcao, visibilidadeMinima: VISIBILIDADE_MINIMA });
         const meta = f.alvoReps ? `${f.alvoReps} repetições` : f.sustentar ? "segure a posição" : "o máximo que conseguir";
-        falar(`${nomeEx(f.exercicio)}. ${meta}.`, true);
+        falarSeAtivo(`${nomeEx(f.exercicio)}. ${meta}.`, true);
       } else if (f.tipo === "descanso") {
+        chipsDescanso = chipsAoVivo;
+        dicaDescanso = ultimoErro;
         som.parcial();
-        falar(`Descanse. A seguir: ${nomeEx(f.proximo)}.`, true);
+        falarSeAtivo(`Descanse. A seguir: ${nomeEx(f.proximo)}.`, true);
       } else if (f.tipo === "transicao") {
-        falar(`Próximo: ${nomeEx(f.exercicio)}.`, true);
+        falarSeAtivo(`Próximo: ${nomeEx(f.exercicio)}.`, true);
       } else if (f.tipo === "preparo") {
         som.parcial();
         const bl = linha.estrutura.blocos[f.exercicio];
-        falar(`Prepare-se. ${nomeEx(f.exercicio)}. ${bl ? descreverBloco(bl, exercicios[f.exercicio]).replace(/ · /g, ", ") : ""}.`, true);
+        falarSeAtivo(`Prepare-se. ${nomeEx(f.exercicio)}. ${bl ? descreverBloco(bl, exercicios[f.exercicio]).replace(/ · /g, ", ") : ""}.`, true);
       }
     };
 
@@ -193,7 +240,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
             break;
           case "emom_cumprido":
             som.valida();
-            falar("Minuto cumprido. Descanse até o próximo.", true);
+            falarSeAtivo("Minuto cumprido. Descanse até o próximo.", true);
             break;
           case "resultado": {
             if (motor) kpisPorFase.set(e.resultado.fase, motor.kpis());
@@ -246,6 +293,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
       let corpoVisivel = !comCamera;
       let enquadramento: string | null = null;
       let erroAtivo = false;
+      let segmentoErro: number[] = [];
       let reps = 0;
       let parciais = 0;
       let tempoValidoMs = 0;
@@ -277,15 +325,25 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
         if (motor && f.tipo === "trabalho" && !pausadoRef.current) {
           const eventos: EventoMotor[] = motor.processar({ t: agora, pontos, mundo });
           for (const e of eventos) {
-            if (e.tipo === "rep_valida" || e.tipo === "alvo_acerto") som.valida();
-            else if (e.tipo === "rep_parcial") {
+            if (e.tipo === "rep_valida" || e.tipo === "alvo_acerto") {
+              som.valida();
+              segmentosRep.push("valida");
+            } else if (e.tipo === "rep_parcial") {
               som.parcial();
+              segmentosRep.push("parcial");
+              ultimoErro = e.feedback ?? ultimoErro;
               avisar(e.feedback, agora);
-            } else if (e.tipo === "alvo_perdido") som.parcial();
-            else if (e.tipo === "erro") avisar(e.feedback, agora);
-            else if (e.tipo === "posicao_inicio") som.tique();
-            else if (e.tipo === "posicao_perdida") avisar(e.feedback, agora);
-            else if (e.tipo === "fora_quadro") falar("Não estou te vendo", true);
+            } else if (e.tipo === "alvo_perdido") {
+              som.parcial();
+              segmentosRep.push("parcial");
+            } else if (e.tipo === "erro") {
+              ultimoErro = e.feedback;
+              avisar(e.feedback, agora);
+            } else if (e.tipo === "posicao_inicio") som.tique();
+            else if (e.tipo === "posicao_perdida") {
+              ultimoErro = e.feedback ?? ultimoErro;
+              avisar(e.feedback, agora);
+            } else if (e.tipo === "fora_quadro") falarSeAtivo("Não estou te vendo", true);
           }
           const estado = motor.estado;
           reps = estado.repsValidas;
@@ -294,13 +352,14 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
           fora = estado.foraDoQuadro;
           naPosicao = estado.naPosicao;
           erroAtivo = estado.errosAtivos.length > 0;
+          segmentoErro = estado.segmentoErro;
           if (agora - ultimosKpis >= 500 && defs[f.exercicio]) {
             ultimosKpis = agora;
-            chips = indicadores(defs[f.exercicio]!, motor.kpis());
+            chipsAoVivo = indicadores(defs[f.exercicio]!, motor.kpis());
           }
         }
         if (ctx) {
-          desenharEsqueleto(ctx, pontos, { valido: corpoVisivel, erro: erroAtivo, visibilidadeMinima: VISIBILIDADE_MINIMA });
+          desenharEsqueleto(ctx, pontos, { valido: corpoVisivel, erro: erroAtivo, segmentoErro, visibilidadeMinima: VISIBILIDADE_MINIMA });
           const alvo = motor?.estado.alvo;
           if (alvo && f.tipo === "trabalho") desenharAlvo(ctx, alvo);
         }
@@ -312,6 +371,23 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
       }
 
       tratarSessao(sessao.tick(agora, { reps, parciais, tempoValidoMs, foraDoQuadro: fora, pausado: pausadoRef.current }));
+
+      // "Faltam 10" e "faltam 5" falados, só no modo tempo (seção 9).
+      const faseAgora = sessao.fase;
+      if (faseAgora.tipo === "trabalho" && faseAgora.duracaoMs !== undefined && !pausadoRef.current) {
+        const restante = sessao.restanteMs;
+        if (restante !== null) {
+          if (!avisouFaltam10 && restante <= 10_000) {
+            avisouFaltam10 = true;
+            falarSeAtivo("Faltam 10 segundos");
+          }
+          if (!avisouFaltam5 && restante <= 5_000) {
+            avisouFaltam5 = true;
+            falarSeAtivo("Faltam 5 segundos", true);
+            som.tique();
+          }
+        }
+      }
 
       if (agora - ultimoHud >= 100) {
         ultimoHud = agora;
@@ -329,7 +405,9 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
           feedback: feedback && agora < feedback.ate ? feedback.texto : null,
           fora,
           corpoVisivel,
-          indicadores: chips,
+          kpisDescanso: chipsDescanso,
+          dicaCorrecao: dicaDescanso,
+          segmentosRep: [...segmentosRep],
           ultimoResultado,
           lento: comCamera && fps < 12,
           enquadramento,
@@ -379,6 +457,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
     };
   }, [blocos, exercicios, linha, comCamera]);
 
+  useEffect(() => () => window.clearTimeout(timerOverlayRef.current), []);
+
   const fase = linha.fases[hud.indice] ?? linha.fases[0];
   const exIndice = fase.tipo === "descanso" ? fase.proximo : fase.exercicio;
   const bloco = blocos[exIndice] ?? blocos[0];
@@ -408,6 +488,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
 
   const pausar = (qual: "dor" | "sair") => {
     pausadoRef.current = true;
+    setOverlayAberto(false);
     setModal(qual);
   };
   const retomar = () => {
@@ -420,169 +501,230 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
     router.push("/trilha");
   };
 
-  // ------------------------------------------------------------- painel da fase
-  let principal: React.ReactNode = null;
-  let secundario: string | null = null;
-  const grande = "font-black leading-[0.9] tabular-nums";
-  const rotuloNumero = "mb-1 text-sm font-black uppercase tracking-[0.14em] opacity-70";
-  if (hud.carregando) {
-    principal = <p className="text-3xl font-black">{comCamera ? "Abrindo a câmera…" : "Preparando…"}</p>;
-  } else if (fase.tipo === "preparo") {
-    principal = <p className={`${grande} text-[clamp(7rem,40vw,12rem)]`}>{Math.ceil((hud.restanteMs ?? 0) / 1000)}</p>;
-    secundario = "Prepare-se";
-  } else if (fase.tipo === "descanso") {
-    principal = <p className={`${grande} text-[clamp(7rem,36vw,11rem)]`}>{regressivo(hud.restanteMs ?? 0)}</p>;
-    secundario = `Descanso · a seguir: ${fase.rotuloProximo}`;
-  } else if (fase.tipo === "transicao") {
-    principal = <p className={`${grande} text-[clamp(6rem,30vw,9rem)]`}>{Math.ceil((hud.restanteMs ?? 0) / 1000)}</p>;
-    secundario = `Próximo: ${bloco.exercicio}`;
-  } else if (sustentar) {
-    principal = <p className={`${grande} text-[clamp(6.5rem,32vw,10rem)]`}>{regressivo(hud.restanteMs ?? 0)}</p>;
-    secundario = hud.naPosicao ? `Na posição: ${Math.floor(hud.tempoValidoMs / 1000)} s` : "Entre na posição do gabarito";
-  } else if (fase.emom && hud.emomCumprido) {
-    principal = <p className={`${grande} text-[clamp(6.5rem,32vw,10rem)]`}>{regressivo(hud.restanteMs ?? 0)}</p>;
-    secundario = "Minuto cumprido · descanse até o próximo";
-  } else if (fase.alvoReps !== undefined) {
-    const tempo = fase.duracaoMs !== undefined ? regressivo(hud.restanteMs ?? 0) : null;
-    principal = (
-      <div className="flex items-end justify-center gap-4">
-        <p className={`${grande} text-[clamp(6rem,30vw,9.5rem)]`}>
-          {hud.reps}
-          <span className="text-[0.5em] opacity-60">/{fase.alvoReps}</span>
-        </p>
-        {tempo && <p className={`${grande} pb-2 text-[clamp(2.5rem,12vw,4rem)] opacity-80`}>{tempo}</p>}
-      </div>
-    );
-    secundario = hud.parciais > 0 ? `${hud.parciais} ${hud.parciais === 1 ? "parcial" : "parciais"} (não contam)` : "repetições";
-  } else {
-    // Por tempo (AMRAP ou faixa): tempo e reps lado a lado, os dois grandes.
-    principal = (
-      <div className="grid w-full grid-cols-2 items-end">
-        <div>
-          <p className={rotuloNumero}>Tempo</p>
-          <p className={`${grande} text-[clamp(4.5rem,22vw,7rem)]`}>{regressivo(hud.restanteMs ?? 0)}</p>
-        </div>
-        <div>
-          <p className={rotuloNumero}>{def?.formato === "precisao" ? "Acertos" : "Reps"}</p>
-          <p className={`${grande} text-[clamp(4.5rem,22vw,7rem)]`}>{hud.reps}</p>
-        </div>
-      </div>
-    );
-    secundario = fase.faixa ? `Meta: ${fase.faixa.min} a ${fase.faixa.max} repetições` : "O máximo que conseguir, com boa técnica";
-  }
-  const corPainel = fase.tipo === "trabalho" && fase.emom && hud.emomCumprido ? COR_FASE.descanso : COR_FASE[fase.tipo];
-  const descansando = fase.tipo === "descanso";
+  // --------------------------------------------------------------- overlay de toque
+  const agendarFechamentoOverlay = () => {
+    window.clearTimeout(timerOverlayRef.current);
+    timerOverlayRef.current = window.setTimeout(() => setOverlayAberto(false), 4000);
+  };
+  const abrirOverlay = () => {
+    if (modal || hud.carregando || fase.tipo !== "trabalho") return;
+    setOverlayAberto(true);
+    agendarFechamentoOverlay();
+  };
+  const fecharOverlay = () => {
+    window.clearTimeout(timerOverlayRef.current);
+    setOverlayAberto(false);
+  };
+  const alternarPausa = () => {
+    pausadoRef.current = !pausadoRef.current;
+    setPausadoUI(pausadoRef.current);
+    if (pausadoRef.current) window.clearTimeout(timerOverlayRef.current);
+    else agendarFechamentoOverlay();
+  };
+  const alternarVoz = () => {
+    vozDesligadaRef.current = !vozDesligadaRef.current;
+    setVozDesligada(vozDesligadaRef.current);
+    if (vozDesligadaRef.current) calarVoz();
+  };
+
   const popupAberto = fase.tipo === "preparo" && !hud.carregando;
   const cobertoPorPopup = popupAberto || modal !== null;
+  const mostrarCameraCheia = comCamera && fase.tipo === "trabalho" && !hud.carregando;
   const mostrarGabarito = fase.tipo !== "trabalho" || sustentar || !comCamera;
+  const faseTrabalho: FaseTrabalho | null = fase.tipo === "trabalho" ? fase : null;
+  const heroTipo: "reps" | "tempo" = faseTrabalho && faseTrabalho.duracaoMs === undefined ? "reps" : "tempo";
+  const mostrarHexagono = faseTrabalho !== null && heroTipo === "tempo" && !faseTrabalho.sustentar;
+  const ultimosCincoSegundos = heroTipo === "tempo" && hud.restanteMs !== null && hud.restanteMs > 0 && hud.restanteMs <= 5000;
+  const estiloMoldura = estiloProgresso === "moldura";
 
   return (
-    <main className="fixed inset-0 z-10 mx-auto flex max-w-[430px] flex-col overflow-hidden bg-black text-white">
-      {/* Topo: sair, exercício e posição no desafio, pular */}
-      <header inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined} className="flex items-center gap-2 bg-black px-2 pb-1.5 pt-[max(0.5rem,env(safe-area-inset-top))]">
-        <button onClick={() => pausar("sair")} aria-label="Encerrar o desafio" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white/80 active:bg-white/10">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
-        </button>
-        <div className="min-w-0 flex-1 text-center">
-          <p className="truncate text-lg font-black leading-tight">{bloco.exercicio}</p>
-          <p className="truncate text-sm text-white/70">
-            {fase.tipo === "trabalho" ? fase.rotulo : `Etapa ${Math.min(trabalhoAtual + 1, totalTrabalhos)} de ${totalTrabalhos}`}
-            {hud.restanteTetoMs !== null ? ` · teto ${regressivo(hud.restanteTetoMs)}` : ""}
-          </p>
+    <main
+      ref={telaRef}
+      className="fixed inset-0 z-10 mx-auto flex max-w-[430px] flex-col overflow-hidden bg-black text-white"
+    >
+      {/* Câmera em tela cheia (object-cover): fica montada o tempo todo, só escondida fora do trabalho. */}
+      {comCamera && (
+        <div className={`absolute inset-0 ${mostrarCameraCheia ? "" : "invisible"}`} onClick={mostrarCameraCheia ? abrirOverlay : undefined}>
+          <video ref={videoRef} playsInline muted className="absolute inset-0 h-full w-full -scale-x-100 object-cover" />
+          <canvas ref={canvasRef} aria-hidden className="absolute inset-0 h-full w-full -scale-x-100 object-cover" />
+          {respiracao && <Respiracao />}
         </div>
-        <button onClick={() => acaoRef.current("pular")} disabled={hud.carregando} className="h-12 shrink-0 rounded-full bg-white/15 px-4 text-base font-bold active:bg-white/25 disabled:opacity-40">
-          {ultimaFase ? "Concluir" : "Pular ›"}
-        </button>
+      )}
+
+      {mostrarCameraCheia && estiloMoldura && tela.w > 0 && (
+        <Moldura
+          w={tela.w}
+          h={tela.h}
+          tipo={heroTipo}
+          progresso={hud.progresso}
+          segmentos={hud.segmentosRep}
+          meta={faseTrabalho?.alvoReps}
+          urgente={ultimosCincoSegundos}
+        />
+      )}
+
+      {!mostrarCameraCheia && <PainelFase fase={fase} hud={hud} bloco={bloco} proximoNome={fase.tipo === "descanso" ? blocos[fase.proximo]?.exercicio ?? "" : ""} comCamera={comCamera} onJaToPronto={() => acaoRef.current("pular")} />}
+
+      {/* Topo: sair, exercício e posição no desafio, pular — pequeno, sobre o degradê. */}
+      <header
+        inert={cobertoPorPopup}
+        aria-hidden={cobertoPorPopup || undefined}
+        className={`pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col ${mostrarCameraCheia ? "bg-gradient-to-b from-azul-noite/95 to-transparent pb-6" : ""}`}
+      >
+        <div className="pointer-events-auto flex items-center gap-2 px-2 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))]">
+          <button onClick={() => pausar("sair")} aria-label="Encerrar o desafio" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white/85 active:bg-white/10">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+          <div className="min-w-0 flex-1 text-center">
+            <p className="fonte-rotulo truncate text-[15px] font-bold leading-tight">{bloco.exercicio}</p>
+            <p className="truncate text-xs text-white/70">
+              {fase.tipo === "trabalho" ? fase.rotulo : `Etapa ${Math.min(trabalhoAtual + 1, totalTrabalhos)} de ${totalTrabalhos}`}
+              {hud.restanteTetoMs !== null ? ` · teto ${regressivo(hud.restanteTetoMs)}` : ""}
+            </p>
+          </div>
+          <button onClick={() => acaoRef.current("pular")} disabled={hud.carregando} className="h-11 shrink-0 rounded-full bg-white/15 px-3.5 text-sm font-bold active:bg-white/25 disabled:opacity-40">
+            {ultimaFase ? "Concluir" : "Pular ›"}
+          </button>
+        </div>
+        <div className="pointer-events-auto">
+          <FaixaHive descansando={fase.tipo === "descanso"} />
+        </div>
+        {hud.lento && <p className="pointer-events-none px-3 pt-1 text-center text-xs font-semibold text-atencao">A câmera está lenta neste aparelho; a contagem pode falhar.</p>}
       </header>
 
-      {/* Hive: quem está fazendo junto (só aparece dentro de uma hive) */}
-      <div inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined}>
-        <FaixaHive descansando={descansando} />
-      </div>
+      <AvisosHive />
 
-      {/* Painel da fase: cor, número principal enorme e barra de progresso */}
-      <section
-        inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined}
-        aria-live="polite"
-        className={`relative flex shrink-0 flex-col items-center justify-center px-4 py-3 text-center transition-[flex-grow] duration-300 ${corPainel} ${descansando ? "grow" : ""}`}
-        style={{ minHeight: descansando ? undefined : "36%" }}
-      >
-        <div role="timer" className="flex w-full flex-col items-center">{principal}</div>
-        {secundario && <p className="mt-2 text-lg font-bold leading-tight opacity-85">{secundario}</p>}
-        {descansando && (
-          <div className="mt-5 flex flex-col items-center gap-2">
-            <Gabarito exercicio={bloco.exercicioId} tamanho={150} cor="#FFC42E" />
-            {hud.ultimoResultado && <p className="text-base font-semibold text-white/80">Anterior: {hud.ultimoResultado}</p>}
-          </div>
-        )}
-        <div className="absolute inset-x-0 bottom-0 h-2 bg-black/15" aria-hidden>
-          <div className="h-full bg-black/45 transition-[width] duration-150" style={{ width: `${Math.round(hud.progresso * 100)}%` }} />
+      {/* Referência pequena do gabarito (não é um painel de dado: fica discreta). */}
+      {comCamera && mostrarGabarito && mostrarCameraCheia && (
+        <div className="pointer-events-none absolute left-2 top-16 z-10 rounded-2xl bg-black/55 p-1.5 text-center text-white/80">
+          <Gabarito exercicio={bloco.exercicioId} tamanho={sustentar ? 108 : 86} />
+          <p className="text-[10px] font-bold uppercase tracking-wide">{sustentar ? "Posição esperada" : "Gabarito"}</p>
         </div>
-      </section>
+      )}
 
-      {/* Câmera (ou gabarito grande no modo sem câmera) */}
-      <section inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined} className={`relative min-h-0 ${descansando ? "h-0" : "flex-1"}`}>
-        {comCamera ? (
-          <>
-            <video ref={videoRef} playsInline muted className="absolute inset-0 h-full w-full -scale-x-100 object-contain" />
-            <canvas ref={canvasRef} aria-hidden className="absolute inset-0 h-full w-full -scale-x-100 object-contain" />
-          </>
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-            <Gabarito exercicio={bloco.exercicioId} tamanho={210} />
-            <p className="text-base leading-relaxed text-white/75">{dicaDoGabarito(bloco.exercicioId)}</p>
-          </div>
-        )}
-
-        {comCamera && mostrarGabarito && !descansando && (
-          <div className="pointer-events-none absolute left-2 top-2 rounded-2xl bg-black/65 p-1.5 text-center text-white/80">
-            <Gabarito exercicio={bloco.exercicioId} tamanho={sustentar ? 118 : 96} />
-            <p className="text-[11px] font-bold uppercase tracking-wide">{sustentar ? "Posição esperada" : "Gabarito"}</p>
-          </div>
-        )}
-
-        {respiracao && <Respiracao />}
-
-        <AvisosHive />
-
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-10">
-          {hud.feedback && (
-            <p role="alert" className="rounded-2xl bg-ruim px-5 py-2.5 text-center text-2xl font-black text-black">
-              {hud.feedback}
-            </p>
-          )}
-          {comCamera && fase.tipo === "trabalho" && (hud.fora || hud.enquadramento) && (
-            <p className={`numero-camera rounded-xl bg-black/60 px-3 py-1.5 text-center text-lg font-black leading-snug ${hud.fora ? "text-ruim" : "text-atencao"}`}>
+      {/* HUD principal: hero + barra, hexágono secundário, avisos — tudo sobre o degradê de base. */}
+      {mostrarCameraCheia && faseTrabalho && (
+        <div
+          className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2 bg-gradient-to-t from-azul-noite/95 to-transparent px-5 pb-[max(3.5rem,calc(env(safe-area-inset-bottom)+3rem))] pt-16`}
+        >
+          {hud.fora || hud.enquadramento ? (
+            <p className={`fonte-rotulo mx-auto rounded-xl bg-black/55 px-3 py-1.5 text-center text-sm font-bold leading-snug ${hud.fora ? "text-coral" : "text-atencao"}`}>
               {hud.enquadramento ?? "Não estou te vendo. Volte para o quadro."}
             </p>
-          )}
-          {hud.lento && <p className="text-sm font-semibold text-atencao">A câmera está lenta neste aparelho; a contagem pode falhar.</p>}
-          {comCamera && hud.indicadores.length > 0 && fase.tipo === "trabalho" && (
-            <dl className="grid w-full auto-cols-fr grid-flow-col gap-2">
-              {hud.indicadores.map((i) => (
-                <div key={i.rotulo} className="rounded-xl bg-black/65 px-2 py-1.5 text-center">
-                  <dd className={`text-xl font-black tabular-nums ${i.bom ? "text-bom" : "text-atencao"}`}>{i.valor}</dd>
-                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/70">{i.rotulo}</dt>
-                </div>
-              ))}
-            </dl>
+          ) : null}
+
+          {heroTipo === "reps" ? (
+            <HeroReps
+              valor={hud.reps}
+              meta={faseTrabalho.alvoReps ?? 0}
+              legenda={legendaHero(faseTrabalho, hud)}
+              segmentos={estiloMoldura ? undefined : hud.segmentosRep}
+              alinhamento={estiloMoldura ? "esquerda" : "centro"}
+            />
+          ) : (
+            <HeroTempo
+              texto={regressivo(hud.restanteMs ?? 0)}
+              legenda={legendaHero(faseTrabalho, hud)}
+              urgente={ultimosCincoSegundos}
+              progresso={hud.progresso}
+              mostrarBarra={!estiloMoldura}
+              alinhamento={estiloMoldura ? "esquerda" : "centro"}
+            />
           )}
         </div>
-      </section>
+      )}
 
-      {/* Rodapé: começar agora, feito (sem câmera) e senti dor */}
-      <footer inert={cobertoPorPopup} aria-hidden={cobertoPorPopup || undefined} className="flex shrink-0 items-center gap-2 bg-black px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
-        <button onClick={() => pausar("dor")} className="h-12 shrink-0 rounded-full border border-white/30 px-4 text-base font-bold active:bg-white/15">
+      {mostrarCameraCheia && mostrarHexagono && (
+        <Hexagono
+          valor={hud.reps}
+          meta={faseTrabalho?.alvoReps ?? faseTrabalho?.faixa?.max}
+          rotulo={def?.formato === "precisao" ? "Acertos" : "Reps"}
+          posicao={estiloMoldura ? "base-direita" : "topo-direita"}
+        />
+      )}
+
+      {/* Aviso de correção: coral, centro da tela, 1,5 s (seção 6). */}
+      {mostrarCameraCheia && hud.feedback && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center px-8">
+          <p role="alert" className="fonte-rotulo max-w-xs rounded-2xl bg-coral px-6 py-3 text-center text-[28px] font-extrabold leading-tight text-[#0E1726]">
+            {hud.feedback}
+          </p>
+        </div>
+      )}
+
+      {/* "Senti dor": sempre visível, pequeno, embaixo. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-[max(0.6rem,env(safe-area-inset-bottom))] z-20 flex justify-center">
+        <button
+          inert={cobertoPorPopup}
+          aria-hidden={cobertoPorPopup || undefined}
+          onClick={() => pausar("dor")}
+          className="pointer-events-auto h-10 rounded-full border border-white/30 bg-black/35 px-4 text-sm font-bold text-white active:bg-white/15"
+        >
           Senti dor
         </button>
-        {!comCamera && fase.tipo === "trabalho" && !fase.sustentar && fase.alvoReps !== undefined && !(fase.emom && hud.emomCumprido) && (
-          <button onClick={() => acaoRef.current("feito")} className="h-14 flex-1 rounded-full bg-mel text-lg font-black text-black active:bg-mel-forte">
-            Feito: {fase.alvoReps} reps
+      </div>
+
+      {/* Overlay de toque: pausar, pular, dor, voz, sair. Fecha em 4 s ou com um toque fora. */}
+      {overlayAberto && (
+        <div role="dialog" aria-label="Opções do treino" className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-5 bg-azul-noite/[0.78]" onClick={fecharOverlay}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              alternarPausa();
+            }}
+            aria-label={pausadoUI ? "Retomar" : "Pausar"}
+            className="flex h-[120px] w-[120px] items-center justify-center rounded-full bg-esqueleto text-[#0E1726] active:scale-95"
+          >
+            {pausadoUI ? (
+              <svg width="42" height="42" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>
+            ) : (
+              <svg width="42" height="42" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <rect x="6" y="5" width="4" height="14" rx="1" />
+                <rect x="14" y="5" width="4" height="14" rx="1" />
+              </svg>
+            )}
           </button>
-        )}
-      </footer>
+          <p className="fonte-rotulo text-sm font-bold uppercase tracking-wide text-white/80">{pausadoUI ? "Pausado" : "Pausar"}</p>
+          <div className="flex gap-3" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => {
+                fecharOverlay();
+                acaoRef.current("pular");
+              }}
+              className="flex h-16 flex-col items-center justify-center rounded-2xl bg-white/15 px-4 text-xs font-bold text-white active:bg-white/25"
+            >
+              Pular<br />exercício
+            </button>
+            <button
+              onClick={() => pausar("dor")}
+              className="flex h-16 flex-col items-center justify-center rounded-2xl bg-white/15 px-4 text-xs font-bold text-white active:bg-white/25"
+            >
+              Senti<br />dor
+            </button>
+            <button
+              onClick={alternarVoz}
+              aria-pressed={!vozDesligada}
+              className="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-2xl bg-white/15 text-xs font-bold text-white active:bg-white/25"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                {vozDesligada ? <path d="M3 10v4h4l5 5V5L7 10H3zm15.5 2a3.5 3.5 0 0 0-2-3.16v6.31a3.5 3.5 0 0 0 2-3.15zM19 4.5l1.5 1.5-3 3 .01.01A6 6 0 0 1 20 12a6 6 0 0 1-2 4.5l-1.42-1.42A4 4 0 0 0 18 12a4 4 0 0 0-1.1-2.76L4.5 21.5 3 20 19 4.5z" /> : <path d="M3 10v4h4l5 5V5L7 10H3zm13.5 2a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06A9 9 0 0 0 14 3.23z" />}
+              </svg>
+              Voz
+            </button>
+          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              pausar("sair");
+            }}
+            className="mt-2 text-sm font-bold text-white/70 underline underline-offset-4"
+          >
+            Sair do treino
+          </button>
+        </div>
+      )}
 
       {popupAberto && (
         <PopupPrepare
@@ -602,7 +744,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
       )}
 
       {modal === "dor" && (
-        <div role="dialog" aria-modal="true" aria-label="Senti dor" className="absolute inset-0 z-20 flex items-end bg-black/75">
+        <div role="dialog" aria-modal="true" aria-label="Senti dor" className="absolute inset-0 z-50 flex items-end bg-black/75">
           <div className="w-full rounded-t-3xl bg-superficie p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-texto">
             <h2 className="text-2xl font-black">Onde está doendo?</h2>
             <p className="mt-1 text-[15px] leading-relaxed text-apagado">
@@ -624,7 +766,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
       )}
 
       {modal === "sair" && (
-        <div role="dialog" aria-modal="true" aria-label="Encerrar o desafio" className="absolute inset-0 z-20 flex items-end bg-black/75">
+        <div role="dialog" aria-modal="true" aria-label="Encerrar o desafio" className="absolute inset-0 z-50 flex items-end bg-black/75">
           <div className="w-full rounded-t-3xl bg-superficie p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-texto">
             <h2 className="text-2xl font-black">Encerrar o desafio?</h2>
             <p className="mt-1 text-[15px] leading-relaxed text-apagado">O que você fez até aqui é registrado e vale XP.</p>
@@ -647,6 +789,246 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, aoFim, aoSe
         </div>
       )}
     </main>
+  );
+}
+
+// =============================================================================== hero / barras
+
+/** Número hero de repetições: 180px, amarelo, com "/meta" menor em branco e a barra segmentada embaixo. */
+function HeroReps({
+  valor, meta, legenda, segmentos, alinhamento,
+}: {
+  valor: number;
+  meta: number;
+  legenda: string | null;
+  /** Indefinido quando a moldura já mostra a barra (estilo "moldura"). */
+  segmentos?: EstadoRep[];
+  alinhamento: "centro" | "esquerda";
+}) {
+  return (
+    <div className={`flex flex-col ${alinhamento === "centro" ? "items-center text-center" : "items-start text-left"}`}>
+      <p className="fonte-numero numero-camera text-esqueleto text-[clamp(4.5rem,34vw,180px)] leading-[0.85]">
+        {valor}
+        <span className="text-white/60" style={{ fontSize: "0.33em" }}>/{meta}</span>
+      </p>
+      <p className="fonte-rotulo mt-1 text-xs font-bold uppercase tracking-[0.18em] text-white/85">Repetições</p>
+      {legenda && <p className="fonte-rotulo mt-0.5 text-sm font-semibold text-white/70">{legenda}</p>}
+      {segmentos && <BarraSegmentada meta={meta} segmentos={segmentos} />}
+    </div>
+  );
+}
+
+/** Tempo hero regressivo: 130–150px, branco (coral nos últimos 5 s), com a barra contínua embaixo. */
+function HeroTempo({
+  texto, legenda, urgente, progresso, mostrarBarra, alinhamento,
+}: {
+  texto: string;
+  legenda: string | null;
+  urgente: boolean;
+  progresso: number;
+  mostrarBarra: boolean;
+  alinhamento: "centro" | "esquerda";
+}) {
+  return (
+    <div className={`flex flex-col ${alinhamento === "centro" ? "items-center text-center" : "items-start text-left"}`}>
+      <p className={`fonte-numero numero-camera text-[clamp(3.5rem,27vw,150px)] leading-[0.85] ${urgente ? "text-coral" : "text-white"}`}>{texto}</p>
+      <p className="fonte-rotulo mt-1 text-xs font-bold uppercase tracking-[0.18em] text-white/85">Restam</p>
+      {legenda && <p className="fonte-rotulo mt-0.5 text-sm font-semibold text-white/70">{legenda}</p>}
+      {mostrarBarra && <BarraContinua progresso={progresso} urgente={urgente} />}
+    </div>
+  );
+}
+
+function BarraSegmentada({ meta, segmentos }: { meta: number; segmentos: EstadoRep[] }) {
+  if (meta <= 0) return null;
+  return (
+    <div className="mt-2 flex w-full max-w-[230px] gap-1">
+      {Array.from({ length: meta }, (_, i) => {
+        const s = segmentos[i];
+        return (
+          <span
+            key={i}
+            className={`h-2 flex-1 rounded-full ${s === "valida" ? "bg-esqueleto" : s === "parcial" ? "bg-coral" : "bg-white/20"}`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function BarraContinua({ progresso, urgente }: { progresso: number; urgente: boolean }) {
+  return (
+    <div className="mt-2 h-2 w-full max-w-[260px] overflow-hidden rounded-full bg-white/20">
+      <div
+        className={`h-full rounded-full transition-[width] duration-150 ${urgente ? "bg-coral" : "bg-white"}`}
+        style={{ width: `${Math.round(progresso * 100)}%` }}
+      />
+    </div>
+  );
+}
+
+/** Reps secundárias: hexágono amarelo (pointy-top) com o número em azul-noite. */
+function Hexagono({
+  valor, meta, rotulo, posicao,
+}: {
+  valor: number;
+  meta?: number;
+  rotulo: string;
+  posicao: "topo-direita" | "base-direita";
+}) {
+  return (
+    <div
+      className={`pointer-events-none absolute z-20 flex h-[88px] w-[78px] flex-col items-center justify-center bg-esqueleto text-[#0E1726] ${
+        posicao === "topo-direita" ? "right-3 top-[max(5.5rem,calc(env(safe-area-inset-top)+5rem))]" : "bottom-[max(3.75rem,calc(env(safe-area-inset-bottom)+3.25rem))] right-4"
+      }`}
+      style={{ clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" }}
+    >
+      <p className="fonte-numero numero-camera text-2xl leading-none">
+        {valor}
+        {meta !== undefined && <span className="text-xs opacity-70">/{meta}</span>}
+      </p>
+      <p className="fonte-rotulo mt-0.5 text-[9px] font-bold uppercase tracking-wide">{rotulo}</p>
+    </div>
+  );
+}
+
+/** Estilo "moldura": a borda da tela vira a barra de progresso (rx 46, traço 10px). */
+function Moldura({
+  w, h, tipo, progresso, segmentos, meta, urgente,
+}: {
+  w: number;
+  h: number;
+  tipo: "reps" | "tempo";
+  progresso: number;
+  segmentos: EstadoRep[];
+  meta?: number;
+  urgente: boolean;
+}) {
+  const margem = 5;
+  const raio = 46;
+  const espessura = 10;
+  const largura = Math.max(0, w - margem * 2);
+  const altura = Math.max(0, h - margem * 2);
+  const retoH = Math.max(0, largura - 2 * raio);
+  const retoV = Math.max(0, altura - 2 * raio);
+  const perimetro = 2 * retoH + 2 * retoV + 2 * Math.PI * raio;
+
+  return (
+    <svg className="pointer-events-none absolute inset-0 z-10" width={w} height={h} viewBox={`0 0 ${w} ${h}`} fill="none" aria-hidden>
+      <rect x={margem} y={margem} width={largura} height={altura} rx={raio} ry={raio} stroke="rgba(255,255,255,0.18)" strokeWidth={espessura} />
+      {tipo === "tempo" ? (
+        <rect
+          x={margem} y={margem} width={largura} height={altura} rx={raio} ry={raio}
+          stroke={urgente ? "#FF5A4E" : "#FFFFFF"} strokeWidth={espessura} strokeLinecap="round"
+          strokeDasharray={perimetro} strokeDashoffset={perimetro * (1 - progresso)}
+          style={{ transition: "stroke-dashoffset 150ms linear" }}
+        />
+      ) : (
+        meta &&
+        meta > 0 &&
+        Array.from({ length: meta }, (_, i) => {
+          const gap = Math.min(10, (perimetro / meta) * 0.22);
+          const segLen = Math.max(1, perimetro / meta - gap);
+          const offset = perimetro - i * (segLen + gap);
+          const estado = segmentos[i];
+          const cor = estado === "valida" ? "#FFB81C" : estado === "parcial" ? "#FF5A4E" : "rgba(255,255,255,0.18)";
+          return (
+            <rect
+              key={i} x={margem} y={margem} width={largura} height={altura} rx={raio} ry={raio}
+              stroke={cor} strokeWidth={espessura}
+              strokeDasharray={`${segLen} ${Math.max(0, perimetro - segLen)}`} strokeDashoffset={offset}
+            />
+          );
+        })
+      )}
+    </svg>
+  );
+}
+
+// =============================================================================== painel fora do trabalho
+
+/**
+ * Painel de tela cheia (azul-noite) usado quando a câmera não é o foco:
+ * transição, descanso (com os KPIs escondidos durante a série — seção 5 e 8) e
+ * todo o modo sem câmera.
+ */
+function PainelFase({
+  fase, hud, bloco, proximoNome, comCamera, onJaToPronto,
+}: {
+  fase: Fase;
+  hud: Hud;
+  bloco: BlocoDesafio;
+  proximoNome: string;
+  comCamera: boolean;
+  onJaToPronto: () => void;
+}) {
+  if (hud.carregando) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center bg-azul-noite px-6 text-center">
+        <p className="fonte-rotulo text-2xl font-black">{comCamera ? "Abrindo a câmera…" : "Preparando…"}</p>
+      </div>
+    );
+  }
+
+  if (fase.tipo === "transicao") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 bg-azul-noite px-6 text-center">
+        <p className="fonte-numero numero-camera text-[clamp(5rem,26vw,8rem)] leading-none">{Math.ceil((hud.restanteMs ?? 0) / 1000)}</p>
+        <p className="fonte-rotulo text-lg font-bold text-white/80">Próximo: {bloco.exercicio}</p>
+      </div>
+    );
+  }
+
+  if (fase.tipo === "descanso") {
+    return (
+      <div className="flex h-full flex-col items-center gap-4 overflow-y-auto bg-azul-noite px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] text-center">
+        <div>
+          <p className="fonte-numero numero-camera text-[clamp(4.5rem,24vw,7rem)] leading-none">{regressivo(hud.restanteMs ?? 0)}</p>
+          <div className="mt-2 h-2 w-56 overflow-hidden rounded-full bg-white/15">
+            <div className="h-full rounded-full bg-white transition-[width] duration-150" style={{ width: `${Math.round(hud.progresso * 100)}%` }} />
+          </div>
+        </div>
+
+        {hud.kpisDescanso.length > 0 && (
+          <dl className="grid w-full max-w-xs grid-cols-3 gap-2">
+            {hud.kpisDescanso.map((i) => (
+              <div key={i.rotulo} className="rounded-xl bg-white/10 px-2 py-2">
+                <dd className={`fonte-numero text-lg leading-none ${i.bom ? "text-bom" : "text-atencao"}`}>{i.valor}</dd>
+                <dt className="fonte-rotulo mt-0.5 text-[10px] font-bold uppercase tracking-wide text-white/70">{i.rotulo}</dt>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        {hud.ultimoResultado && <p className="fonte-rotulo text-[15px] font-semibold text-white/80">{hud.ultimoResultado}</p>}
+        {hud.dicaCorrecao && (
+          <p className="fonte-rotulo max-w-xs rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold text-atencao">Dica: {hud.dicaCorrecao}</p>
+        )}
+
+        <div className="mt-auto flex w-full max-w-xs flex-col items-center gap-3">
+          <p className="fonte-rotulo text-sm font-bold uppercase tracking-wide text-white/60">A seguir</p>
+          <p className="fonte-rotulo text-xl font-black">{proximoNome}</p>
+          <button onClick={onJaToPronto} className="h-14 w-full rounded-2xl bg-mel text-lg font-black text-black active:bg-mel-forte">
+            Já tô pronto
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Modo sem câmera (ou "preparo", mascarado pelo pop-up PREPARE-SE por cima).
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4 bg-black px-6 text-center">
+      {!comCamera && (
+        <>
+          <Gabarito exercicio={bloco.exercicioId} tamanho={210} />
+          <p className="text-base leading-relaxed text-white/75">{dicaDoGabarito(bloco.exercicioId)}</p>
+          {fase.tipo === "trabalho" && fase.alvoReps !== undefined && !fase.sustentar && (
+            <p className="fonte-numero text-[clamp(3rem,16vw,4rem)] text-mel">{hud.reps}/{fase.alvoReps}</p>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -675,7 +1057,7 @@ function PopupPrepare({
 }) {
   const pausaLonga = duracaoMs > 15_000;
   return (
-    <div inert={inerte} aria-hidden={inerte || undefined} role="dialog" aria-modal="true" aria-label={`Prepare-se: ${nome}`} className="absolute inset-0 z-20 flex flex-col bg-[#F5F2EA] text-black">
+    <div inert={inerte} aria-hidden={inerte || undefined} role="dialog" aria-modal="true" aria-label={`Prepare-se: ${nome}`} className="absolute inset-0 z-50 flex flex-col bg-[#F5F2EA] text-black">
       <div className="flex items-center justify-between px-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <button onClick={aoSair} aria-label="Encerrar o desafio" className="flex h-12 w-12 items-center justify-center rounded-full text-black/60 active:bg-black/10">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>

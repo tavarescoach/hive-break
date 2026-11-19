@@ -47,6 +47,8 @@ interface Props {
   metodoAntigo: MetodoAntigo | null;
   /** Segundos da contagem do pop-up "PREPARE-SE". */
   preparoS: number;
+  /** Visual do HUD de treino: "barra" (padrão) ou "moldura" (docs/HUD_TREINO.md). */
+  estiloProgresso: "barra" | "moldura";
   /** Identificação no card de compartilhamento. */
   usuario: string;
   instagram: string | null;
@@ -170,6 +172,7 @@ export function Desafio(props: Props) {
         exercicios={exercicios}
         linha={linha}
         comCamera={etapa === "camera"}
+        estiloProgresso={props.estiloProgresso}
         aoFim={(fim) => finalizar(etapa === "camera" ? "camera" : "manual", fim)}
         aoSemCamera={(mensagem) => {
           setAvisoCamera(mensagem);

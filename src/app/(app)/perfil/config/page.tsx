@@ -3,7 +3,7 @@ import Link from "next/link";
 import { botaoSecundario, campoTexto, sobrelinha } from "@/componentes/estilos";
 import { Formulario } from "@/componentes/Formulario";
 import { Opcoes } from "@/componentes/Opcoes";
-import { DIAS_SEMANA, EQUIPAMENTOS, ESTILOS_MUSICA, LIMITACOES, METAS_DIARIAS, OBJETIVOS } from "@/dominio/perfil";
+import { DIAS_SEMANA, EQUIPAMENTOS, ESTILOS_MUSICA, ESTILOS_PROGRESSO, LIMITACOES, METAS_DIARIAS, OBJETIVOS } from "@/dominio/perfil";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 import { salvarConfiguracoes } from "../acoes";
 import { Lembretes, type PreferenciasLembrete } from "./Lembretes";
@@ -73,6 +73,10 @@ export default async function Configuracoes() {
             <span className={rotulo}>Volume da voz do treinador</span>
             <input type="range" name="volume_voz" min={0} max={100} step={5} defaultValue={perfil.volume_voz} className="h-12 w-full accent-[var(--color-mel)]" />
           </label>
+          <fieldset>
+            <legend className={rotulo}>Visual da tela de treino</legend>
+            <Opcoes nome="estilo_progresso" opcoes={ESTILOS_PROGRESSO} atual={perfil.estilo_progresso ?? "barra"} />
+          </fieldset>
           {perfil.contagem_preparo_s !== undefined && (
             <fieldset>
               <legend className={rotulo}>Contagem antes de cada exercício</legend>

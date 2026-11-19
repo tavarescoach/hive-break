@@ -64,7 +64,8 @@
       "id": "cotovelo_dobrado",
       "condicao": "cotovelo < 140",
       "fase": "alto",
-      "feedback": "Estenda os cotovelos"
+      "feedback": "Estenda os cotovelos",
+      "pontos": ["cotovelo_e", "cotovelo_d"]
     },
     {
       "id": "amplitude_curta",
