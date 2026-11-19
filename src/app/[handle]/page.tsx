@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ProgressoConquista } from "@/dominio/conquistas";
 import { lerSessao, type Sessao } from "@/lib/sessao";
+import { origemAbsoluta } from "@/lib/origem";
 import { criarClienteServidor } from "@/lib/supabase/servidor";
 import { CalendarioHexagonos, type DiaCalendario } from "./CalendarioHexagonos";
 import { CapaIdentidade, type PerfilResumo, type VarianteNoBanner } from "./CapaIdentidade";
@@ -12,6 +13,7 @@ import { MetaSemanaCard, type MetaSemanaDados } from "./MetaSemanaCard";
 import { ObjetivoCard, type PesoCard } from "./ObjetivoCard";
 import { PerfilColunas } from "./PerfilColunas";
 import { VitrineConquistas } from "./VitrineConquistas";
+import { VocesDois, type HivesEmComum } from "./VocesDois";
 
 /**
  * Rota /@username (docs/PERFIL.md): logado mostra o perfil próprio ou o de
@@ -79,6 +81,26 @@ async function carregarColunaDaDireita(sessao: Sessao | null, variante: Variante
   return { conquistas: (conquistas.data as ProgressoConquista[] | null) ?? [], conquistasViewer, feed, seguindo, seguidores };
 }
 
+/** "Vocês dois" (seção 2.7): a semana de cada um e as hives feitas juntos. */
+async function carregarVocesDois(sessao: Sessao, alvoId: string) {
+  const [minhaSemana, semanaDele, meus, dele] = await Promise.all([
+    sessao.supabase.rpc("meta_semana", { p_user: sessao.usuarioId }),
+    sessao.supabase.rpc("meta_semana", { p_user: alvoId }),
+    sessao.supabase.from("hive_participantes").select("hive_id, entrou_em").eq("user_id", sessao.usuarioId).not("concluido_em", "is", null),
+    sessao.supabase.from("hive_participantes").select("hive_id, entrou_em").eq("user_id", alvoId).not("concluido_em", "is", null),
+  ]);
+  const meusHives = (meus.data ?? []) as { hive_id: string; entrou_em: string }[];
+  const hivesDele = (dele.data ?? []) as { hive_id: string; entrou_em: string }[];
+  const idsComuns = new Set(meusHives.map((h) => h.hive_id));
+  const datasComuns = hivesDele.filter((h) => idsComuns.has(h.hive_id)).map((h) => h.entrou_em);
+
+  return {
+    meusDias: (minhaSemana.data as MetaSemanaDados | null)?.dias ?? [],
+    diasDele: (semanaDele.data as MetaSemanaDados | null)?.dias ?? [],
+    comum: { total: datasComuns.length, ultima: datasComuns.length ? datasComuns.sort().at(-1)! : null } satisfies HivesEmComum,
+  };
+}
+
 function lerMes(bruto: string | undefined): { ano: number; mes: number } {
   const hoje = new Date();
   if (bruto && /^\d{4}-\d{2}$/.test(bruto)) {
@@ -141,13 +163,16 @@ export default async function PaginaPerfil({
   }
 
   const { ano, mes } = lerMes(mesBruto);
-  const [{ pesoCard, metaSemana }, { estatisticas, dias }, relacao, direitaDados] = await Promise.all([
+  const souVisitanteLogado = variante === "visitante_logado" && !!sessao;
+  const [{ pesoCard, metaSemana }, { estatisticas, dias }, relacao, direitaDados, vocesDois, origem] = await Promise.all([
     carregarCardsDoCentro(sessao, perfil.id),
     carregarEstatisticas(sessao, perfil.id, ano, mes),
-    variante === "visitante_logado" && sessao
-      ? sessao.supabase.rpc("relacao_com", { p_user: sessao.usuarioId, p_alvo: perfil.id }).then((r) => r.data as { seguindo: boolean; segue_voce: boolean } | null)
+    souVisitanteLogado
+      ? sessao!.supabase.rpc("relacao_com", { p_user: sessao!.usuarioId, p_alvo: perfil.id }).then((r) => r.data as { seguindo: boolean; segue_voce: boolean } | null)
       : Promise.resolve(null),
     carregarColunaDaDireita(sessao, variante, perfil.id),
+    souVisitanteLogado ? carregarVocesDois(sessao!, perfil.id) : Promise.resolve(null),
+    origemAbsoluta(),
   ]);
   const hojeIso = new Date().toISOString().slice(0, 10);
   const treinouHoje = metaSemana?.dias.some((d) => d.dia === hojeIso && d.hives > 0) ?? false;
@@ -172,12 +197,13 @@ export default async function PaginaPerfil({
   return (
     <PerfilColunas perfilHref={sessao ? `/@${sessao.perfil.username}` : undefined} hivesAoVivo={hivesAoVivo} direita={direita}>
       <div className="flex flex-col gap-4">
-        <CapaIdentidade perfil={perfil} variante={variante} relacao={relacao} />
+        <CapaIdentidade perfil={perfil} variante={variante} relacao={relacao} link={`${origem}/@${perfil.username}`} />
         <div className="flex flex-col gap-4 px-5">
           <ObjetivoCard objetivo={perfil.objetivo} pesoCard={pesoCard} souEu={variante === "proprio"} />
           {metaSemana && <MetaSemanaCard dados={metaSemana} />}
           {estatisticas && <EstatisticasGrid dados={estatisticas} treinouHoje={treinouHoje} />}
           {dias.length > 0 && <CalendarioHexagonos dias={dias} ano={ano} mes={mes} baseHref={`/@${perfil.username}`} hojeIso={hojeIso} />}
+          {vocesDois && <VocesDois nome={perfil.apelido ?? perfil.username} meusDias={vocesDois.meusDias} diasDele={vocesDois.diasDele} comum={vocesDois.comum} />}
         </div>
       </div>
     </PerfilColunas>

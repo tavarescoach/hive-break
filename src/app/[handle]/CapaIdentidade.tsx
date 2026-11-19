@@ -4,6 +4,7 @@ import { botaoPrimario, botaoSecundario } from "@/componentes/estilos";
 import { HEXAGONO_CLIP } from "@/componentes/hexagono";
 import { CORES_DIVISAO, NOMES_DIVISAO, type Divisao } from "@/dominio/liga";
 import { BotaoBloquear } from "./BotaoBloquear";
+import { CompartilharPerfil } from "./CompartilharPerfil";
 
 export interface PerfilResumo {
   id: string;
@@ -32,10 +33,12 @@ export function CapaIdentidade({
   perfil,
   variante,
   relacao,
+  link,
 }: {
   perfil: PerfilResumo;
   variante: VarianteNoBanner;
   relacao?: { seguindo: boolean; segue_voce: boolean } | null;
+  link: string;
 }) {
   const divisao = perfil.divisao_atual as Divisao;
   const corDivisao = CORES_DIVISAO[divisao] ?? CORES_DIVISAO.bronze;
@@ -82,7 +85,7 @@ export function CapaIdentidade({
           </span>
         </div>
 
-        <AcaoPrincipal variante={variante} nome={nome} alvoId={perfil.id} relacao={relacao} />
+        <AcaoPrincipal variante={variante} nome={nome} alvoId={perfil.id} relacao={relacao} link={link} />
       </div>
     </section>
   );
@@ -93,16 +96,19 @@ function AcaoPrincipal({
   nome,
   alvoId,
   relacao,
+  link,
 }: {
   variante: VarianteNoBanner;
   nome: string;
   alvoId: string;
   relacao?: { seguindo: boolean; segue_voce: boolean } | null;
+  link: string;
 }) {
   if (variante === "proprio") {
     return (
-      <div className="flex gap-2">
-        <Link href="/perfil/config" className={botaoPrimario}>
+      <div className="flex flex-wrap gap-2">
+        <CompartilharPerfil link={link} />
+        <Link href="/perfil/config" className={botaoSecundario}>
           Editar perfil
         </Link>
         <Link href="/amigos" className={botaoSecundario}>
