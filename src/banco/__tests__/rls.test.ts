@@ -84,7 +84,7 @@ describe("cadastro", () => {
     );
     expect(rows).toEqual([]);
     const total = await db.query<{ n: number }>("select count(*)::int as n from pg_tables where schemaname = 'public'");
-    expect(total.rows[0].n).toBe(42);
+    expect(total.rows[0].n).toBe(45);
   });
 });
 
@@ -445,5 +445,81 @@ describe("estatísticas e calendário (docs/PERFIL.md)", () => {
     expect(dias[0]).toHaveProperty("bateu_meta");
 
     await expect(como(db, { usuario: null }, (tx) => tx.query("select public.calendario_mes($1, 2026, 11)", [ana]))).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe("busca de amigos, seguir e bloquear (docs/PERFIL.md, seção 4)", () => {
+  beforeAll(async () => {
+    // Nos outros blocos, só a Ana (e a Eva, num teste isolado) terminam o cadastro;
+    // aqui a busca e o seguir precisam de todo mundo com o cadastro completo.
+    await db.query("update public.profiles set onboarding_concluido_em = now() where id in ($1, $2)", [bruno, carla]);
+  });
+
+  const seguir = (quem: string, alvo: string) => como(db, { usuario: quem }, (tx) => tx.query("select public.seguir_usuario($1)", [alvo]));
+  const buscar = (quem: string, q: string) =>
+    como(db, { usuario: quem }, (tx) => tx.query<{ buscar_usuarios: Record<string, unknown>[] }>("select public.buscar_usuarios($1)", [q]))
+      .then((r) => r.rows[0].buscar_usuarios);
+
+  it("busca com menos de 2 letras devolve vazio", async () => {
+    expect(await buscar(ana, "c")).toEqual([]);
+  });
+
+  it("acha por apelido ou @username, nunca a própria pessoa", async () => {
+    const resultado = await buscar(ana, "carla");
+    expect(resultado.map((r) => r.id)).toContain(carla);
+    expect(resultado.map((r) => r.id)).not.toContain(ana);
+  });
+
+  it("quem desliga 'aparecer na busca' some dos resultados", async () => {
+    await db.query("update public.profiles set aparecer_na_busca = false where id = $1", [carla]);
+    expect((await buscar(ana, "carla")).map((r) => r.id)).not.toContain(carla);
+    await db.query("update public.profiles set aparecer_na_busca = true where id = $1", [carla]);
+  });
+
+  it("seguir é de mão única; vira amigo (sao_amigos) quando os dois se seguem", async () => {
+    const saoAmigos = async () => (await db.query<{ sao_amigos: boolean }>("select public.sao_amigos($1, $2) as sao_amigos", [ana, carla])).rows[0].sao_amigos;
+    expect(await saoAmigos()).toBe(false);
+
+    await seguir(ana, carla);
+    let r = (await como(db, { usuario: ana }, (tx) => tx.query<{ relacao_com: Record<string, unknown> }>("select public.relacao_com($1, $2)", [ana, carla]))).rows[0].relacao_com;
+    expect(r).toMatchObject({ seguindo: true, segue_voce: false });
+    expect(await saoAmigos()).toBe(false);
+
+    await seguir(carla, ana);
+    expect(await saoAmigos()).toBe(true);
+
+    await como(db, { usuario: ana }, (tx) => tx.query("select public.deixar_de_seguir($1)", [carla]));
+    expect(await saoAmigos()).toBe(false);
+    r = (await como(db, { usuario: ana }, (tx) => tx.query<{ relacao_com: Record<string, unknown> }>("select public.relacao_com($1, $2)", [ana, carla]))).rows[0].relacao_com;
+    expect(r).toMatchObject({ seguindo: false, segue_voce: true });
+
+    await como(db, { usuario: carla }, (tx) => tx.query("select public.deixar_de_seguir($1)", [ana]));
+  });
+
+  it("não segue nem busca quem bloqueou (nos dois sentidos) e some os dois lados do seguir", async () => {
+    await seguir(ana, carla);
+    await seguir(carla, ana);
+    await como(db, { usuario: ana }, (tx) => tx.query("select public.bloquear_usuario($1)", [carla]));
+
+    expect((await db.query("select * from public.seguidores where $1 in (seguidor_id, seguido_id) and $2 in (seguidor_id, seguido_id)", [ana, carla])).rows).toEqual([]);
+    expect((await buscar(ana, "carla")).map((r) => r.id)).not.toContain(carla);
+    expect((await buscar(carla, "ana")).map((r) => r.id)).not.toContain(ana);
+
+    await expect(seguir(carla, ana)).rejects.toThrow(/bloqueado/);
+
+    await como(db, { usuario: ana }, (tx) => tx.query("select public.desbloquear_usuario($1)", [carla]));
+    expect((await buscar(ana, "carla")).map((r) => r.id)).toContain(carla);
+  });
+
+  it("limite de chamadas por minuto da busca", async () => {
+    for (let i = 0; i < 30; i++) await buscar(bruno, "ana");
+    await expect(buscar(bruno, "ana")).rejects.toThrow(/busca_muito_frequente/);
+  });
+
+  it("sugestoes_busca traz quem te segue e você não segue de volta", async () => {
+    await seguir(carla, bruno);
+    const r = await como(db, { usuario: bruno }, (tx) => tx.query<{ sugestoes_busca: Record<string, unknown>[] }>("select public.sugestoes_busca()"));
+    expect(r.rows[0].sugestoes_busca.map((x) => x.id)).toContain(carla);
+    await como(db, { usuario: carla }, (tx) => tx.query("select public.deixar_de_seguir($1)", [bruno]));
   });
 });

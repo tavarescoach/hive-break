@@ -68,6 +68,13 @@ async function carregarPagina(handleBruto: string) {
 
   const perfil = await buscarPerfilPublico(username);
   if (!perfil) return null;
+
+  if (sessao) {
+    // Bloqueio nos dois sentidos (docs/PERFIL.md, seção 4.1): "não consegue te ver".
+    const { data: bloqueado } = await sessao.supabase.rpc("bloqueado_entre", { p_a: sessao.usuarioId, p_b: perfil.id });
+    if (bloqueado) return null;
+  }
+
   return { perfil, variante: (sessao ? "visitante_logado" : "publico") as VarianteNoBanner, sessao };
 }
 
@@ -102,9 +109,12 @@ export default async function PaginaPerfil({
   }
 
   const { ano, mes } = lerMes(mesBruto);
-  const [{ pesoCard, metaSemana }, { estatisticas, dias }] = await Promise.all([
+  const [{ pesoCard, metaSemana }, { estatisticas, dias }, relacao] = await Promise.all([
     carregarCardsDoCentro(sessao, perfil.id),
     carregarEstatisticas(sessao, perfil.id, ano, mes),
+    variante === "visitante_logado" && sessao
+      ? sessao.supabase.rpc("relacao_com", { p_user: sessao.usuarioId, p_alvo: perfil.id }).then((r) => r.data as { seguindo: boolean; segue_voce: boolean } | null)
+      : Promise.resolve(null),
   ]);
   const hojeIso = new Date().toISOString().slice(0, 10);
   const treinouHoje = metaSemana?.dias.some((d) => d.dia === hojeIso && d.hives > 0) ?? false;
@@ -112,7 +122,7 @@ export default async function PaginaPerfil({
   return (
     <PerfilColunas perfilHref={sessao ? `/@${sessao.perfil.username}` : undefined} hivesAoVivo={hivesAoVivo}>
       <div className="flex flex-col gap-4">
-        <CapaIdentidade perfil={perfil} variante={variante} />
+        <CapaIdentidade perfil={perfil} variante={variante} relacao={relacao} />
         <div className="flex flex-col gap-4 px-5">
           <ObjetivoCard objetivo={perfil.objetivo} pesoCard={pesoCard} souEu={variante === "proprio"} />
           {metaSemana && <MetaSemanaCard dados={metaSemana} />}

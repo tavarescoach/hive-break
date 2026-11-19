@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { BotaoSeguir } from "@/componentes/BotaoSeguir";
 import { botaoPrimario, botaoSecundario } from "@/componentes/estilos";
 import { HEXAGONO_CLIP } from "@/componentes/hexagono";
 import { CORES_DIVISAO, NOMES_DIVISAO, type Divisao } from "@/dominio/liga";
+import { BotaoBloquear } from "./BotaoBloquear";
 
 export interface PerfilResumo {
   id: string;
@@ -28,9 +30,11 @@ const MEMBRO_DESDE = (criadoEm: string) =>
 export function CapaIdentidade({
   perfil,
   variante,
+  relacao,
 }: {
   perfil: PerfilResumo;
   variante: VarianteNoBanner;
+  relacao?: { seguindo: boolean; segue_voce: boolean } | null;
 }) {
   const divisao = perfil.divisao_atual as Divisao;
   const corDivisao = CORES_DIVISAO[divisao] ?? CORES_DIVISAO.bronze;
@@ -77,13 +81,23 @@ export function CapaIdentidade({
           </span>
         </div>
 
-        <AcaoPrincipal variante={variante} nome={nome} />
+        <AcaoPrincipal variante={variante} nome={nome} alvoId={perfil.id} relacao={relacao} />
       </div>
     </section>
   );
 }
 
-function AcaoPrincipal({ variante, nome }: { variante: VarianteNoBanner; nome: string }) {
+function AcaoPrincipal({
+  variante,
+  nome,
+  alvoId,
+  relacao,
+}: {
+  variante: VarianteNoBanner;
+  nome: string;
+  alvoId: string;
+  relacao?: { seguindo: boolean; segue_voce: boolean } | null;
+}) {
   if (variante === "proprio") {
     return (
       <div className="flex gap-2">
@@ -98,9 +112,15 @@ function AcaoPrincipal({ variante, nome }: { variante: VarianteNoBanner; nome: s
   }
   if (variante === "visitante_logado") {
     return (
-      <Link href="/hive" className={botaoPrimario}>
-        Chamar para uma hive
-      </Link>
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <Link href="/hive" className={botaoPrimario}>
+            Chamar para uma hive
+          </Link>
+          {relacao && <BotaoSeguir alvoId={alvoId} inicial={relacao} />}
+        </div>
+        <BotaoBloquear alvoId={alvoId} />
+      </div>
     );
   }
   return (

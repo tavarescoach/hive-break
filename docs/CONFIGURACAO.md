@@ -105,6 +105,11 @@ conforme ela for implementada:
 3. [`supabase/migrations/20261122000100_perfil_estatisticas.sql`](../supabase/migrations/20261122000100_perfil_estatisticas.sql)
    — cria `profiles.esconder_xp` e as funções `estatisticas_perfil`/`calendario_mes` da grade
    de estatísticas e do calendário em hexágonos.
+4. [`supabase/migrations/20261122000200_amigos_busca.sql`](../supabase/migrations/20261122000200_amigos_busca.sql)
+   — cria `seguidores`, `bloqueios`, a busca (`buscar_usuarios`) e a função `seguir_usuario`
+   e afins. Precisa da extensão **pg_trgm**: mesma observação do item 1, se o `create
+   extension` falhar por permissão, ative-a em **Database > Extensions** no painel do
+   Supabase e rode a migração de novo.
 
 ## 2. Login com Google
 

@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { Avatar } from "@/componentes/Avatar";
 import { cartao, sobrelinha } from "@/componentes/estilos";
 import { exigirCadastroCompleto } from "@/lib/sessao";
+import { buscarSugestoes } from "./buscar/acoes";
 import { CartaoConvite } from "./CartaoConvite";
 import { FaixaAmigosSumidos } from "./FaixaAmigosSumidos";
+import { ModalBuscarAmigos } from "./ModalBuscarAmigos";
 
 export const metadata: Metadata = { title: "Amigos · Hive Break" };
 
@@ -15,6 +17,7 @@ interface Convite {
 
 export default async function Amigos() {
   const sessao = await exigirCadastroCompleto();
+  const sugestoes = await buscarSugestoes();
   const { data: convites } = await sessao.supabase
     .from("invites")
     .select("invitee_id,cadastrado_em,ativado_em")
@@ -39,6 +42,8 @@ export default async function Amigos() {
       </header>
 
       <FaixaAmigosSumidos />
+
+      <ModalBuscarAmigos sugestoes={sugestoes} />
 
       <CartaoConvite codigo={sessao.perfil.codigo_convite} />
 
