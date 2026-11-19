@@ -24,11 +24,16 @@ import { VocesDois, type HivesEmComum } from "./VocesDois";
  */
 async function buscarPerfilPublico(username: string): Promise<PerfilResumo | null> {
   const supabase = await criarClienteServidor();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("perfis_publicos")
     .select("id, apelido, avatar_url, username, divisao_atual, nivel_atual, criado_em, objetivo, meta_desafios_dia, dias_semana, vitrine_conquistas")
     .eq("username", username)
     .maybeSingle();
+  if (error) {
+    // Diagnóstico temporário (seção "deploy", issue do @luan 404): sem isso, qualquer
+    // erro de consulta virava um 404 silencioso, indistinguível de "não existe".
+    console.error(`[/@${username}] buscarPerfilPublico falhou:`, error);
+  }
   return (data as PerfilResumo | null) ?? null;
 }
 
@@ -115,6 +120,8 @@ async function carregarPagina(handleBruto: string) {
   if (!handleBruto.startsWith("@")) return null;
   const username = handleBruto.slice(1);
   const sessao = await lerSessao();
+  // Diagnóstico temporário (seção "deploy", issue do @luan 404): tira depois de confirmar a causa.
+  console.log(`[/@${username}] logado=${!!sessao} meu_username=${sessao?.perfil.username ?? "—"}`);
 
   if (sessao && sessao.perfil.username === username) {
     // `username` vem da URL (sempre uma string real): mais seguro que o
@@ -124,11 +131,15 @@ async function carregarPagina(handleBruto: string) {
   }
 
   const perfil = await buscarPerfilPublico(username);
-  if (!perfil) return null;
+  if (!perfil) {
+    console.log(`[/@${username}] perfis_publicos não achou ninguém com esse username`);
+    return null;
+  }
 
   if (sessao) {
     // Bloqueio nos dois sentidos (docs/PERFIL.md, seção 4.1): "não consegue te ver".
-    const { data: bloqueado } = await sessao.supabase.rpc("bloqueado_entre", { p_a: sessao.usuarioId, p_b: perfil.id });
+    const { data: bloqueado, error } = await sessao.supabase.rpc("bloqueado_entre", { p_a: sessao.usuarioId, p_b: perfil.id });
+    if (error) console.error(`[/@${username}] bloqueado_entre falhou:`, error);
     if (bloqueado) return null;
   }
 
