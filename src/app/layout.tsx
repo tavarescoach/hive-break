@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Rubik } from "next/font/google";
 import "./globals.css";
+import { ModoTV } from "@/componentes/ModoTV";
+import { SCRIPT_MODO_TV } from "@/lib/modo-tv";
 
 // HUD de treino (docs/HUD_TREINO.md): Inter 900 nos números, Rubik nos rótulos.
 const inter = Inter({ subsets: ["latin"], weight: "900", variable: "--font-inter" });
@@ -23,10 +25,16 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" className={`${inter.variable} ${rubik.variable}`}>
+    // suppressHydrationWarning: o script do modo TV marca o <html> antes do React hidratar.
+    <html lang="pt-BR" className={`${inter.variable} ${rubik.variable}`} suppressHydrationWarning>
+      <head>
+        {/* Modo TV (?girar=270): aplicado antes da primeira pintura. Ver src/lib/modo-tv.ts. */}
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_MODO_TV }} />
+      </head>
       <body>
+        <ModoTV />
         {/* Mobile first: no desktop o app aparece centralizado em coluna de celular. */}
-        <div className="mx-auto min-h-dvh w-full max-w-[430px]">{children}</div>
+        <div id="raiz" className="mx-auto min-h-dvh w-full max-w-[430px]">{children}</div>
       </body>
     </html>
   );

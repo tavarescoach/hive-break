@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { AvisosHive, FaixaHive, useHive } from "@/app/hive/AoVivo";
 import { abrirCameraFrontal, fecharCamera } from "@/camera/camera";
-import { desenharAlvo, desenharEsqueleto } from "@/camera/desenhar-esqueleto";
+import { acompanharVideo, desenharAlvo, desenharEsqueleto } from "@/camera/desenhar-esqueleto";
 import { criarDetector, type Detector } from "@/camera/pose";
 import { som } from "@/camera/som";
 import { calarVoz, falar } from "@/camera/voz";
@@ -303,6 +303,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
       if (comCamera) {
         if (!detector || !video || video.readyState < 2 || video.currentTime === ultimoTempoVideo) return;
         ultimoTempoVideo = video.currentTime;
+        // Girar o celular (modo TV) troca o vídeo de 4:3 para 3:4: a proporção acompanha.
+        if (video.videoHeight) proporcao = video.videoWidth / video.videoHeight;
         try {
           // A imagem é analisada aqui, no aparelho. Daqui só saem os pontos do corpo.
           const r = detector.landmarker.detectForVideo(video, agora);
@@ -358,7 +360,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
             chipsAoVivo = indicadores(defs[f.exercicio]!, motor.kpis());
           }
         }
-        if (ctx) {
+        if (ctx && canvas) {
+          acompanharVideo(canvas, video);
           desenharEsqueleto(ctx, pontos, { valido: corpoVisivel, erro: erroAtivo, segmentoErro, visibilidadeMinima: VISIBILIDADE_MINIMA });
           const alvo = motor?.estado.alvo;
           if (alvo && f.tipo === "trabalho") desenharAlvo(ctx, alvo);

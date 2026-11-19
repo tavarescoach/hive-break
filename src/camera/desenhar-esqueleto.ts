@@ -20,6 +20,17 @@ const COR_OK = "#FFB81C";
 const COR_APAGADO = "rgba(255,255,255,0.45)";
 const COR_ERRO = "#FF5A4E";
 
+/**
+ * Mantém o canvas do mesmo tamanho do vídeo. Ao girar o celular (modo TV), o iPhone troca a
+ * câmera de 640x480 para 480x640 no meio da sessão; sem isso o esqueleto sairia desalinhado.
+ */
+export function acompanharVideo(canvas: HTMLCanvasElement, video: HTMLVideoElement): void {
+  const { videoWidth: largura, videoHeight: altura } = video;
+  if (!largura || !altura) return;
+  if (canvas.width !== largura) canvas.width = largura;
+  if (canvas.height !== altura) canvas.height = altura;
+}
+
 /** Desenha o esqueleto no canvas (mesmo tamanho do vídeo). O espelhamento é feito por CSS. */
 export function desenharEsqueleto(ctx: CanvasRenderingContext2D, pontos: Ponto[] | null, estilo: EstiloEsqueleto): void {
   const { width: largura, height: altura } = ctx.canvas;
