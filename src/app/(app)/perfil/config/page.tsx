@@ -11,6 +11,7 @@ import { AVISO_MEDICO } from "@/dominio/termos";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 import { declararLiberacao, salvarConfiguracoes, salvarEsconderXp, salvarPrivacidadePeso } from "../acoes";
 import { Lembretes, type PreferenciasLembrete } from "./Lembretes";
+import { ModoTVConfig } from "./ModoTVConfig";
 
 export const metadata: Metadata = { title: "Configurações · Hive Break" };
 
@@ -188,6 +189,7 @@ export default async function Configuracoes() {
         </div>
       </Formulario>
       {prefs && <Lembretes inicial={prefs as PreferenciasLembrete} />}
+      <ModoTVConfig />
     </main>
   );
 }

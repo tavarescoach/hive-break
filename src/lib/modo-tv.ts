@@ -94,3 +94,41 @@ export function rolarParaOTopo(): void {
   window.scrollTo(0, 0);
   document.getElementById("raiz")?.scrollTo(0, 0);
 }
+
+export type GiroTV = "0" | "90" | "270";
+
+/** Giro atual do modo TV neste aparelho ("0" = desligado). */
+export function giroAtual(): GiroTV {
+  const giro = document.documentElement.dataset.tvGiro;
+  return giro === "90" || giro === "270" ? giro : "0";
+}
+
+/**
+ * Liga, troca ou desliga o modo TV de dentro do app. Serve para o app salvo na tela de início,
+ * que não tem barra de endereço para digitar `?girar` e tem armazenamento separado do Safari.
+ */
+export function definirModoTV(giro: GiroTV): void {
+  document.cookie = `modoTV=${giro}; path=/; max-age=31536000; samesite=lax`;
+  try {
+    if (giro === "0") window.localStorage.removeItem(CHAVE_MODO_TV);
+    else window.localStorage.setItem(CHAVE_MODO_TV, giro);
+  } catch {
+    // Sem localStorage: o cookie basta.
+  }
+  // Tira o ?girar da URL (se houver) para ele não desfazer a escolha.
+  const url = new URL(window.location.href);
+  if (url.searchParams.has("girar")) {
+    url.searchParams.delete("girar");
+    window.history.replaceState(window.history.state, "", url);
+  }
+  aplicarModoTV();
+  window.dispatchEvent(new Event(EVENTO_MODO_TV));
+}
+
+const EVENTO_MODO_TV = "modo-tv";
+
+/** Avisa quando o modo TV muda (para useSyncExternalStore). */
+export function assinarModoTV(aviso: () => void): () => void {
+  window.addEventListener(EVENTO_MODO_TV, aviso);
+  return () => window.removeEventListener(EVENTO_MODO_TV, aviso);
+}
