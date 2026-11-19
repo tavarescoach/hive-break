@@ -32,8 +32,9 @@ async function buscarPerfilPublico(username: string): Promise<PerfilResumo | nul
   if (error) {
     // Diagnóstico temporário (seção "deploy", issue do @luan 404): sem isso, qualquer
     // erro de consulta virava um 404 silencioso, indistinguível de "não existe".
-    console.error(`[/@${username}] buscarPerfilPublico falhou:`, error);
+    console.error(`[/@${username}] buscarPerfilPublico falhou: ${JSON.stringify(error)}`);
   }
+  console.log(`[/@${username}] buscarPerfilPublico: achou=${!!data} id=${(data as PerfilResumo | null)?.id ?? "—"}`);
   return (data as PerfilResumo | null) ?? null;
 }
 
@@ -117,32 +118,41 @@ function lerMes(bruto: string | undefined): { ano: number; mes: number } {
 }
 
 async function carregarPagina(handleBruto: string) {
-  if (!handleBruto.startsWith("@")) return null;
+  // Diagnóstico temporário (seção "deploy", issue do @luan 404): tira depois de confirmar a causa.
+  console.log(`[/@${handleBruto}] carregarPagina chamada, handleBruto=${JSON.stringify(handleBruto)}`);
+  if (!handleBruto.startsWith("@")) {
+    console.log(`[/@${handleBruto}] handle não começa com @, retornando null`);
+    return null;
+  }
   const username = handleBruto.slice(1);
   const sessao = await lerSessao();
-  // Diagnóstico temporário (seção "deploy", issue do @luan 404): tira depois de confirmar a causa.
   console.log(`[/@${username}] logado=${!!sessao} meu_username=${sessao?.perfil.username ?? "—"}`);
 
   if (sessao && sessao.perfil.username === username) {
     // `username` vem da URL (sempre uma string real): mais seguro que o
     // `sessao.perfil.username` do tipo Perfil, que o Visitante tornou opcional.
     const perfil: PerfilResumo = { ...sessao.perfil, username };
+    console.log(`[/@${username}] retornando variante=proprio`);
     return { perfil, variante: "proprio" as VarianteNoBanner, sessao };
   }
 
   const perfil = await buscarPerfilPublico(username);
   if (!perfil) {
-    console.log(`[/@${username}] perfis_publicos não achou ninguém com esse username`);
+    console.log(`[/@${username}] perfis_publicos não achou ninguém com esse username, retornando null`);
     return null;
   }
 
   if (sessao) {
     // Bloqueio nos dois sentidos (docs/PERFIL.md, seção 4.1): "não consegue te ver".
     const { data: bloqueado, error } = await sessao.supabase.rpc("bloqueado_entre", { p_a: sessao.usuarioId, p_b: perfil.id });
-    if (error) console.error(`[/@${username}] bloqueado_entre falhou:`, error);
-    if (bloqueado) return null;
+    if (error) console.error(`[/@${username}] bloqueado_entre falhou: ${JSON.stringify(error)}`);
+    if (bloqueado) {
+      console.log(`[/@${username}] bloqueado_entre=true, retornando null`);
+      return null;
+    }
   }
 
+  console.log(`[/@${username}] retornando variante=${sessao ? "visitante_logado" : "publico"}`);
   return { perfil, variante: (sessao ? "visitante_logado" : "publico") as VarianteNoBanner, sessao };
 }
 
@@ -163,7 +173,10 @@ export default async function PaginaPerfil({
   const { handle } = await params;
   const { mes: mesBruto } = await searchParams;
   const pagina = await carregarPagina(handle);
-  if (!pagina) notFound();
+  if (!pagina) {
+    console.log(`[/@${handle}] página: carregarPagina retornou null, chamando notFound()`);
+    notFound();
+  }
   const { perfil, variante, sessao } = pagina;
 
   let hivesAoVivo = 0;
