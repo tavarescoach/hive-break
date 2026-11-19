@@ -8,8 +8,8 @@
  * Ligar: abrir qualquer tela com `?girar=270` (ou `?girar=90`). Fica salvo no aparelho
  * (localStorage "modoTV") e vale em todas as telas. Desligar: `?girar=0`.
  *
- * App na tela de início: com o modo TV ligado, o <link rel="manifest"> aponta para
- * /manifest-tv.webmanifest, cujo start_url já traz o ?girar. O app salvo tem armazenamento
+ * App na tela de início: o <link rel="manifest"> é criado por este script; com o modo TV
+ * ligado, aponta para /manifest-tv.webmanifest, cujo start_url já traz o ?girar. O app salvo tem armazenamento
  * próprio, separado do Safari, então é o start_url que liga o modo TV nele.
  *
  * Quem gira é o CSS (globals.css), pela classe `modo-tv` no <html> e o atributo
@@ -45,14 +45,19 @@ export function aplicarModoTV(): void {
     delete raiz.dataset.tvGiro;
   }
   // "Adicionar à Tela de Início" com o modo TV ligado salva o app já girado (manifesto do modo TV).
+  // O link é criado aqui, no <head>, já com o endereço certo: o iPhone pode ler o manifesto assim
+  // que o link aparece, então ele nunca deve existir apontando para o manifesto errado.
   const manifesto = ligado ? `/manifest-tv.webmanifest?girar=${giro}` : "/manifest.webmanifest";
-  const trocarManifesto = () =>
-    document.querySelectorAll<HTMLLinkElement>('link[rel="manifest"]').forEach((link) => {
-      if (link.getAttribute("href") !== manifesto) link.setAttribute("href", manifesto);
-    });
-  trocarManifesto();
-  // No <head>, o <link> pode vir depois deste script.
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", trocarManifesto, { once: true });
+  const links = document.querySelectorAll<HTMLLinkElement>('link[rel="manifest"]');
+  if (links.length === 0) {
+    const link = document.createElement("link");
+    link.rel = "manifest";
+    link.href = manifesto;
+    document.head.appendChild(link);
+  }
+  links.forEach((link) => {
+    if (link.getAttribute("href") !== manifesto) link.setAttribute("href", manifesto);
+  });
 }
 
 /** Script que roda no <head>, antes da primeira pintura, para não piscar a tela deitada. */
