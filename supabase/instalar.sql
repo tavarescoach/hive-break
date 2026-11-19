@@ -5578,14 +5578,21 @@ grant execute on function public.calendario_mes(uuid, int, int) to authenticated
 -- ---------------------------------------------------------------------------
 -- Perfil
 -- ---------------------------------------------------------------------------
+-- O username pode já existir (perfil v2, migração 20261121000300_perfil_username.sql,
+-- que gera um username para toda conta). Esta migração funciona com ou sem ela:
+--   * aceita ponto (VISITANTE.md, seção 5: letras, números, ponto e sublinhado);
+--   * deixa o username nulo só para o visitante que ainda não escolheu.
+alter table public.profiles add column if not exists username text;
+alter table public.profiles alter column username drop not null;
+alter table public.profiles drop constraint if exists profiles_username_formato;
+alter table public.profiles add constraint profiles_username_formato check (username ~ '^[a-z0-9._]{3,20}$');
 alter table public.profiles
-  add column username text check (username ~ '^[a-z0-9._]{3,20}$'),
-  add column username_trocado_em timestamptz,
-  add column ref_convite text,
-  add column triagem_respondida_em timestamptz,
-  add column triagem_restricao boolean not null default false,
-  add column visitante boolean not null default false;
-create unique index profiles_username_key on public.profiles (lower(username));
+  add column if not exists username_trocado_em timestamptz,
+  add column if not exists ref_convite text,
+  add column if not exists triagem_respondida_em timestamptz,
+  add column if not exists triagem_restricao boolean not null default false,
+  add column if not exists visitante boolean not null default false;
+create unique index if not exists profiles_username_key on public.profiles (lower(username));
 create index profiles_visitante_idx on public.profiles (criado_em) where visitante;
 
 -- Quem já fez a triagem antiga conta como respondida (sim em alguma = restrição antiga, por intensidade).
@@ -5789,14 +5796,22 @@ set search_path = public, pg_temp
 as $$
 declare
   v_visitante boolean := coalesce(new.is_anonymous, false);
+  v_username text;
 begin
-  insert into public.profiles (id, nome, avatar_url, codigo_convite, visitante)
+  -- Conta normal: se o perfil v2 estiver instalado, já nasce com username (gerar_username).
+  -- Visitante: escolhe o próprio username em /comecar.
+  if not v_visitante and to_regprocedure('public.gerar_username(text)') is not null then
+    execute 'select public.gerar_username($1)' into v_username
+    using coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', 'hiver');
+  end if;
+  insert into public.profiles (id, nome, avatar_url, codigo_convite, visitante, username)
   values (
     new.id,
     coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name'),
     coalesce(new.raw_user_meta_data ->> 'avatar_url', new.raw_user_meta_data ->> 'picture'),
     public.gerar_codigo_convite(),
-    v_visitante
+    v_visitante,
+    v_username
   );
   insert into public.streaks (user_id) values (new.id);
   if not v_visitante then
@@ -5992,11 +6007,19 @@ begin
 end;
 $$;
 
--- O visitante aparece na hive com o username.
-create or replace view public.perfis_publicos with (security_invoker = false) as
-  select id, apelido, avatar_url, divisao_atual, nivel_atual
-  from public.profiles
-  where onboarding_concluido_em is not null or (visitante and username is not null);
+-- O visitante aparece na hive com o username. Mantém as colunas que a view já
+-- tiver (o perfil v2 acrescenta username, objetivo etc.) e só muda o filtro.
+do $$
+declare v_colunas text;
+begin
+  select string_agg(quote_ident(column_name), ', ' order by ordinal_position) into v_colunas
+  from information_schema.columns where table_schema = 'public' and table_name = 'perfis_publicos';
+  execute format(
+    'create or replace view public.perfis_publicos with (security_invoker = false) as
+       select %s from public.profiles
+       where onboarding_concluido_em is not null or (visitante and username is not null)', v_colunas);
+end;
+$$;
 
 -- O desafio do convite: o último que quem convidou concluiu antes de o
 -- visitante chegar. O visitante pode fazê-lo mesmo bloqueado na trilha (não
