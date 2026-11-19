@@ -7254,6 +7254,164 @@ begin
 end;
 $$;
 
+-- >>> migrations/20261125000100_trilhas_acessorias.sql
+-- Hive Break · Trilhas acessórias (Hive Office, Hive Coluna em Dia, Hive Heat,
+-- Hive Desacelerar), pedido do Luan em 25/11/2026. Ver docs/TRILHAS_ACESSORIAS.md.
+--
+-- Cada trilha acessória é um nível (categoria 'acessoria') com uma unidade só,
+-- no mesmo padrão em que a trilha principal guarda nível → unidade → desafios:
+-- os desafios abaixo SÃO as "hives" da trilha acessória, cada uma com um
+-- exercício só. Isso reaproveita de graça o motor da câmera (/desafio/[id]) e
+-- as hives ao vivo (criar_hive), em vez de duplicar essa máquina.
+--
+-- Diferença da trilha principal: a seção de uma trilha acessória já nasce
+-- liberada para todo mundo (sem baú, sem avanço de nível_atual do perfil) —
+-- só a ordem das hives dentro da unidade continua travando a próxima até
+-- concluir a anterior (mesma regra de trilha_estados). A Hive Heat continua
+-- travada pela triagem de intensidade alta, como qualquer desafio 'alta'.
+--
+-- "Versão sem impacto" da Hive Heat: 3 hives alternativas (mesmo método,
+-- exercício sem salto) num nível extra e oculto (105), escondido da lista de
+-- trilhas acessórias; o app troca o id da hive apontada pelo botão "Let's
+-- hive" conforme o interruptor (ver src/dominio/trilhaAcessoria.ts).
+
+alter table public.levels add column categoria text not null default 'principal'
+  check (categoria in ('principal', 'acessoria'));
+
+-- Os níveis, unidades, desafios (hives) e blocos ficam em
+-- supabase/seed_trilha_acessoria.sql: são conteúdo, não esquema, e dependem
+-- dos exercícios que supabase/seed_trilha.sql semeia (roda depois daqui).
+
+-- trilha_estados: igual à versão de 20261122000100_visitante.sql (regra da
+-- declaração de saúde restrita), só acrescentando que uma trilha acessória já
+-- nasce liberada (sem user_level_progress — ela não tem baú nem avanço de
+-- nível_atual do perfil).
+create or replace function public.trilha_estados(p_user uuid)
+returns table (challenge_id text, level_id smallint, unit_id text, ordem smallint, seq integer, estado text)
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  with base as (
+    select c.id, c.level_id, c.unit_id, c.ordem,
+           row_number() over (partition by c.level_id order by u.ordem, c.ordem)::int as seq,
+           (p.concluido_em is not null) as feito,
+           case
+             when pf.triagem_restricao then c.modalidade = 'respiracao' or (c.modalidade = 'mobilidade' and c.intensidade = 'baixa')
+             else pf.liberado_alta_intensidade or c.intensidade = 'baixa'
+           end as permitido,
+           case when l.categoria = 'acessoria' then true else coalesce(lp.liberado, false) end as secao_liberada
+    from public.challenges c
+    join public.units u on u.id = c.unit_id
+    join public.levels l on l.id = c.level_id
+    cross join (select liberado_alta_intensidade, triagem_restricao from public.profiles where id = p_user) pf
+    left join public.user_challenge_progress p on p.user_id = p_user and p.challenge_id = c.id
+    left join public.user_level_progress lp on lp.user_id = p_user and lp.level_id = c.level_id
+  ),
+  marcado as (
+    select *,
+           coalesce(bool_or(permitido and not feito) over (
+             partition by level_id order by seq rows between unbounded preceding and 1 preceding
+           ), false) as pendente_antes
+    from base
+  )
+  select id, level_id, unit_id, ordem, seq,
+         case
+           when feito then 'concluido'
+           when not permitido then 'travado'
+           when secao_liberada and not pendente_antes then 'disponivel'
+           else 'bloqueado'
+         end
+  from marcado;
+$$;
+
+-- ler_trilha: sem mudança nenhuma de comportamento — só deixa explícito que
+-- é a trilha principal (categoria = 'principal'), já que as tabelas agora
+-- também guardam as trilhas acessórias. Quem lê a trilha principal continua
+-- vendo exatamente os mesmos níveis, unidades e desafios de antes.
+create or replace function public.ler_trilha() returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  p public.profiles;
+  s public.streaks;
+  v_hoje date;
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  select * into p from public.profiles where id = v_user;
+  select * into s from public.streaks where user_id = v_user;
+  v_hoje := (now() at time zone p.fuso_horario)::date;
+
+  return jsonb_build_object(
+    'nivel_atual', p.nivel_atual,
+    'liberado_alta_intensidade', p.liberado_alta_intensidade,
+    -- Ofensiva só vale se o último dia ativo foi hoje ou ontem.
+    'ofensiva', case when s.ultimo_dia_ativo >= v_hoje - 1 then s.atual else 0 end,
+    'fez_hoje', coalesce(s.ultimo_dia_ativo = v_hoje, false),
+    'xp_hoje', (select coalesce(sum(valor), 0) from public.xp_events
+                where user_id = v_user and (criado_em at time zone p.fuso_horario)::date = v_hoje),
+    'meta_xp', coalesce(p.meta_desafios_dia, 1) * 10,
+    'niveis', (select jsonb_agg(jsonb_build_object(
+                 'id', l.id, 'ordem', l.ordem, 'tema', l.tema, 'equipamentos', l.equipamentos_necessarios,
+                 'liberado', coalesce(lp.liberado, false), 'concluido', lp.concluido_em is not null) order by l.ordem)
+               from public.levels l
+               left join public.user_level_progress lp on lp.user_id = v_user and lp.level_id = l.id
+               where l.categoria = 'principal'),
+    'unidades', (select jsonb_agg(jsonb_build_object(
+                   'id', u.id, 'level_id', u.level_id, 'ordem', u.ordem, 'titulo', u.titulo, 'descricao', u.descricao)
+                   order by u.level_id, u.ordem)
+                 from public.units u
+                 join public.levels l on l.id = u.level_id and l.categoria = 'principal'),
+    'desafios', (select jsonb_agg(jsonb_build_object(
+                   'id', c.id, 'unit_id', c.unit_id, 'level_id', c.level_id, 'ordem', c.ordem, 'titulo', c.titulo,
+                   'modalidade', c.modalidade, 'duracao_s', c.duracao_s, 'intensidade', c.intensidade,
+                   'equipamento', c.equipamento, 'tipo', c.tipo, 'xp', public.xp_do_desafio(c.tipo), 'estado', e.estado)
+                   order by c.level_id, e.seq)
+                 from public.challenges c
+                 join public.levels l on l.id = c.level_id and l.categoria = 'principal'
+                 join public.trilha_estados(v_user) e on e.challenge_id = c.id),
+    'baus_abertos', (select coalesce(jsonb_agg(jsonb_build_object('unit_id', unit_id, 'posicao', posicao)), '[]'::jsonb)
+                     from public.user_chests where user_id = v_user)
+  );
+end;
+$$;
+
+-- ler_trilhas_acessorias: as trilhas acessórias (Hive Office, Hive Coluna em
+-- Dia, Hive Heat, Hive Desacelerar) e suas hives, no mesmo formato de
+-- desafio que a trilha principal — só filtrando para categoria 'acessoria'.
+-- O app já conhece o resto (nome, cor, frase, regras...) por
+-- src/dominio/trilhaAcessoria.ts; esta função só traz o que depende do
+-- usuário: estado de cada hive (concluído, disponível, bloqueado, travado).
+create function public.ler_trilhas_acessorias() returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  -- Mesmo formato do item de 'desafios' em ler_trilha(), para o app (e o
+  -- fallback de carregarDesafio) tratarem os dois iguais.
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'id', c.id, 'unit_id', c.unit_id, 'level_id', c.level_id, 'ordem', c.ordem, 'titulo', c.titulo,
+             'modalidade', c.modalidade, 'duracao_s', c.duracao_s, 'intensidade', c.intensidade,
+             'equipamento', c.equipamento, 'tipo', c.tipo, 'xp', public.xp_do_desafio(c.tipo), 'estado', e.estado)
+             order by c.level_id, e.seq)
+    from public.challenges c
+    join public.levels l on l.id = c.level_id and l.categoria = 'acessoria'
+    join public.trilha_estados(v_user) e on e.challenge_id = c.id
+  ), '[]'::jsonb);
+end;
+$$;
+
+grant execute on function public.ler_trilhas_acessorias() to authenticated;
+
 -- >>> seed.sql
 -- Hive Break · Seed de conteúdo fixo.
 -- Fase 1: os 8 níveis (seção 6.1) e as 12 conquistas (seção 9.6).
@@ -8193,5 +8351,156 @@ on conflict (id) do update set exercise_id = excluded.exercise_id, formato = exc
 delete from public.challenge_blocks b using public.challenges c
 where b.challenge_id = c.id and c.estrutura is not null and b.ordem > jsonb_array_length(c.estrutura -> 'blocos')
   and not exists (select 1 from public.attempt_blocks ab where ab.challenge_block_id = b.id);
+
+-- >>> seed_trilha_acessoria.sql
+-- Hive Break · Conteúdo das trilhas acessórias (Hive Office, Hive Coluna em
+-- Dia, Hive Heat, Hive Desacelerar). Ver supabase/migrations/20261125000100_*
+-- para o esquema (coluna levels.categoria e os ajustes de trilha_estados e
+-- ler_trilha). Roda depois de seed_trilha.sql: as hives abaixo são desafios
+-- de um exercício só, e precisam que os exercícios já existam.
+
+insert into public.levels (id, ordem, tema, equipamentos_necessarios, avisar_no_nivel, categoria) values
+  (101, 101, 'Hive Office', '{}', null, 'acessoria'),
+  (102, 102, 'Hive Coluna em Dia', '{}', null, 'acessoria'),
+  (103, 103, 'Hive Heat', '{}', null, 'acessoria'),
+  (104, 104, 'Hive Desacelerar', '{}', null, 'acessoria'),
+  (105, 105, 'Hive Heat · sem impacto', '{}', null, 'acessoria')
+on conflict (id) do update
+  set ordem = excluded.ordem, tema = excluded.tema,
+      equipamentos_necessarios = excluded.equipamentos_necessarios,
+      avisar_no_nivel = excluded.avisar_no_nivel, categoria = excluded.categoria;
+
+insert into public.units (id, level_id, ordem, titulo, descricao) values
+  ('u_ha_office', 101, 1, 'Hive Office', 'Mexa o corpo sem sair da mesa nem suar.'),
+  ('u_ha_coluna', 102, 1, 'Hive Coluna em Dia', 'Fortalece e solta lombar, pescoço, ombro e punho.'),
+  ('u_ha_heat', 103, 1, 'Hive Heat', 'Coração acelerado em poucos minutos.'),
+  ('u_ha_desacelerar', 104, 1, 'Hive Desacelerar', 'Solta o corpo e baixa o ritmo pra fechar o dia.'),
+  ('u_ha_heat_alt', 105, 1, 'Hive Heat · sem impacto', 'Mesmo ritmo, sem saltar.')
+on conflict (id) do update
+  set level_id = excluded.level_id, ordem = excluded.ordem, titulo = excluded.titulo, descricao = excluded.descricao;
+
+-- Hive Office: leve, sentado ou em pé, sem chão e sem salto.
+insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, tipo, estrutura) values
+  ('ha_office_1', 101, 'u_ha_office', 1, 'Elevação de braços em Y', 'mobilidade', 150, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"elevacao_bracos_y","metodo":"amrap","series":3,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":3,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_office_2', 101, 'u_ha_office', 2, 'Apoio em uma perna', 'equilibrio', 150, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"apoio_uma_perna","metodo":"isometria","series":3,"esforco_s":30,"pausa_s":15,"score":"tempo_valido","pse_alvo":3,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_office_3', 101, 'u_ha_office', 3, 'Postura da árvore', 'yoga', 150, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"postura_arvore","metodo":"isometria","series":3,"esforco_s":30,"pausa_s":15,"score":"tempo_valido","pse_alvo":3,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_office_4', 101, 'u_ha_office', 4, 'Marcha estacionária com braços', 'aquecimento', 150, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"marcha_estacionaria","metodo":"amrap","series":3,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":3,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_office_5', 101, 'u_ha_office', 5, 'Alongamento de posterior em pé', 'alongamento', 150, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"alongamento_posterior","metodo":"isometria","series":3,"esforco_s":30,"pausa_s":15,"score":"tempo_valido","pse_alvo":3,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_office_6', 101, 'u_ha_office', 6, 'Respiração guiada', 'respiracao', 150, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"respiracao_guiada","metodo":"isometria","series":3,"esforco_s":30,"pausa_s":15,"score":"tempo_valido","pse_alvo":3,"adm":"completa","acao":"isometrica"}]}'::jsonb)
+on conflict (id) do update set titulo = excluded.titulo, modalidade = excluded.modalidade, duracao_s = excluded.duracao_s,
+  intensidade = excluded.intensidade, tipo = excluded.tipo, estrutura = excluded.estrutura;
+
+-- Hive Coluna em Dia: moderada, pode ir ao chão, tapete/elástico opcionais.
+insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, tipo, estrutura) values
+  ('ha_coluna_1', 102, 'u_ha_coluna', 1, 'Ponte de glúteo', 'forca', 210, 'media', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"ponte_gluteo","metodo":"amrap","series":3,"esforco_s":40,"pausa_s":20,"score":"total_reps","pse_alvo":5,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_coluna_2', 102, 'u_ha_coluna', 2, 'Prancha', 'core', 210, 'media', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"prancha","metodo":"isometria","series":3,"esforco_s":40,"pausa_s":20,"score":"tempo_valido","pse_alvo":5,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_coluna_3', 102, 'u_ha_coluna', 3, 'Elevação de braços em Y', 'mobilidade', 210, 'media', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"elevacao_bracos_y","metodo":"amrap","series":3,"esforco_s":40,"pausa_s":20,"score":"total_reps","pse_alvo":5,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_coluna_4', 102, 'u_ha_coluna', 4, 'Bom-dia com bastão', 'forca', 210, 'media', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"bom_dia_bastao","metodo":"amrap","series":3,"esforco_s":40,"pausa_s":20,"score":"total_reps","pse_alvo":5,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_coluna_5', 102, 'u_ha_coluna', 5, 'Agachamento com bastão acima da cabeça', 'mobilidade', 210, 'media', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"agachamento_bastao","metodo":"amrap","series":3,"esforco_s":40,"pausa_s":20,"score":"total_reps","pse_alvo":5,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_coluna_6', 102, 'u_ha_coluna', 6, 'Alongamento de posterior em pé', 'alongamento', 210, 'media', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"alongamento_posterior","metodo":"isometria","series":3,"esforco_s":40,"pausa_s":20,"score":"tempo_valido","pse_alvo":5,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_coluna_7', 102, 'u_ha_coluna', 7, 'Cachorro olhando para baixo', 'yoga', 210, 'media', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"cachorro_olhando_baixo","metodo":"isometria","series":3,"esforco_s":40,"pausa_s":20,"score":"tempo_valido","pse_alvo":5,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_coluna_8', 102, 'u_ha_coluna', 8, 'Guerreiro II', 'yoga', 210, 'media', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"guerreiro_2","metodo":"isometria","series":3,"esforco_s":40,"pausa_s":20,"score":"tempo_valido","pse_alvo":5,"adm":"completa","acao":"isometrica"}]}'::jsonb)
+on conflict (id) do update set titulo = excluded.titulo, modalidade = excluded.modalidade, duracao_s = excluded.duracao_s,
+  intensidade = excluded.intensidade, tipo = excluded.tipo, estrutura = excluded.estrutura;
+
+-- Hive Heat: intensa, vai suar. As hives 1, 3 e 7 têm par "sem impacto" (nível 105).
+insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, tipo, estrutura) values
+  ('ha_heat_1', 103, 'u_ha_heat', 1, 'Polichinelo', 'cardio', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"polichinelo","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_heat_2', 103, 'u_ha_heat', 2, 'Mountain climber', 'condicionamento', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"mountain_climber","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_heat_3', 103, 'u_ha_heat', 3, 'Skipping (elevação de joelhos)', 'cardio', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"skipping","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_heat_4', 103, 'u_ha_heat', 4, 'Agachamento livre', 'forca', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"agachamento_livre","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_heat_5', 103, 'u_ha_heat', 5, 'Afundo alternado', 'forca', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"afundo_alternado","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_heat_6', 103, 'u_ha_heat', 6, 'Flexão de braço', 'forca', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"flexao_braco","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_heat_7', 103, 'u_ha_heat', 7, 'Toque nos alvos', 'precisao', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"toque_alvos","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_heat_8', 103, 'u_ha_heat', 8, 'Ponte de glúteo', 'forca', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"ponte_gluteo","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb)
+on conflict (id) do update set titulo = excluded.titulo, modalidade = excluded.modalidade, duracao_s = excluded.duracao_s,
+  intensidade = excluded.intensidade, tipo = excluded.tipo, estrutura = excluded.estrutura;
+
+-- Hive Heat · sem impacto: mesmas 3 hives com salto, trocadas por marcha estacionária.
+insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, tipo, estrutura) values
+  ('ha_heatalt_1', 105, 'u_ha_heat_alt', 1, 'Marcha estacionária com braços', 'aquecimento', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"marcha_estacionaria","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_heatalt_2', 105, 'u_ha_heat_alt', 2, 'Marcha estacionária com braços', 'aquecimento', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"marcha_estacionaria","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb),
+  ('ha_heatalt_3', 105, 'u_ha_heat_alt', 3, 'Marcha estacionária com braços', 'aquecimento', 270, 'alta', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":15,"blocos":[{"exercicio_id":"marcha_estacionaria","metodo":"amrap","series":4,"esforco_s":30,"pausa_s":15,"score":"total_reps","pse_alvo":8,"adm":"completa","acao":"mista"}]}'::jsonb)
+on conflict (id) do update set titulo = excluded.titulo, modalidade = excluded.modalidade, duracao_s = excluded.duracao_s,
+  intensidade = excluded.intensidade, tipo = excluded.tipo, estrutura = excluded.estrutura;
+
+-- Hive Desacelerar: muito leve, sustentações e respiração, melhor à noite.
+insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, tipo, estrutura) values
+  ('ha_desacelerar_1', 104, 'u_ha_desacelerar', 1, 'Respiração guiada', 'respiracao', 240, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"respiracao_guiada","metodo":"isometria","series":2,"esforco_s":60,"pausa_s":20,"score":"tempo_valido","pse_alvo":2,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_desacelerar_2', 104, 'u_ha_desacelerar', 2, 'Postura da árvore', 'yoga', 240, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"postura_arvore","metodo":"isometria","series":2,"esforco_s":60,"pausa_s":20,"score":"tempo_valido","pse_alvo":2,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_desacelerar_3', 104, 'u_ha_desacelerar', 3, 'Cachorro olhando para baixo', 'yoga', 240, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"cachorro_olhando_baixo","metodo":"isometria","series":2,"esforco_s":60,"pausa_s":20,"score":"tempo_valido","pse_alvo":2,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_desacelerar_4', 104, 'u_ha_desacelerar', 4, 'Alongamento de posterior em pé', 'alongamento', 240, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"alongamento_posterior","metodo":"isometria","series":2,"esforco_s":60,"pausa_s":20,"score":"tempo_valido","pse_alvo":2,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_desacelerar_5', 104, 'u_ha_desacelerar', 5, 'Guerreiro II', 'yoga', 240, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"guerreiro_2","metodo":"isometria","series":2,"esforco_s":60,"pausa_s":20,"score":"tempo_valido","pse_alvo":2,"adm":"completa","acao":"isometrica"}]}'::jsonb),
+  ('ha_desacelerar_6', 104, 'u_ha_desacelerar', 6, 'Respiração guiada', 'respiracao', 240, 'baixa', 'desafio',
+   '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,"blocos":[{"exercicio_id":"respiracao_guiada","metodo":"isometria","series":2,"esforco_s":60,"pausa_s":20,"score":"tempo_valido","pse_alvo":2,"adm":"completa","acao":"isometrica"}]}'::jsonb)
+on conflict (id) do update set titulo = excluded.titulo, modalidade = excluded.modalidade, duracao_s = excluded.duracao_s,
+  intensidade = excluded.intensidade, tipo = excluded.tipo, estrutura = excluded.estrutura;
+
+-- challenge_blocks (tabela antiga, ainda lida por carregarDesafio para nome e
+-- câmera do exercício): um bloco por hive, igual ao exercício da estrutura.
+insert into public.challenge_blocks (id, challenge_id, ordem, exercise_id, formato, series, parametros_por_dificuldade, descanso_s) values
+  ('ha_office_1b1', 'ha_office_1', 1, 'elevacao_bracos_y', 'repeticoes', 3, '{"padrao":{"segundos":90}}'::jsonb, 15),
+  ('ha_office_2b1', 'ha_office_2', 1, 'apoio_uma_perna', 'equilibrio', 3, '{"padrao":{"segundos":90}}'::jsonb, 15),
+  ('ha_office_3b1', 'ha_office_3', 1, 'postura_arvore', 'postura', 3, '{"padrao":{"segundos":90}}'::jsonb, 15),
+  ('ha_office_4b1', 'ha_office_4', 1, 'marcha_estacionaria', 'amrap', 3, '{"padrao":{"segundos":90}}'::jsonb, 15),
+  ('ha_office_5b1', 'ha_office_5', 1, 'alongamento_posterior', 'isometria', 3, '{"padrao":{"segundos":90}}'::jsonb, 15),
+  ('ha_office_6b1', 'ha_office_6', 1, 'respiracao_guiada', 'respiracao', 3, '{"padrao":{"segundos":90}}'::jsonb, 15),
+  ('ha_coluna_1b1', 'ha_coluna_1', 1, 'ponte_gluteo', 'repeticoes', 3, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_coluna_2b1', 'ha_coluna_2', 1, 'prancha', 'isometria', 3, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_coluna_3b1', 'ha_coluna_3', 1, 'elevacao_bracos_y', 'repeticoes', 3, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_coluna_4b1', 'ha_coluna_4', 1, 'bom_dia_bastao', 'repeticoes', 3, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_coluna_5b1', 'ha_coluna_5', 1, 'agachamento_bastao', 'repeticoes', 3, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_coluna_6b1', 'ha_coluna_6', 1, 'alongamento_posterior', 'isometria', 3, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_coluna_7b1', 'ha_coluna_7', 1, 'cachorro_olhando_baixo', 'postura', 3, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_coluna_8b1', 'ha_coluna_8', 1, 'guerreiro_2', 'postura', 3, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_heat_1b1', 'ha_heat_1', 1, 'polichinelo', 'repeticoes', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heat_2b1', 'ha_heat_2', 1, 'mountain_climber', 'amrap', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heat_3b1', 'ha_heat_3', 1, 'skipping', 'amrap', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heat_4b1', 'ha_heat_4', 1, 'agachamento_livre', 'repeticoes', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heat_5b1', 'ha_heat_5', 1, 'afundo_alternado', 'repeticoes', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heat_6b1', 'ha_heat_6', 1, 'flexao_braco', 'repeticoes', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heat_7b1', 'ha_heat_7', 1, 'toque_alvos', 'precisao', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heat_8b1', 'ha_heat_8', 1, 'ponte_gluteo', 'repeticoes', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heatalt_1b1', 'ha_heatalt_1', 1, 'marcha_estacionaria', 'amrap', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heatalt_2b1', 'ha_heatalt_2', 1, 'marcha_estacionaria', 'amrap', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_heatalt_3b1', 'ha_heatalt_3', 1, 'marcha_estacionaria', 'amrap', 4, '{"padrao":{"segundos":120}}'::jsonb, 15),
+  ('ha_desacelerar_1b1', 'ha_desacelerar_1', 1, 'respiracao_guiada', 'respiracao', 2, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_desacelerar_2b1', 'ha_desacelerar_2', 1, 'postura_arvore', 'postura', 2, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_desacelerar_3b1', 'ha_desacelerar_3', 1, 'cachorro_olhando_baixo', 'postura', 2, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_desacelerar_4b1', 'ha_desacelerar_4', 1, 'alongamento_posterior', 'isometria', 2, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_desacelerar_5b1', 'ha_desacelerar_5', 1, 'guerreiro_2', 'postura', 2, '{"padrao":{"segundos":120}}'::jsonb, 20),
+  ('ha_desacelerar_6b1', 'ha_desacelerar_6', 1, 'respiracao_guiada', 'respiracao', 2, '{"padrao":{"segundos":120}}'::jsonb, 20)
+on conflict (id) do update set ordem = excluded.ordem, exercise_id = excluded.exercise_id, formato = excluded.formato,
+  series = excluded.series, parametros_por_dificuldade = excluded.parametros_por_dificuldade, descanso_s = excluded.descanso_s;
 
 commit;
