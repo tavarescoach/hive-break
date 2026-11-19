@@ -60,16 +60,20 @@ beforeAll(async () => {
 describe("conteúdo da trilha (seed)", () => {
   it("tem os 19 exercícios, 8 níveis e 3 unidades por nível", async () => {
     const { rows } = await db.query<{ e: number; u: number; por_nivel: number[] }>(
-      `select (select count(*)::int from public.exercises) as e, (select count(*)::int from public.units) as u,
-              (select array_agg(n order by level_id) from (select level_id, count(*)::int as n from public.units group by 1) x) as por_nivel`);
+      `select (select count(*)::int from public.exercises) as e,
+              (select count(*)::int from public.units u join public.levels l on l.id = u.level_id and l.categoria = 'principal') as u,
+              (select array_agg(n order by level_id) from
+                 (select u.level_id, count(*)::int as n from public.units u
+                  join public.levels l on l.id = u.level_id and l.categoria = 'principal' group by 1) x) as por_nivel`);
     expect(rows[0]).toEqual({ e: 19, u: 24, por_nivel: [3, 3, 3, 3, 3, 3, 3, 3] });
   });
 
   it("cada unidade tem de 8 a 12 desafios (8, 8, 10, 10, 10, 12, 12, 12) mais o desafio da unidade no fim", async () => {
     const { rows } = await db.query<{ level_id: number; desafios: number; finais: number; ultimo: string }>(
-      `select c.level_id, count(*) filter (where tipo = 'desafio')::int as desafios, count(*) filter (where tipo = 'final')::int as finais,
-              (array_agg(tipo order by ordem desc))[1] as ultimo
-       from public.challenges c group by unit_id, c.level_id order by c.level_id`);
+      `select c.level_id, count(*) filter (where c.tipo = 'desafio')::int as desafios, count(*) filter (where c.tipo = 'final')::int as finais,
+              (array_agg(c.tipo order by c.ordem desc))[1] as ultimo
+       from public.challenges c join public.levels l on l.id = c.level_id and l.categoria = 'principal'
+       group by c.unit_id, c.level_id order by c.level_id`);
     expect(rows).toHaveLength(24);
     for (const r of rows) {
       expect(r.desafios, `nível ${r.level_id}`).toBe([8, 8, 10, 10, 10, 12, 12, 12][r.level_id - 1]);
@@ -79,8 +83,8 @@ describe("conteúdo da trilha (seed)", () => {
 
   it("começa no aquecimento e termina na respiração", async () => {
     const ordem = await db.query<{ primeiro: string; penultimo: string }>(
-      `select (array_agg(modalidade order by ordem))[1] as primeiro, (array_agg(modalidade order by ordem desc))[2] as penultimo
-       from public.challenges group by unit_id`);
+      `select (array_agg(c.modalidade order by c.ordem))[1] as primeiro, (array_agg(c.modalidade order by c.ordem desc))[2] as penultimo
+       from public.challenges c join public.levels l on l.id = c.level_id and l.categoria = 'principal' group by c.unit_id`);
     expect(new Set(ordem.rows.map((r) => `${r.primeiro}>${r.penultimo}`))).toEqual(new Set(["aquecimento>respiracao"]));
     const longos = await db.query<{ id: string }>("select id from public.challenges where duracao_s > 300");
     expect(longos.rows).toEqual([]);
@@ -90,7 +94,9 @@ describe("conteúdo da trilha (seed)", () => {
     const { rows } = await db.query<{ id: string; estrutura: Estrutura; metodo: unknown; duracao_s: number; exercicios: string[]; series: number[]; pausas: number[] }>(
       `select c.id, c.estrutura, c.metodo, c.duracao_s, array_agg(b.exercise_id order by b.ordem) as exercicios,
               array_agg(b.series order by b.ordem) as series, array_agg(b.descanso_s order by b.ordem) as pausas
-       from public.challenges c join public.challenge_blocks b on b.challenge_id = c.id group by c.id`);
+       from public.challenges c
+       join public.levels l on l.id = c.level_id and l.categoria = 'principal'
+       join public.challenge_blocks b on b.challenge_id = c.id group by c.id`);
     expect(rows).toHaveLength(270);
     const metodos = new Set<string>();
     for (const r of rows) {
@@ -124,8 +130,9 @@ describe("conteúdo da trilha (seed)", () => {
 
   it("equipamento segue a seção 6.1: nada até o nível 4, tapete a partir do 5, cabo de vassoura a partir do 7", async () => {
     const { rows } = await db.query<{ level_id: number; itens: string[] | null }>(
-      `select level_id, array_agg(distinct equipamento) filter (where equipamento is not null) as itens
-       from public.challenges group by level_id order by level_id`);
+      `select c.level_id, array_agg(distinct equipamento) filter (where equipamento is not null) as itens
+       from public.challenges c join public.levels l on l.id = c.level_id and l.categoria = 'principal'
+       group by c.level_id order by c.level_id`);
     expect(rows.map((r) => (r.itens ?? []).sort().join("+"))).toEqual(["", "", "", "", "tapete", "tapete", "cabo_vassoura+tapete", "cabo_vassoura+tapete"]);
   });
 });
