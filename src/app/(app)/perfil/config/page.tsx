@@ -9,7 +9,7 @@ import {
 import { VISIBILIDADES_PESO } from "@/dominio/peso";
 import { AVISO_MEDICO } from "@/dominio/termos";
 import { exigirCadastroCompleto } from "@/lib/sessao";
-import { declararLiberacao, salvarConfiguracoes, salvarPrivacidadePeso, salvarUsername } from "../acoes";
+import { declararLiberacao, salvarConfiguracoes, salvarEsconderXp, salvarPrivacidadePeso, salvarUsername } from "../acoes";
 import { Lembretes, type PreferenciasLembrete } from "./Lembretes";
 
 export const metadata: Metadata = { title: "Configurações · Hive Break" };
@@ -71,6 +71,18 @@ export default async function Configuracoes() {
             </span>
           </label>
         </div>
+      </Formulario>
+
+      <Formulario acao={salvarEsconderXp} botao="Salvar">
+        <label className="flex min-h-12 cursor-pointer items-start gap-3">
+          <input type="checkbox" name="esconder_xp" defaultChecked={perfil.esconder_xp} className="mt-0.5 h-6 w-6 shrink-0 accent-[var(--color-mel)]" />
+          <span>
+            <span className="block text-[15px] font-semibold">Esconder XP e liga dos outros</span>
+            <span className="mt-0.5 block text-sm leading-relaxed text-apagado">
+              Amigos e outras pessoas logadas passam a ver só a sua ofensiva e as suas conquistas. Você continua vendo tudo.
+            </span>
+          </span>
+        </label>
       </Formulario>
 
       {perfil.liberado_alta_intensidade ? (

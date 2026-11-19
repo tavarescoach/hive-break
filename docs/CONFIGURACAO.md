@@ -102,6 +102,9 @@ conforme ela for implementada:
 2. [`supabase/migrations/20261121000400_perfil_objetivo.sql`](../supabase/migrations/20261121000400_perfil_objetivo.sql)
    — cria `pesagens`, a meta e a privacidade do peso, e as funções `peso_card`/`meta_semana`
    usadas pelo card de objetivo e pela meta da semana.
+3. [`supabase/migrations/20261122000100_perfil_estatisticas.sql`](../supabase/migrations/20261122000100_perfil_estatisticas.sql)
+   — cria `profiles.esconder_xp` e as funções `estatisticas_perfil`/`calendario_mes` da grade
+   de estatísticas e do calendário em hexágonos.
 
 ## 2. Login com Google
 

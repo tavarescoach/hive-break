@@ -56,6 +56,19 @@ export async function salvarPrivacidadePeso(_anterior: EstadoFormulario, formula
   return {};
 }
 
+/** Esconder XP e liga dos outros (docs/PERFIL.md, seção 7). O dono continua vendo tudo. */
+export async function salvarEsconderXp(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
+  const sessao = await exigirSessao();
+  const { error } = await sessao.supabase
+    .from("profiles")
+    .update({ esconder_xp: formulario.get("esconder_xp") === "on" })
+    .eq("id", sessao.usuarioId);
+  if (error) return { erro: FALHA };
+  revalidatePath("/perfil/config");
+  revalidatePath(`/@${sessao.perfil.username}`);
+  return {};
+}
+
 export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
   const sessao = await exigirSessao();
   const dados: Record<string, unknown> = {};

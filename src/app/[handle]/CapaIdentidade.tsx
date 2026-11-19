@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { botaoPrimario, botaoSecundario } from "@/componentes/estilos";
+import { HEXAGONO_CLIP } from "@/componentes/hexagono";
 import { CORES_DIVISAO, NOMES_DIVISAO, type Divisao } from "@/dominio/liga";
 
 export interface PerfilResumo {
@@ -16,8 +17,6 @@ export interface PerfilResumo {
 }
 
 export type VarianteNoBanner = "proprio" | "visitante_logado" | "publico";
-
-const HEXAGONO = "polygon(25% 2%, 75% 2%, 100% 50%, 75% 98%, 25% 98%, 0% 50%)";
 
 const MEMBRO_DESDE = (criadoEm: string) =>
   new Date(criadoEm).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
@@ -50,10 +49,10 @@ export function CapaIdentidade({
         <div className="-mt-10 flex items-end justify-between gap-3">
           <span
             aria-hidden
-            style={{ clipPath: HEXAGONO, backgroundColor: corDivisao }}
+            style={{ clipPath: HEXAGONO_CLIP, backgroundColor: corDivisao }}
             className="flex h-20 w-20 shrink-0 items-center justify-center"
           >
-            <span style={{ clipPath: HEXAGONO }} className="flex h-[72px] w-[72px] items-center justify-center overflow-hidden bg-fundo">
+            <span style={{ clipPath: HEXAGONO_CLIP }} className="flex h-[72px] w-[72px] items-center justify-center overflow-hidden bg-fundo">
               {perfil.avatar_url ? (
                 // eslint-disable-next-line @next/next/no-img-element -- foto pequena vinda do Google
                 <img src={perfil.avatar_url} alt="" referrerPolicy="no-referrer" className="h-full w-full object-cover" />

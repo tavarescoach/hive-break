@@ -397,3 +397,53 @@ describe("peso e meta da semana (docs/PERFIL.md)", () => {
     expect(dados.streak).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("estatísticas e calendário (docs/PERFIL.md)", () => {
+  it("dono e amigo (sem esconder XP) veem a grade inteira; só eles, não quem não é amigo nem está logado", async () => {
+    await db.query("update public.league_members set posicao_final = 1 where league_id = $1 and user_id = $2", [ligaId, ana]);
+    const pegar = (quem: string | null) =>
+      como(db, { usuario: quem }, (tx) => tx.query<{ estatisticas_perfil: Record<string, unknown> }>("select public.estatisticas_perfil($1)", [ana]))
+        .then((r) => r.rows[0].estatisticas_perfil as Record<string, unknown>);
+
+    const doDono = await pegar(ana);
+    expect(doDono).toMatchObject({ nivel: "dono", podios: 1 });
+    expect(doDono.xp_total).toBeTypeOf("number");
+
+    const doAmigo = await pegar(bruno);
+    expect(doAmigo).toMatchObject({ nivel: "completo", podios: 1 });
+    expect(doAmigo.xp_total).toBeTypeOf("number");
+
+    const doPublico = await pegar(null);
+    expect(doPublico).toMatchObject({ nivel: "publico" });
+    expect(doPublico.xp_total).toBeNull();
+    expect(doPublico.podios).toBeNull();
+    expect(doPublico.ofensiva).toBeTypeOf("number");
+    expect(doPublico.divisao).toBeDefined();
+  });
+
+  it("esconder_xp deixa só ofensiva (e conquistas, fora desta função) para quem não é o dono", async () => {
+    await db.query("update public.profiles set esconder_xp = true where id = $1", [ana]);
+    const r = await como(db, { usuario: bruno }, (tx) => tx.query<{ estatisticas_perfil: Record<string, unknown> }>("select public.estatisticas_perfil($1)", [ana]));
+    const dados = r.rows[0].estatisticas_perfil as Record<string, unknown>;
+    expect(dados.nivel).toBe("limitado");
+    expect(dados.xp_total).toBeNull();
+    expect(dados.podios).toBeNull();
+    expect(dados.ofensiva).toBeTypeOf("number");
+
+    // Mesmo com esconder_xp ligado, o dono continua vendo tudo.
+    const doDono = await como(db, { usuario: ana }, (tx) => tx.query<{ estatisticas_perfil: Record<string, unknown> }>("select public.estatisticas_perfil($1)", [ana]));
+    expect((doDono.rows[0].estatisticas_perfil as Record<string, unknown>).nivel).toBe("dono");
+    await db.query("update public.profiles set esconder_xp = false where id = $1", [ana]);
+  });
+
+  it("calendario_mes devolve os dias do mês, e nada para quem não está logado", async () => {
+    const hoje = new Date();
+    const r = await como(db, { usuario: ana }, (tx) =>
+      tx.query<{ calendario_mes: { dia: string; hives: number }[] }>("select public.calendario_mes($1, $2, $3)", [ana, hoje.getFullYear(), hoje.getMonth() + 1]));
+    const dias = r.rows[0].calendario_mes;
+    expect(dias.length).toBeGreaterThanOrEqual(28);
+    expect(dias[0]).toHaveProperty("bateu_meta");
+
+    await expect(como(db, { usuario: null }, (tx) => tx.query("select public.calendario_mes($1, 2026, 11)", [ana]))).rejects.toThrow(/permission denied/);
+  });
+});
