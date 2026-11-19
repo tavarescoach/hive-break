@@ -14,7 +14,7 @@ const OPCOES_COOKIE = {
   path: "/",
 };
 
-/** Guarda o código de quem convidou (e o gancho, se veio um) e segue para o login. */
+/** Guarda o código de quem convidou (e o gancho, se veio um) e segue para o username (visitante, docs/VISITANTE.md). */
 export async function aceitarConvite(formulario: FormData) {
   const codigo = normalizarCodigo(String(formulario.get("codigo") ?? ""));
   const familia = familiaDaQuery(String(formulario.get("g") ?? ""));
@@ -22,5 +22,5 @@ export async function aceitarConvite(formulario: FormData) {
   const jarra = await cookies();
   if (codigo) jarra.set(COOKIE_CONVITE, codigo, OPCOES_COOKIE);
   if (familia && ganchoId) jarra.set(COOKIE_GANCHO, serializarGancho(familia, ganchoId), OPCOES_COOKIE);
-  redirect("/entrar");
+  redirect("/comecar");
 }

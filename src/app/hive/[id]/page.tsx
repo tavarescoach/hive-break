@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ConfiguracaoPendente } from "@/componentes/ConfiguracaoPendente";
 import type { DadosHive } from "@/dominio/hive";
 import { carregarDesafio } from "@/lib/carregar-desafio";
-import { exigirCadastroCompleto } from "@/lib/sessao";
+import { exigirJogador } from "@/lib/sessao";
 import { supabaseConfigurado } from "@/lib/supabase/env";
 import { SalaHive } from "./SalaHive";
 
@@ -16,7 +16,7 @@ export default async function PaginaHive({ params }: { params: Promise<{ id: str
   if (!supabaseConfigurado) return <ConfiguracaoPendente />;
   const { id } = await params;
   if (!UUID.test(id)) notFound();
-  const sessao = await exigirCadastroCompleto();
+  const sessao = await exigirJogador(`/hive/${id}`);
 
   const { data } = await sessao.supabase.rpc("ler_hive", { p_hive: id });
   const hive = data as DadosHive | null;

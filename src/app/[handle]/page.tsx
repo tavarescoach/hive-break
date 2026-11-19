@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ProgressoConquista } from "@/dominio/conquistas";
+import { perfilHref } from "@/dominio/perfil";
 import { lerSessao, type Sessao } from "@/lib/sessao";
 import { origemAbsoluta } from "@/lib/origem";
 import { criarClienteServidor } from "@/lib/supabase/servidor";
@@ -116,7 +117,9 @@ async function carregarPagina(handleBruto: string) {
   const sessao = await lerSessao();
 
   if (sessao && sessao.perfil.username === username) {
-    const perfil: PerfilResumo = sessao.perfil;
+    // `username` vem da URL (sempre uma string real): mais seguro que o
+    // `sessao.perfil.username` do tipo Perfil, que o Visitante tornou opcional.
+    const perfil: PerfilResumo = { ...sessao.perfil, username };
     return { perfil, variante: "proprio" as VarianteNoBanner, sessao };
   }
 
@@ -195,7 +198,7 @@ export default async function PaginaPerfil({
   );
 
   return (
-    <PerfilColunas perfilHref={sessao ? `/@${sessao.perfil.username}` : undefined} hivesAoVivo={hivesAoVivo} direita={direita}>
+    <PerfilColunas perfilHref={sessao ? perfilHref(sessao.perfil.username) : undefined} hivesAoVivo={hivesAoVivo} direita={direita}>
       <div className="flex flex-col gap-4">
         <CapaIdentidade perfil={perfil} variante={variante} relacao={relacao} link={`${origem}/@${perfil.username}`} />
         <div className="flex flex-col gap-4 px-5">

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { proximoPasso, TIPOS_ACEITE } from "@/dominio/onboarding";
 import { COMPROMISSOS, ESTILOS_MUSICA, ETAPAS_PERFIL, METAS_DIARIAS, validarCampo, validarFuso } from "@/dominio/perfil";
 import { VERSAO_TERMOS } from "@/dominio/termos";
-import { lerRespostas } from "@/dominio/triagem";
+import { VERSAO_DECLARACAO } from "@/dominio/declaracao-saude";
 import { dispararLembretes } from "@/lib/lembretes";
 import { exigirSessao, lerSessao } from "@/lib/sessao";
 
@@ -52,14 +52,16 @@ export async function salvarEtapaPerfil(idEtapa: string, _anterior: EstadoFormul
   redirect(seguinte ? `/onboarding/perfil/${seguinte.id}` : "/onboarding");
 }
 
-export async function salvarTriagem(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
+/** Declaração de saúde (docs/VISITANTE.md, seção 4): substitui as 7 perguntas no cadastro. */
+export async function salvarDeclaracao(todasNao: boolean): Promise<{ erro?: string; destino?: string }> {
   const sessao = await exigirSessao();
-  const respostas = lerRespostas(formulario);
-  if (!respostas) return { erro: "Responda sim ou não nas 7 perguntas." };
-  const { data: liberado, error } = await sessao.supabase.rpc("registrar_triagem", { p_respostas: respostas });
+  const { error } = await sessao.supabase.rpc("registrar_declaracao_saude", {
+    p_todas_nao: todasNao,
+    p_ciente: true,
+    p_versao: VERSAO_DECLARACAO,
+  });
   if (error) return { erro: FALHA };
-  if (liberado === false) return { recomendacao: true };
-  redirect("/onboarding");
+  return { destino: "/onboarding" };
 }
 
 export async function salvarMeta(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {

@@ -5,12 +5,17 @@ import type { EstadoFormulario } from "@/app/onboarding/acoes";
 import { validarCampo } from "@/dominio/perfil";
 import { exigirSessao } from "@/lib/sessao";
 
+/** O perfil público só existe depois que a pessoa escolhe um username (docs/VISITANTE.md). */
+function revalidarPerfilPublico(username: string | null | undefined) {
+  if (username) revalidatePath(`/@${username}`);
+}
+
 /** Vitrine de conquistas (docs/PERFIL.md, seção 3.2): até 3, só as já conquistadas. */
 export async function definirVitrine(ids: string[]): Promise<{ ok: boolean; erro?: string }> {
   const sessao = await exigirSessao();
   const { error } = await sessao.supabase.rpc("definir_vitrine", { p_ids: ids });
   if (error) return { ok: false, erro: "Não consegui salvar a vitrine agora." };
-  revalidatePath(`/@${sessao.perfil.username}`);
+  revalidarPerfilPublico(sessao.perfil.username);
   return { ok: true };
 }
 
@@ -28,6 +33,6 @@ export async function registrarPeso(_anterior: EstadoFormulario, formulario: For
   if (!resultado.ok) return { erro: resultado.erro };
   const { error } = await sessao.supabase.rpc("registrar_peso", { p_peso_kg: resultado.valor });
   if (error) return { erro: "Não consegui salvar. Confira a internet e tente de novo." };
-  revalidatePath(`/@${sessao.perfil.username}`);
+  revalidarPerfilPublico(sessao.perfil.username);
   return {};
 }

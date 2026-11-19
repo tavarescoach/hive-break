@@ -10,11 +10,18 @@ alter table public.profiles
   add column vitrine_conquistas text[] not null default '{}' check (cardinality(vitrine_conquistas) <= 3);
 
 -- A vitrine aparece para todo mundo, inclusive no perfil público (seção 6).
+-- View final (docs/VISITANTE.md já tinha simplificado para 5 colunas; esta
+-- migração junta tudo): identidade pública + objetivo/meta da semana +
+-- vitrine, com o username agora vindo da migração do Visitante (pode ser
+-- nulo até a pessoa escolher um). Mesma regra de quem aparece: cadastro
+-- completo, ou visitante que já escolheu um username.
 create or replace view public.perfis_publicos with (security_invoker = false) as
   select id, apelido, avatar_url, divisao_atual, nivel_atual, username, criado_em,
     objetivo, meta_desafios_dia, dias_semana, vitrine_conquistas
   from public.profiles
-  where onboarding_concluido_em is not null;
+  where onboarding_concluido_em is not null or (visitante and username is not null);
+-- Perfil público (seção 6): quem não está logado também lê a view.
+grant select on public.perfis_publicos to anon;
 
 -- Progresso de cada conquista para quem pergunta: "atual"/"meta" cobrem os
 -- critérios com contador óbvio; os demais ficam só como conquistada ou não

@@ -76,24 +76,33 @@ export function BuscaAmigos({ sugestoesIniciais }: { sugestoesIniciais: Resultad
 function LinhaResultado({ r }: { r: ResultadoBusca }) {
   const divisao = r.divisao_atual as Divisao;
   const cor = CORES_DIVISAO[divisao] ?? CORES_DIVISAO.bronze;
-  const nome = r.apelido ?? r.username;
+  const nome = r.apelido ?? r.username ?? "Hiver";
+  const conteudo = (
+    <>
+      <Avatar url={r.avatar_url} nome={nome} tamanho={44} />
+      <div className="min-w-0">
+        <p className="truncate font-bold">{nome}</p>
+        <p className="truncate text-sm text-apagado">
+          {r.username && `@${r.username} · `}🔥 {r.ofensiva} · <span style={{ color: cor }}>{NOMES_DIVISAO[divisao] ?? NOMES_DIVISAO.bronze}</span>
+          {r.objetivo && ` · ${rotuloDe(OBJETIVOS, r.objetivo)}`}
+        </p>
+        {r.amigos_em_comum > 0 && (
+          <p className="text-xs text-apagado">
+            {r.amigos_em_comum} {r.amigos_em_comum === 1 ? "amigo em comum" : "amigos em comum"}
+          </p>
+        )}
+      </div>
+    </>
+  );
   return (
     <li className={`${cartao} flex items-center gap-3 py-3`}>
-      <Link href={`/@${r.username}`} className="flex min-w-0 flex-1 items-center gap-3">
-        <Avatar url={r.avatar_url} nome={nome} tamanho={44} />
-        <div className="min-w-0">
-          <p className="truncate font-bold">{nome}</p>
-          <p className="truncate text-sm text-apagado">
-            @{r.username} · 🔥 {r.ofensiva} · <span style={{ color: cor }}>{NOMES_DIVISAO[divisao] ?? NOMES_DIVISAO.bronze}</span>
-            {r.objetivo && ` · ${rotuloDe(OBJETIVOS, r.objetivo)}`}
-          </p>
-          {r.amigos_em_comum > 0 && (
-            <p className="text-xs text-apagado">
-              {r.amigos_em_comum} {r.amigos_em_comum === 1 ? "amigo em comum" : "amigos em comum"}
-            </p>
-          )}
-        </div>
-      </Link>
+      {r.username ? (
+        <Link href={`/@${r.username}`} className="flex min-w-0 flex-1 items-center gap-3">
+          {conteudo}
+        </Link>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-3">{conteudo}</div>
+      )}
       <BotaoSeguir alvoId={r.id} inicial={r} compacto />
     </li>
   );

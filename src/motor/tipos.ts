@@ -100,6 +100,8 @@ export interface DefinicaoErro {
   /** Se verdadeiro, a repetição com este erro vira parcial (não soma). */
   invalida?: boolean;
   histerese?: number;
+  /** Pontos do corpo envolvidos (para colorir só o segmento errado do esqueleto). Sem isso, o esqueleto inteiro fica coral. */
+  pontos?: string[];
 }
 
 export interface DefinicaoAmplitude {
@@ -248,6 +250,12 @@ export interface EstadoMotor {
   frameValido: boolean;
   /** Erros ativos neste momento (para pintar o esqueleto de vermelho). */
   errosAtivos: string[];
+  /**
+   * Índices dos pontos do(s) erro(s) ativo(s), para colorir só o segmento errado.
+   * Vazio com `errosAtivos` não vazio: nenhum erro ativo tem `pontos` definido,
+   * então o esqueleto inteiro fica coral (ver `desenharEsqueleto`).
+   */
+  segmentoErro: number[];
   /** Últimos valores das medidas, com `medida` sendo a principal. */
   medidas: Record<string, number>;
   /** Alvo na tela agora (formato precisão), em coordenadas da imagem de 0 a 1. */

@@ -6,6 +6,13 @@ import type { Estrutura, MetodoAntigo } from "@/dominio/metodos";
 import type { DadosTrilha } from "@/dominio/trilha";
 import type { Sessao } from "./sessao";
 
+export interface PlacarConvite {
+  nome: string;
+  reps: number;
+  tempoValidoS: number;
+  estrelas: number | null;
+}
+
 export interface DesafioCarregado {
   /** Estado na trilha da pessoa: concluido, disponivel, bloqueado ou travado. */
   estado: string;
@@ -21,12 +28,18 @@ export interface DesafioCarregado {
     estrutura: Estrutura | null;
     metodoAntigo: MetodoAntigo | null;
     preparoS: number;
+    /** Visual do HUD de treino: "barra" (padrão) ou "moldura" (docs/HUD_TREINO.md). */
+    estiloProgresso: "barra" | "moldura";
     /** Identificação no card de compartilhamento. */
     usuario: string;
     instagram: string | null;
     recordes: RecordesAnteriores | null;
-    /** Código de convite de quem está compartilhando (gera o link com o gancho). */
+    /** Código de convite de quem está compartilhando (gera o link com o gancho). Vazio para o visitante. */
     codigoConvite: string;
+    /** Visitante (docs/VISITANTE.md): o resultado fica pendente até confirmar o e-mail. */
+    visitante: boolean;
+    /** Placar de quem convidou neste desafio, para comparar no resultado. */
+    placarConvite: PlacarConvite | null;
   };
 }
 
@@ -72,11 +85,15 @@ export async function carregarDesafio(sessao: Sessao, id: string): Promise<Desaf
       estrutura: (desafioBanco.data?.estrutura as Estrutura | null | undefined) ?? null,
       metodoAntigo: (desafioBanco.data?.metodo as MetodoAntigo | null | undefined) ?? null,
       preparoS: sessao.perfil.contagem_preparo_s ?? 10,
+      estiloProgresso: sessao.perfil.estilo_progresso ?? "barra",
       usuario: sessao.perfil.apelido ?? "Hive Break",
       // Campo ainda não existe no perfil: quando existir, aparece no card sozinho.
       instagram: (sessao.perfil as { instagram?: string | null }).instagram ?? null,
       recordes,
-      codigoConvite: sessao.perfil.codigo_convite,
+      // O código do visitante não vale como convite: o card leva só o link do site.
+      codigoConvite: sessao.perfil.visitante ? "" : sessao.perfil.codigo_convite,
+      visitante: Boolean(sessao.perfil.visitante),
+      placarConvite: sessao.perfil.ref_convite ? await lerPlacarConvite(sessao, sessao.perfil.ref_convite, id) : null,
     },
   };
 }
@@ -112,4 +129,16 @@ async function lerRecordes(sessao: Sessao, desafioId: string, idsBlocos: string[
     };
   }
   return recordes;
+}
+
+/** Placar de quem convidou, quando o desafio é o mesmo do convite. */
+async function lerPlacarConvite(sessao: Sessao, ref: string, id: string): Promise<PlacarConvite | null> {
+  const [desafio, convite] = await Promise.all([
+    sessao.supabase.rpc("convite_desafio", { p_codigo: ref }).maybeSingle(),
+    sessao.supabase.rpc("convite_publico", { p_codigo: ref }).maybeSingle(),
+  ]);
+  const d = desafio.data as { challenge_id: string; reps: number; tempo_valido_s: number; estrelas: number | null } | null;
+  const c = convite.data as { apelido: string } | null;
+  if (!d || !c || d.challenge_id !== id) return null;
+  return { nome: c.apelido, reps: Number(d.reps), tempoValidoS: Number(d.tempo_valido_s), estrelas: d.estrelas };
 }

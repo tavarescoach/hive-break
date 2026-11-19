@@ -37,6 +37,11 @@ export const EQUIPAMENTOS: Opcao[] = [
   { valor: "cabo_vassoura", rotulo: "Cabo de vassoura", ajuda: "Ou um bastão leve" },
 ];
 
+export const ESTILOS_PROGRESSO: Opcao[] = [
+  { valor: "barra", rotulo: "Barra", ajuda: "Número centralizado com a barra embaixo dele" },
+  { valor: "moldura", rotulo: "Moldura", ajuda: "A borda da tela vira a barra de progresso" },
+];
+
 export const ESTILOS_MUSICA: Opcao[] = [
   { valor: "eletronica", rotulo: "Eletrônica", ajuda: "Batida constante para manter o ritmo" },
   { valor: "lofi", rotulo: "Lo-fi", ajuda: "Calma, boa para mobilidade e alongamento" },
@@ -181,15 +186,6 @@ export function validarCampo(campo: CampoPerfil, valores: string[], hoje: Date =
   }
 }
 
-/** Formato do username (rota /@username, docs/PERFIL.md seção 9). */
-export const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
-
-export function validarUsername(bruto: string): Validacao<string> {
-  const v = bruto.trim().toLowerCase();
-  if (!USERNAME_REGEX.test(v)) return erro("Use de 3 a 20 letras minúsculas, números ou _ (sem espaços nem acentos).");
-  return { ok: true, valor: v };
-}
-
 export function validarFuso(bruto: string): string | null {
   try {
     new Intl.DateTimeFormat("pt-BR", { timeZone: bruto });
@@ -209,7 +205,6 @@ export interface Perfil {
   id: string;
   nome: string | null;
   avatar_url: string | null;
-  username: string;
   apelido: string | null;
   data_nascimento: string | null;
   sexo: string | null;
@@ -227,6 +222,8 @@ export interface Perfil {
   fuso_horario: string;
   /** Segundos da contagem do pop-up "PREPARE-SE" (migração 0009; ausente antes dela). */
   contagem_preparo_s?: number;
+  /** Estilo do HUD de treino: "barra" (padrão) ou "moldura" (docs/HUD_TREINO.md). */
+  estilo_progresso?: "barra" | "moldura";
   limitacoes: string[];
   peso_meta_kg: number | null;
   visibilidade_peso: "eu" | "variacao" | "tudo";
@@ -241,4 +238,16 @@ export interface Perfil {
   convidado_por: string | null;
   onboarding_concluido_em: string | null;
   criado_em: string;
+  /** Visitante (docs/VISITANTE.md, migração 20261122000100; ausentes antes dela). */
+  username?: string | null;
+  username_trocado_em?: string | null;
+  ref_convite?: string | null;
+  triagem_respondida_em?: string | null;
+  triagem_restricao?: boolean;
+  visitante?: boolean;
+}
+
+/** Link do próprio perfil (rota /@username): sem username ainda, manda criar um primeiro. */
+export function perfilHref(username: string | null | undefined): string {
+  return username ? `/@${username}` : "/perfil/username";
 }

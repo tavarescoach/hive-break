@@ -179,7 +179,7 @@ begin
       ),
       'seguindo', exists (select 1 from public.seguidores where seguidor_id = v_user and seguido_id = pr.id),
       'segue_voce', exists (select 1 from public.seguidores where seguidor_id = pr.id and seguido_id = v_user)
-    ) order by similarity(pr.apelido || ' ' || pr.username, v_q) desc)
+    ) order by similarity(coalesce(pr.apelido, '') || ' ' || coalesce(pr.username, ''), v_q) desc)
     from public.profiles pr
     left join public.streaks st on st.user_id = pr.id
     where pr.id <> v_user
@@ -187,7 +187,7 @@ begin
       and pr.aparecer_na_busca
       and not public.bloqueado_entre(v_user, pr.id)
       and (pr.apelido ilike '%' || v_q || '%' or pr.username ilike '%' || v_q || '%'
-           or similarity(pr.apelido || ' ' || pr.username, v_q) > 0.2)
+           or similarity(coalesce(pr.apelido, '') || ' ' || coalesce(pr.username, ''), v_q) > 0.2)
     limit 20
   ), '[]'::jsonb);
 end;

@@ -21,6 +21,7 @@ import { exercicioPorId, paraMetodo } from "@/exercicios";
 import { registrarResultadoHive } from "@/app/hive/acoes";
 import { useHive } from "@/app/hive/AoVivo";
 import { CardColetivo } from "@/app/hive/CardColetivo";
+import type { PlacarConvite } from "@/lib/carregar-desafio";
 import { finalizarDesafio, registrarEsforco, type ResultadoDesafio } from "./acoes";
 import { Execucao } from "./Execucao";
 
@@ -47,6 +48,8 @@ interface Props {
   metodoAntigo: MetodoAntigo | null;
   /** Segundos da contagem do pop-up "PREPARE-SE". */
   preparoS: number;
+  /** Visual do HUD de treino: "barra" (padrão) ou "moldura" (docs/HUD_TREINO.md). */
+  estiloProgresso: "barra" | "moldura";
   /** Identificação no card de compartilhamento. */
   usuario: string;
   instagram: string | null;
@@ -54,6 +57,10 @@ interface Props {
   recordes: RecordesAnteriores | null;
   /** Código de convite de quem está compartilhando (gera o link com o gancho). */
   codigoConvite: string;
+  /** Visitante (docs/VISITANTE.md): o resultado fica pendente até confirmar o e-mail. */
+  visitante?: boolean;
+  /** Placar de quem convidou neste desafio. */
+  placarConvite?: PlacarConvite | null;
 }
 
 type Etapa = "pronto" | "camera" | "manual";
@@ -131,6 +138,8 @@ export function Desafio(props: Props) {
         pseAlvo={pseAlvo.length ? Math.max(...pseAlvo) : null}
         linha={linha}
         modo={envio.modo}
+        visitante={Boolean(props.visitante)}
+        placarConvite={props.placarConvite ?? null}
         card={{
           titulo,
           modalidade: ROTULO_MODALIDADE[modalidade] ?? modalidade,
@@ -170,6 +179,7 @@ export function Desafio(props: Props) {
         exercicios={exercicios}
         linha={linha}
         comCamera={etapa === "camera"}
+        estiloProgresso={props.estiloProgresso}
         aoFim={(fim) => finalizar(etapa === "camera" ? "camera" : "manual", fim)}
         aoSemCamera={(mensagem) => {
           setAvisoCamera(mensagem);
@@ -328,9 +338,41 @@ interface InfoCard {
   codigoConvite: string;
 }
 
+/** Placar do visitante ao lado do de quem convidou (passo 4 do VISITANTE.md). */
+function PlacarLadoALado({ eu, placar, numeros }: { eu: string; placar: PlacarConvite; numeros: BlocoEnviado[] }) {
+  const porReps = placar.reps > 0;
+  const meu = porReps
+    ? numeros.reduce((s, b) => s + (b.reps_validas ?? 0), 0)
+    : Math.round(numeros.reduce((s, b) => s + (b.tempo_valido_s ?? 0), 0));
+  const dele = porReps ? placar.reps : Math.round(placar.tempoValidoS);
+  if (dele <= 0) return null;
+  const unidade = porReps ? "reps" : "s";
+  const venceu = meu > dele;
+  return (
+    <section className={cartao} aria-label="Placar">
+      <p className="text-sm font-semibold uppercase tracking-[0.14em] text-apagado">Placar</p>
+      <div className="mt-2 grid grid-cols-2 gap-3 text-center">
+        <div className={`rounded-xl p-3 ${venceu || meu === dele ? "bg-mel/15" : "bg-fundo"}`}>
+          <p className="truncate text-sm font-bold">@{eu}</p>
+          <p className="text-3xl font-black tabular-nums">{meu}<span className="text-base text-apagado"> {unidade}</span></p>
+        </div>
+        <div className={`rounded-xl p-3 ${!venceu && meu !== dele ? "bg-mel/15" : "bg-fundo"}`}>
+          <p className="truncate text-sm font-bold">{placar.nome}</p>
+          <p className="text-3xl font-black tabular-nums">{dele}<span className="text-base text-apagado"> {unidade}</span></p>
+        </div>
+      </div>
+      <p className="mt-2 text-center text-[15px] font-semibold">
+        {venceu ? `Você bateu o placar de ${placar.nome}!` : meu === dele ? "Empate!" : `Faltou ${dele - meu} ${unidade} para bater ${placar.nome}.`}
+      </p>
+    </section>
+  );
+}
+
 function Resultado({
-  id, resultado, fim, nomes, pseAlvo, linha, card, modo, salvo,
+  id, resultado, fim, nomes, pseAlvo, linha, card, modo, salvo, visitante, placarConvite,
 }: {
+  visitante: boolean;
+  placarConvite: PlacarConvite | null;
   id: string;
   resultado: ResultadoDesafio;
   fim: FimDoDesafio;
@@ -413,6 +455,16 @@ function Resultado({
         <p className="-mt-1 text-2xl font-black">XP</p>
       </div>
 
+      {visitante && placarConvite && <PlacarLadoALado eu={card.usuario} placar={placarConvite} numeros={fim.numeros} />}
+      {visitante && (
+        <section className={`${cartao} border-mel/60`}>
+          <p className="text-lg font-black leading-tight">Seu resultado ainda não está salvo</p>
+          <p className="mt-1 text-[15px] leading-relaxed text-apagado">
+            Salve com o seu e-mail para entrar na liga, manter a sequência e aceitar a revanche.
+          </p>
+          <Link href="/salvar" onClick={() => apagarFim(id)} className={`${botaoPrimario} mt-3`}>Salvar meu resultado</Link>
+        </section>
+      )}
       {resultado.resgate_voltou && (
         <section className={`${cartao} border-mel/50 text-center`}>
           <p className="text-lg font-black leading-tight">{resultado.resgate_voltou.amigo} te chamou e você voltou 🎉</p>
@@ -478,20 +530,30 @@ function Resultado({
           Ofensiva: {resultado.ofensiva} {resultado.ofensiva === 1 ? "dia" : "dias"}
         </p>
         <p className="mt-1 text-[15px] leading-relaxed text-apagado">
-          {resultado.unidade_concluida ? "A próxima unidade já está liberada na trilha." : "O próximo desafio já está liberado na trilha."}
+          {visitante
+            ? "Salve o resultado para a sequência continuar amanhã."
+            : resultado.unidade_concluida ? "A próxima unidade já está liberada na trilha." : "O próximo desafio já está liberado na trilha."}
         </p>
       </section>
-      <ConvitePush />
+      {!visitante && <ConvitePush />}
       <div className="mt-auto flex flex-col gap-3">
-        <Link href={hive ? "/hive" : "/trilha"} onClick={() => apagarFim(id)} className={botaoPrimario}>
-          {hive ? "Ver outras hives" : "Continuar"}
-        </Link>
+        {visitante ? (
+          <Link href="/salvar" onClick={() => apagarFim(id)} className={botaoPrimario}>
+            Salvar meu resultado
+          </Link>
+        ) : (
+          <Link href={hive ? "/hive" : "/trilha"} onClick={() => apagarFim(id)} className={botaoPrimario}>
+            {hive ? "Ver outras hives" : "Continuar"}
+          </Link>
+        )}
         <button onClick={() => setCompartilhando(true)} className={botaoSecundario}>
           Compartilhar treino
         </button>
-        <Link href={hive ? "/trilha" : "/amigos"} onClick={() => apagarFim(id)} className={botaoSecundario}>
-          {hive ? "Voltar para a trilha" : "Convidar amigos"}
-        </Link>
+        {!visitante && (
+          <Link href={hive ? "/trilha" : "/amigos"} onClick={() => apagarFim(id)} className={botaoSecundario}>
+            {hive ? "Voltar para a trilha" : "Convidar amigos"}
+          </Link>
+        )}
       </div>
       {/* Logo depois de concluir o próprio desafio (docs/RESGATE.md, seção 3). */}
       <PopUpResgate />

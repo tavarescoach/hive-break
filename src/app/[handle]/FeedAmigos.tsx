@@ -6,7 +6,7 @@ import { BotaoHighFive } from "./BotaoHighFive";
 export interface EventoFeed {
   user_id: string;
   apelido: string | null;
-  username: string;
+  username: string | null;
   avatar_url: string | null;
   tipo: string;
   rotulo: string;
@@ -24,17 +24,29 @@ export function FeedAmigos({ eventos }: { eventos: EventoFeed[] }) {
         <p className="text-sm text-apagado">Quando seus amigos conquistarem algo, aparece aqui.</p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {eventos.map((e) => (
-            <li key={`${e.user_id}-${e.quando}`} className="flex items-center gap-3">
-              <Link href={`/@${e.username}`} className="flex min-w-0 flex-1 items-center gap-3">
-                <Avatar url={e.avatar_url} nome={e.apelido ?? e.username} tamanho={40} />
+          {eventos.map((e) => {
+            const nome = e.apelido ?? e.username ?? "Hiver";
+            const conteudo = (
+              <>
+                <Avatar url={e.avatar_url} nome={nome} tamanho={40} />
                 <p className="min-w-0 truncate text-sm">
-                  <span className="font-bold">{e.apelido ?? e.username}</span> {e.rotulo.toLowerCase()}
+                  <span className="font-bold">{nome}</span> {e.rotulo.toLowerCase()}
                 </p>
-              </Link>
-              <BotaoHighFive paraId={e.user_id} inicialDado={e.eu_dei_high_five} inicialTotal={e.high_fives} />
-            </li>
-          ))}
+              </>
+            );
+            return (
+              <li key={`${e.user_id}-${e.quando}`} className="flex items-center gap-3">
+                {e.username ? (
+                  <Link href={`/@${e.username}`} className="flex min-w-0 flex-1 items-center gap-3">
+                    {conteudo}
+                  </Link>
+                ) : (
+                  <div className="flex min-w-0 flex-1 items-center gap-3">{conteudo}</div>
+                )}
+                <BotaoHighFive paraId={e.user_id} inicialDado={e.eu_dei_high_five} inicialTotal={e.high_fives} />
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

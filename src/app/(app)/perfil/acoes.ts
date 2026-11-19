@@ -3,11 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { EstadoFormulario } from "@/app/onboarding/acoes";
-import { ESTILOS_MUSICA, LIMITACOES, METAS_DIARIAS, validarCampo, validarInteiro, validarUsername, type CampoPerfil } from "@/dominio/perfil";
+import { ESTILOS_MUSICA, ESTILOS_PROGRESSO, LIMITACOES, METAS_DIARIAS, validarCampo, validarInteiro, type CampoPerfil } from "@/dominio/perfil";
+import { VERSAO_DECLARACAO } from "@/dominio/declaracao-saude";
 import { VISIBILIDADES_PESO } from "@/dominio/peso";
+import { erroDeFormato, mensagemDoMotivo, normalizarUsername } from "@/dominio/username";
 import { exigirSessao } from "@/lib/sessao";
 
 const FALHA = "Não consegui salvar. Confira a internet e tente de novo.";
+
+/** O perfil público só existe depois que a pessoa escolhe um username (docs/VISITANTE.md). */
+function revalidarPerfilPublico(username: string | null | undefined) {
+  if (username) revalidatePath(`/@${username}`);
+}
 
 /** Autodeclaração de liberação médica (decisão do Luan). A data fica registrada. */
 export async function declararLiberacao(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
@@ -17,19 +24,6 @@ export async function declararLiberacao(_anterior: EstadoFormulario, formulario:
   if (error) return { erro: FALHA };
   revalidatePath("/perfil/config");
   return {};
-}
-
-/** Troca o @username (rota /@username). Continua único: erro amigável em caso de choque. */
-export async function salvarUsername(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
-  const sessao = await exigirSessao();
-  const resultado = validarUsername(String(formulario.get("username") ?? ""));
-  if (!resultado.ok) return { erro: resultado.erro };
-  if (resultado.valor === sessao.perfil.username) return {};
-  const { error } = await sessao.supabase.from("profiles").update({ username: resultado.valor }).eq("id", sessao.usuarioId);
-  if (error) return { erro: error.code === "23505" ? "Esse nome de usuário já está em uso." : FALHA };
-  revalidatePath("/perfil/config");
-  revalidatePath(`/@${resultado.valor}`);
-  redirect("/perfil/config");
 }
 
 /** Privacidade do peso (docs/PERFIL.md, seção 7): quem vê a variação, e a meta em kg. */
@@ -52,7 +46,7 @@ export async function salvarPrivacidadePeso(_anterior: EstadoFormulario, formula
     .eq("id", sessao.usuarioId);
   if (error) return { erro: FALHA };
   revalidatePath("/perfil/config");
-  revalidatePath(`/@${sessao.perfil.username}`);
+  revalidarPerfilPublico(sessao.perfil.username);
   return {};
 }
 
@@ -65,8 +59,34 @@ export async function salvarEsconderXp(_anterior: EstadoFormulario, formulario: 
     .eq("id", sessao.usuarioId);
   if (error) return { erro: FALHA };
   revalidatePath("/perfil/config");
-  revalidatePath(`/@${sessao.perfil.username}`);
+  revalidarPerfilPublico(sessao.perfil.username);
   return {};
+}
+
+/** Refazer a declaração de saúde (docs/VISITANTE.md, seção 4). */
+export async function refazerDeclaracao(todasNao: boolean): Promise<{ erro?: string; destino?: string }> {
+  const sessao = await exigirSessao();
+  const { error } = await sessao.supabase.rpc("registrar_declaracao_saude", {
+    p_todas_nao: todasNao,
+    p_ciente: true,
+    p_versao: VERSAO_DECLARACAO,
+  });
+  if (error) return { erro: FALHA };
+  revalidatePath("/trilha");
+  return { destino: "/perfil/config?salvo=saude" };
+}
+
+/** Trocar o username: no máximo 1 vez a cada 30 dias (seção 5). */
+export async function trocarUsername(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
+  const sessao = await exigirSessao();
+  const bruto = String(formulario.get("username") ?? "");
+  const formato = erroDeFormato(bruto);
+  if (formato) return { erro: formato };
+  const { data, error } = await sessao.supabase.rpc("trocar_username", { p_username: normalizarUsername(bruto) });
+  if (error) return { erro: FALHA };
+  if (data) return { erro: mensagemDoMotivo(data as string) ?? FALHA };
+  revalidatePath("/perfil");
+  redirect("/perfil/config?salvo=username");
 }
 
 export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
@@ -91,9 +111,11 @@ export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulari
 
   const meta = METAS_DIARIAS.find((m) => String(m.valor) === formulario.get("meta_desafios_dia"))?.valor;
   const estilo = ESTILOS_MUSICA.find((e) => e.valor === formulario.get("musica_estilo"))?.valor;
+  const estiloProgresso = ESTILOS_PROGRESSO.find((e) => e.valor === formulario.get("estilo_progresso"))?.valor;
   const volumeMusica = validarInteiro(String(formulario.get("volume_musica")), 0, 100);
   const volumeVoz = validarInteiro(String(formulario.get("volume_voz")), 0, 100);
-  if (!meta || !estilo || volumeMusica === null || volumeVoz === null) return { erro: "Confira a meta, a música e os volumes." };
+  if (!meta || !estilo || !estiloProgresso || volumeMusica === null || volumeVoz === null)
+    return { erro: "Confira a meta, a música, o visual da tela de treino e os volumes." };
 
   // Contagem do pop-up "PREPARE-SE" (só existe depois da migração 0009).
   if (formulario.has("contagem_preparo_s")) {
@@ -110,6 +132,7 @@ export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulari
   Object.assign(dados, {
     meta_desafios_dia: meta,
     musica_estilo: estilo,
+    estilo_progresso: estiloProgresso,
     volume_musica: volumeMusica,
     volume_voz: volumeVoz,
     horario_lembrete: horario === "" ? null : horario,
@@ -119,7 +142,7 @@ export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulari
   const { error } = await sessao.supabase.from("profiles").update(dados).eq("id", sessao.usuarioId);
   if (error) return { erro: FALHA };
   revalidatePath("/perfil/config");
-  revalidatePath(`/@${sessao.perfil.username}`);
+  revalidarPerfilPublico(sessao.perfil.username);
   redirect("/perfil/config");
 }
 

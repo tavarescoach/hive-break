@@ -9,7 +9,7 @@ import { cartao } from "@/componentes/estilos";
 export interface PessoaRede {
   id: string;
   apelido: string | null;
-  username: string;
+  username: string | null;
   avatar_url: string | null;
   xp_semana: number;
   em_hive_agora: boolean;
@@ -40,20 +40,32 @@ export function ListaRede({ seguindo, seguidores }: { seguindo: PessoaRede[]; se
         <p className="text-sm text-apagado">{aba === "seguindo" ? "Você ainda não segue ninguém." : "Ninguém te segue ainda."}</p>
       ) : (
         <ul className="flex flex-col gap-2.5">
-          {lista.map((p) => (
-            <li key={p.id} className="flex items-center gap-3">
-              <Link href={`/@${p.username}`} className="flex min-w-0 flex-1 items-center gap-3">
+          {lista.map((p) => {
+            const nome = p.apelido ?? p.username ?? "Hiver";
+            const conteudo = (
+              <>
                 <span className={`relative rounded-full ${p.em_hive_agora ? "ring-2 ring-mel" : ""}`}>
-                  <Avatar url={p.avatar_url} nome={p.apelido ?? p.username} tamanho={36} />
+                  <Avatar url={p.avatar_url} nome={nome} tamanho={36} />
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold">{p.apelido ?? p.username}</p>
+                  <p className="truncate text-sm font-bold">{nome}</p>
                   <p className="text-xs text-apagado">{p.xp_semana} XP esta semana</p>
                 </div>
-              </Link>
-              {!p.seguindo && <BotaoSeguir alvoId={p.id} inicial={p} compacto />}
-            </li>
-          ))}
+              </>
+            );
+            return (
+              <li key={p.id} className="flex items-center gap-3">
+                {p.username ? (
+                  <Link href={`/@${p.username}`} className="flex min-w-0 flex-1 items-center gap-3">
+                    {conteudo}
+                  </Link>
+                ) : (
+                  <div className="flex min-w-0 flex-1 items-center gap-3">{conteudo}</div>
+                )}
+                {!p.seguindo && <BotaoSeguir alvoId={p.id} inicial={p} compacto />}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

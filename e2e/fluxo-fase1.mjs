@@ -25,6 +25,8 @@ if (process.env.CAMERA_FALSA) argumentos.push(`--use-file-for-fake-video-capture
 const controle = (rota, corpo) =>
   fetch(`${SUPABASE}/__controle/${rota}`, { method: "POST", body: JSON.stringify(corpo) }).then((r) => r.json());
 const sql = (texto, params) => controle("sql", { sql: texto, params });
+/** O código de 6 dígitos que o Supabase falso "mandou por e-mail". */
+const codigoDoEmail = (email) => fetch(`${SUPABASE}/__controle/codigo?email=${encodeURIComponent(email)}`).then((r) => r.json()).then((r) => r.codigo);
 
 let passo = 0;
 async function captura(pagina, nome, paginaInteira = true) {
@@ -72,7 +74,7 @@ async function novaPessoa(navegador, identidade) {
   return { pagina, externas };
 }
 
-/** Faz o cadastro inteiro. `triagemSim` marca "sim" numa pergunta. */
+/** Faz o cadastro inteiro. `triagemSim`: não declara NÃO a todas as perguntas de segurança. */
 async function cadastro(pagina, { apelido, nascimento, triagemSim = false, prefixo }) {
   await pagina.getByRole("button", { name: "Entrar com Google" }).click();
   await pagina.waitForURL("**/onboarding/termos");
@@ -127,18 +129,14 @@ async function cadastro(pagina, { apelido, nascimento, triagemSim = false, prefi
   await continuar(pagina);
 
   await pagina.waitForURL("**/onboarding/triagem");
-  const grupos = await pagina.getByRole("group").all();
-  assert.equal(grupos.length, 7, "a triagem tem 7 perguntas");
-  for (const [i, grupo] of grupos.entries()) {
-    await grupo.getByText(triagemSim && i === 5 ? "Sim" : "Não", { exact: true }).click();
-  }
+  // Declaração de saúde em dois pop-ups (VISITANTE.md, seção 4).
   await captura(pagina, `${prefixo}-triagem`);
-  await continuar(pagina);
-  if (triagemSim) {
-    await pagina.getByText("Converse com um médico").waitFor();
-    await captura(pagina, `${prefixo}-triagem-recomendacao`);
-    await pagina.getByRole("link", { name: "Entendi, continuar" }).click();
-  }
+  await pagina.getByRole("button", { name: "Responder" }).click();
+  const dialogo = pagina.getByRole("dialog");
+  await dialogo.getByRole("button", { name: triagemSim ? "Respondo SIM a alguma" : /^Respondo NÃO/ }).click();
+  if (triagemSim) await dialogo.getByText("vamos com respiração e alongamento leve").waitFor();
+  await captura(pagina, `${prefixo}-termo-responsabilidade`);
+  await dialogo.getByRole("button", { name: "Li e estou ciente" }).click();
 
   await pagina.waitForURL("**/onboarding/meta");
   await pagina.getByText("2 desafios").click();
@@ -187,6 +185,8 @@ try {
   await ana.pagina.goto(APP);
   await captura(ana.pagina, "landing");
   await ana.pagina.getByRole("link", { name: "Começar" }).click();
+  await ana.pagina.waitForURL("**/comecar");
+  await ana.pagina.getByRole("link", { name: "Já tenho conta · Entrar" }).click();
   await ana.pagina.waitForURL("**/entrar");
   await captura(ana.pagina, "entrar");
   await cadastro(ana.pagina, { apelido: "Ana", nascimento: "1962-03-10", prefixo: "ana" });
@@ -396,12 +396,15 @@ try {
   await ana.pagina.getByRole("heading", { name: "Divisão Bronze" }).waitFor();
 
   // -------------------------------------------------------------------- Bruno
-  console.log("4. Bruno chega pelo link da Ana, responde 'sim' na triagem e fica limitado");
+  console.log("4. Bruno chega pelo link da Ana, entra com Google, não declara NÃO na segurança e fica limitado");
   const bruno = await novaPessoa(navegador, { nome: "Bruno Lima", email: "bruno@exemplo.com" });
   await bruno.pagina.goto(`${APP}/c/${perfilAna.codigo_convite.toLowerCase()}`);
   await bruno.pagina.getByRole("heading", { name: "Ana te convidou" }).waitFor();
   await captura(bruno.pagina, "bruno-landing-convite");
-  await bruno.pagina.getByRole("button", { name: "Aceitar convite" }).click();
+  await bruno.pagina.getByRole("button", { name: "Aceitar e jogar" }).click();
+  await bruno.pagina.waitForURL("**/comecar");
+  await bruno.pagina.getByText("Convite de Ana").waitFor();
+  await bruno.pagina.getByRole("link", { name: "Já tenho conta · Entrar" }).click();
   await bruno.pagina.waitForURL("**/entrar");
   await cadastro(bruno.pagina, { apelido: "Bruno", nascimento: "1995-07-22", triagemSim: true, prefixo: "bruno" });
 
@@ -480,15 +483,154 @@ try {
   await caio.pagina.goto(APP + "/trilha");
   await caio.pagina.waitForURL("**/perfil/nascimento");
 
+
+  // ------------------------------------------------------- visitante (VISITANTE.md)
+  console.log("8. Carla abre o link da Ana, escolhe username, faz a declaração e joga sem cadastro");
+  await sql("update public.profiles set username = 'carla' where id = $1", [perfilBruno.id]);
+  const carla = await novaPessoa(navegador, { nome: "Carla", email: "carla@exemplo.com" });
+  await carla.pagina.goto(`${APP}/c/${perfilAna.codigo_convite}?g=D&h=D04&ref=${perfilAna.codigo_convite}`);
+  await carla.pagina.getByRole("heading", { name: "Ana te convidou" }).waitFor();
+  await carla.pagina.getByText("O desafio").waitFor();
+  await captura(carla.pagina, "carla-convite");
+  await carla.pagina.getByRole("button", { name: "Aceitar e jogar" }).click();
+  await carla.pagina.waitForURL("**/comecar");
+  const campoUsername = carla.pagina.getByRole("textbox", { name: "Seu username" });
+  await campoUsername.fill("admin");
+  await carla.pagina.getByText("Esse nome é reservado").waitFor();
+  await campoUsername.fill("Carla");
+  await carla.pagina.getByText("Esse já tem dono.").waitFor();
+  await captura(carla.pagina, "carla-username-sugestoes");
+  await carla.pagina.getByRole("button", { name: "@carla.break" }).click();
+  await carla.pagina.getByText("@carla.break está livre").waitFor();
+  await continuar(carla.pagina);
+  await carla.pagina.getByRole("alert").filter({ hasText: "18 anos" }).waitFor();
+  await carla.pagina.getByRole("checkbox").check();
+  await continuar(carla.pagina);
+  const declaracao = carla.pagina.getByRole("dialog");
+  await declaracao.getByRole("heading", { name: "Questionário de prontidão" }).waitFor();
+  await captura(carla.pagina, "carla-prontidao");
+  // Fechar não libera nada.
+  await declaracao.getByRole("button", { name: "Voltar" }).click();
+  await declaracao.waitFor({ state: "hidden" });
+  assert.equal((await sql("select count(*)::int as n from auth.users where is_anonymous"))[0].n, 0, "sem declaração, nenhuma sessão de visitante");
+  await continuar(carla.pagina);
+  await declaracao.getByRole("button", { name: /^Respondo NÃO/ }).click();
+  await declaracao.getByRole("button", { name: "Li e estou ciente" }).click();
+  await carla.pagina.waitForURL("**/desafio/**");
+  let [perfilCarla] = await sql("select * from public.profiles where username = 'carla.break'");
+  assert.equal(perfilCarla.visitante, true);
+  assert.equal(perfilCarla.convidado_por, perfilAna.id, "o ref do convite ficou guardado");
+  assert.equal(perfilCarla.ref_convite, perfilAna.codigo_convite);
+  const [desafioDaAna] = await sql(
+    "select challenge_id from public.challenge_attempts where user_id = $1 and status = 'concluido' order by concluido_em desc limit 1", [perfilAna.id]);
+  assert.ok(carla.pagina.url().endsWith(`/desafio/${desafioDaAna.challenge_id}`), "joga o desafio do convite");
+  // Visitante não abre o app logado.
+  await carla.pagina.goto(APP + "/trilha");
+  await carla.pagina.waitForURL(`**/desafio/${desafioDaAna.challenge_id}`);
+  await carla.pagina.getByRole("button", { name: "Fazer sem câmera" }).click();
+  await carla.pagina.getByRole("button", { name: "Ok, let's hive" }).click();
+  await encerrarDesafio(carla.pagina);
+  await carla.pagina.getByText("Seu resultado ainda não está salvo").waitFor();
+  await captura(carla.pagina, "carla-resultado-visitante");
+  let [ligaCarla] = await sql("select count(*)::int as n from public.league_members where user_id = $1", [perfilCarla.id]);
+  assert.equal(ligaCarla.n, 0, "visitante não entra na liga");
+  let [conviteCarla] = await sql("select ativado_em from public.invites where invitee_id = $1", [perfilCarla.id]);
+  assert.equal(conviteCarla.ativado_em, null, "convite só ativa depois de confirmar o e-mail");
+
+  console.log("9. Carla salva o resultado: e-mail → código de 6 dígitos");
+  await carla.pagina.getByRole("link", { name: "Salvar meu resultado" }).last().click();
+  await carla.pagina.waitForURL("**/salvar");
+  await carla.pagina.getByRole("heading", { name: "Salvar meu resultado" }).waitFor();
+  await carla.pagina.getByText("Você vai receber lembretes curtos").waitFor();
+  await carla.pagina.getByRole("textbox", { name: "Seu e-mail" }).fill("carla@exemplo");
+  await carla.pagina.getByRole("button", { name: "Mandar código" }).click();
+  await carla.pagina.getByRole("alert").filter({ hasText: "Confira o e-mail" }).waitFor();
+  await carla.pagina.getByRole("textbox", { name: "Seu e-mail" }).fill("carla@exemplo.com");
+  await carla.pagina.getByRole("button", { name: "Mandar código" }).click();
+  await carla.pagina.getByText("Código enviado para carla@exemplo.com. Confira também o spam.").waitFor();
+  await carla.pagina.getByRole("button", { name: /^Reenviar em \d+ s$/ }).waitFor();
+  await captura(carla.pagina, "carla-codigo");
+  await carla.pagina.getByLabel("Dígito 1 de 6").fill("000000");
+  await carla.pagina.getByRole("alert").filter({ hasText: "Código errado. Faltam 4 tentativas." }).waitFor();
+  const codigoCarla = await codigoDoEmail("carla@exemplo.com");
+  assert.match(codigoCarla, /^\d{6}$/);
+  // Colar o código (com texto em volta) numa caixa do meio preenche todas e confirma.
+  await carla.pagina.getByLabel("Dígito 3 de 6").evaluate((caixa, texto) => {
+    const dados = new DataTransfer();
+    dados.setData("text", texto);
+    caixa.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dados, bubbles: true, cancelable: true }));
+  }, `Seu código Hive Break: ${codigoCarla}`);
+  await carla.pagina.waitForURL("**/onboarding/perfil/nascimento");
+  [perfilCarla] = await sql("select * from public.profiles where id = $1", [perfilCarla.id]);
+  assert.equal(perfilCarla.visitante, false);
+  assert.equal(perfilCarla.username, "carla.break");
+  assert.equal(perfilCarla.apelido, "carla.break");
+  [conviteCarla] = await sql("select ativado_em, recompensado from public.invites where invitee_id = $1", [perfilCarla.id]);
+  assert.ok(conviteCarla.ativado_em, "convite ativado depois da confirmação + 1º desafio");
+  const funilCarla = await sql("select tipo from public.convite_eventos where user_id = $1 order by id", [perfilCarla.id]);
+  assert.deepEqual(funilCarla.map((e) => e.tipo), ["desafio_iniciado", "desafio_concluido", "cadastro"]);
+  const eventosCarla = await sql("select tipo from public.eventos_visitante where user_id = $1 order by id", [perfilCarla.id]);
+  for (const tipo of ["visitor_started", "username_created", "screening_done", "visitor_challenge_completed", "email_code_sent", "email_code_verified", "visitor_converted"]) {
+    assert.ok(eventosCarla.some((e) => e.tipo === tipo), `evento ${tipo}`);
+  }
+
+  console.log("10. Dani joga como visitante com o e-mail do Bruno: entra na conta dele e leva o resultado");
+  const dani = await novaPessoa(navegador, { nome: "Dani", email: "dani@exemplo.com" });
+  await dani.pagina.goto(APP);
+  await dani.pagina.getByRole("link", { name: "Começar" }).click();
+  await dani.pagina.waitForURL("**/comecar");
+  await dani.pagina.getByRole("textbox", { name: "Seu username" }).fill("dani");
+  await dani.pagina.getByText("@dani está livre").waitFor();
+  await dani.pagina.getByRole("checkbox").check();
+  await continuar(dani.pagina);
+  await dani.pagina.getByRole("dialog").getByRole("button", { name: "Respondo SIM a alguma" }).click();
+  await dani.pagina.getByRole("dialog").getByText("vamos com respiração e alongamento leve").waitFor();
+  await dani.pagina.getByRole("dialog").getByRole("button", { name: "Li e estou ciente" }).click();
+  // Com restrição, só respiração e mobilidade leve: o primeiro liberado é a mobilidade.
+  await dani.pagina.waitForURL("**/desafio/n1u1d02");
+  const [perfilDani] = await sql("select * from public.profiles where username = 'dani'");
+  assert.equal(perfilDani.triagem_restricao, true);
+  await dani.pagina.goto(APP + "/desafio/n1u1d03");
+  await dani.pagina.waitForURL("**/salvar");
+  await dani.pagina.goto(APP + "/desafio/n1u1d02");
+  await dani.pagina.getByRole("button", { name: "Fazer sem câmera" }).click();
+  await dani.pagina.getByRole("button", { name: "Ok, let's hive" }).click();
+  await encerrarDesafio(dani.pagina);
+  await dani.pagina.getByRole("link", { name: "Salvar meu resultado" }).last().click();
+  await dani.pagina.waitForURL("**/salvar");
+  await dani.pagina.getByRole("textbox", { name: "Seu e-mail" }).fill("bruno@exemplo.com");
+  await dani.pagina.getByRole("button", { name: "Mandar código" }).click();
+  await dani.pagina.getByText("Esse e-mail já tem conta.").waitFor();
+  await dani.pagina.getByLabel("Dígito 1 de 6").fill(await codigoDoEmail("bruno@exemplo.com"));
+  await dani.pagina.waitForURL("**/trilha");
+  const moveu = await sql("select 1 from public.challenge_attempts where user_id = $1 and challenge_id = 'n1u1d02'", [perfilBruno.id]);
+  assert.equal(moveu.length, 1, "o desafio do visitante foi para a conta do Bruno");
+  assert.equal((await sql("select count(*)::int as n from auth.users where id = $1", [perfilDani.id]))[0].n, 0, "o visitante foi apagado");
+
+  console.log("11. Entrar com código: quem tem conta entra; e-mail sem conta é avisado");
+  const volta = await novaPessoa(navegador, { nome: "Ana Souza", email: "ana@exemplo.com" });
+  await volta.pagina.goto(APP + "/entrar");
+  await volta.pagina.getByRole("textbox", { name: "Seu e-mail" }).fill("ninguem.aqui@exemplo.com");
+  await volta.pagina.getByRole("button", { name: "Mandar código" }).click();
+  await volta.pagina.getByRole("alert").filter({ hasText: "Não achei uma conta com esse e-mail." }).waitFor();
+  await volta.pagina.waitForTimeout(100);
+  await sql("delete from public.codigo_email_tentativas");
+  await volta.pagina.getByRole("textbox", { name: "Seu e-mail" }).fill("ana@exemplo.com");
+  await volta.pagina.getByRole("button", { name: "Mandar código" }).click();
+  await volta.pagina.getByText("Código enviado para ana@exemplo.com").waitFor();
+  await captura(volta.pagina, "entrar-codigo");
+  await volta.pagina.getByLabel("Dígito 1 de 6").fill(await codigoDoEmail("ana@exemplo.com"));
+  await volta.pagina.waitForURL("**/trilha");
+
   await ana.pagina.goto(APP + "/perfil");
   await ana.pagina.getByRole("button", { name: "Sair da conta" }).click();
   await ana.pagina.waitForURL(APP + "/");
   await ana.pagina.goto(APP + "/trilha");
   await ana.pagina.waitForURL("**/entrar");
 
-  const externas = [...visitante.externas, ...ana.externas, ...bruno.externas, ...caio.externas];
+  const externas = [...visitante.externas, ...ana.externas, ...bruno.externas, ...caio.externas, ...carla.externas, ...dani.externas, ...volta.externas];
   assert.deepEqual(externas, [], "nenhuma requisição para fora do app e do Supabase");
-  console.log("\nFase 1: fluxo completo OK");
+  console.log("\nFase 1 + visitante: fluxo completo OK");
 } finally {
   await navegador.close();
 }

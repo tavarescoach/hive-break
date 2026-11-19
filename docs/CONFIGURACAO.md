@@ -90,29 +90,35 @@ Rode, nesta ordem (veja a seção 6 para o resto da configuração):
 
 Os lembretes começam em **modo simulação**: o banco grava o que mandaria, mas não manda nada.
 
+### Visitante: joga antes do cadastro (22/11/2026)
+
+Rode [`supabase/migrations/20261122000100_visitante.sql`](../supabase/migrations/20261122000100_visitante.sql)
+e siga a seção 7 (painel do Supabase, Cloudflare e Vercel). Sem a seção 7 o código por e-mail
+não chega a ninguém fora da equipe do projeto. É esta migração que cria o `username`
+(nulo até a pessoa escolher um, em `/perfil/username`): a leva de Perfil v2 abaixo só lê
+essa coluna, não cria outra.
+
 ### Perfil v2 e busca de amigos (21/11/2026)
 
 Detalhes em [`docs/PERFIL.md`](PERFIL.md). Rode, nesta ordem, cada migração desta leva
-conforme ela for implementada:
+conforme ela for implementada (depois da migração do Visitante acima, que já cria o
+`username` usado pela rota `/@username`):
 
-1. [`supabase/migrations/20261121000300_perfil_username.sql`](../supabase/migrations/20261121000300_perfil_username.sql)
-   — cria o `username` (rota `/@username`) e as funções que o geram. Precisa da extensão
-   **unaccent**: se o `create extension` da migração falhar por permissão, ative-a antes em
-   **Database > Extensions** no painel do Supabase e rode a migração de novo.
-2. [`supabase/migrations/20261121000400_perfil_objetivo.sql`](../supabase/migrations/20261121000400_perfil_objetivo.sql)
+1. [`supabase/migrations/20261121000400_perfil_objetivo.sql`](../supabase/migrations/20261121000400_perfil_objetivo.sql)
    — cria `pesagens`, a meta e a privacidade do peso, e as funções `peso_card`/`meta_semana`
    usadas pelo card de objetivo e pela meta da semana.
-3. [`supabase/migrations/20261122000100_perfil_estatisticas.sql`](../supabase/migrations/20261122000100_perfil_estatisticas.sql)
+2. [`supabase/migrations/20261122000100_perfil_estatisticas.sql`](../supabase/migrations/20261122000100_perfil_estatisticas.sql)
    — cria `profiles.esconder_xp` e as funções `estatisticas_perfil`/`calendario_mes` da grade
    de estatísticas e do calendário em hexágonos.
-4. [`supabase/migrations/20261122000200_amigos_busca.sql`](../supabase/migrations/20261122000200_amigos_busca.sql)
+3. [`supabase/migrations/20261122000200_amigos_busca.sql`](../supabase/migrations/20261122000200_amigos_busca.sql)
    — cria `seguidores`, `bloqueios`, a busca (`buscar_usuarios`) e a função `seguir_usuario`
-   e afins. Precisa da extensão **pg_trgm**: mesma observação do item 1, se o `create
-   extension` falhar por permissão, ative-a em **Database > Extensions** no painel do
-   Supabase e rode a migração de novo.
-5. [`supabase/migrations/20261123000100_perfil_social.sql`](../supabase/migrations/20261123000100_perfil_social.sql)
+   e afins. Precisa da extensão **pg_trgm**: se o `create extension` falhar por permissão,
+   ative-a em **Database > Extensions** no painel do Supabase e rode a migração de novo.
+4. [`supabase/migrations/20261123000100_perfil_social.sql`](../supabase/migrations/20261123000100_perfil_social.sql)
    — cria `profiles.vitrine_conquistas` e as funções `progresso_conquistas`, `definir_vitrine`,
-   `feed_amigos`, `dar_high_five` e `minha_rede` (coluna da direita do perfil).
+   `feed_amigos`, `dar_high_five` e `minha_rede` (coluna da direita do perfil). É esta migração
+   que fecha a definição final de `perfis_publicos` (identidade + username + objetivo/meta da
+   semana + vitrine), depois que a migração do Visitante já tinha simplificado a view.
 
 ## 2. Login com Google
 
@@ -258,3 +264,58 @@ Depois de criar as variáveis, faça um **Redeploy**.
    app instalado na tela inicial), ou ligue em **Perfil > Configurações > Lembretes**.
 3. Com a simulação ligada, a lista do admin mostra o que o motor mandaria (`simulado`).
 
+
+## 7. Visitante e código por e-mail
+
+Especificação: [`docs/VISITANTE.md`](VISITANTE.md). O visitante é um usuário anônimo do
+Supabase; o cadastro é username + código de 6 dígitos por e-mail; o Google vira alternativa.
+Faça nesta ordem (os passos 1 a 5 podem ser feitos antes de publicar; o 6 liga o CAPTCHA e
+só deve vir quando a chave do site já estiver na Vercel).
+
+1. **SMTP próprio** (Authentication → Emails → SMTP Settings). Sem isso o Supabase só manda
+   e-mail para a equipe do projeto, e cerca de 2 por hora.
+   - Piloto: Gmail `contatohivebreak@gmail.com`, com verificação em 2 etapas ligada e uma
+     **senha de app** (Conta Google → Segurança → Senhas de app). Host `smtp.gmail.com`,
+     porta `465`, usuário = o e-mail, senha = a senha de app, remetente "Hive Break".
+     Limite do Gmail: ~500 destinatários por dia, somando os lembretes.
+   - Depois do piloto: domínio próprio + serviço transacional (Resend, Brevo) com SPF, DKIM e DMARC.
+2. **Rate Limits** (Authentication → Rate Limits):
+   - *Emails sent*: de 30/h para o tamanho do piloto (ex.: 200/h).
+   - *Anonymous users*: o padrão é 30/h **por IP**. Num escritório todo mundo sai pelo mesmo IP:
+     suba para pelo menos o número de pessoas que podem chegar juntas (ex.: 300/h).
+3. **E-mail com código** (Authentication → Providers → Email): *Email OTP length* = **6** e
+   *Email OTP expiration* = **600** segundos. A expiração vale também para os outros links de e-mail.
+   Deixe *Secure email change* ligado.
+4. **Templates** (Authentication → Emails → Templates): cole os HTML de
+   [`docs/emails/`](emails/README.md) em **Magic Link** e **Change Email Address**, com o assunto
+   `Seu código Hive Break: {{ .Token }}`.
+5. **Login anônimo e vínculo** (Authentication → Sign In / Providers): ligue
+   *Allow anonymous sign-ins* e *Allow manual linking* (o "Entrar com Google" da tela do
+   visitante vincula o Google à conta dele).
+6. **Turnstile** (CAPTCHA invisível):
+   1. No Cloudflare: Turnstile → *Add widget*, domínio do app (e `localhost` para testar), modo
+      **Invisible**. Guarde a *site key* e a *secret key*.
+   2. Na Vercel: `NEXT_PUBLIC_TURNSTILE_SITE_KEY` = a site key. **Redeploy.**
+   3. No Supabase: Authentication → Attack Protection (Bot and Abuse Protection) → ligue o
+      CAPTCHA, provedor **Turnstile**, cole a *secret key*.
+   Com o CAPTCHA ligado no Supabase e sem a site key no app, ninguém consegue começar como
+   visitante nem pedir código de login.
+7. **Migração**: rode `20261122000100_visitante.sql` **antes de publicar o app novo** (as telas
+   novas chamam as funções dela). Ela agenda a limpeza
+   diária no pg_cron (`hive-break-limpar-visitantes`, 04:23 UTC), que apaga visitantes não
+   confirmados há mais de 7 dias.
+
+### 7.1 Variáveis na Vercel
+
+| Variável | Valor |
+| --- | --- |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | site key do Turnstile (passo 6) |
+| `EXIGIR_EMAIL_ANTES_DO_DESAFIO` | `false` (padrão). `true` pede o código logo depois do username, antes de jogar (VISITANTE.md, seção 1.1) |
+
+### 7.2 Conferir
+
+1. Numa aba anônima, abra o link de convite de alguém: aparece o desafio e o placar a bater.
+2. "Aceitar e jogar" → username → declaração → o desafio abre sem cadastro.
+3. No fim, "Salvar meu resultado" → e-mail → o código chega com o número no assunto.
+4. Depois de confirmar, o perfil segue para o resto do cadastro e a pessoa aparece na liga.
+5. Funil: `select tipo, count(*) from public.eventos_visitante group by tipo;`

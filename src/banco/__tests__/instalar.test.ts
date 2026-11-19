@@ -20,7 +20,7 @@ describe("supabase/instalar.sql", () => {
     await db.exec(`
       create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
       create schema auth;
-      create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}');
+      create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb default '{}', is_anonymous boolean default false);
       create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
     `);
     await db.exec(readFileSync(ARQUIVO, "utf8"));

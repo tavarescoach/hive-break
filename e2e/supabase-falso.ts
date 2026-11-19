@@ -43,8 +43,15 @@ async function lerCorpo(req: IncomingMessage): Promise<unknown> {
   return texto ? JSON.parse(texto) : null;
 }
 
+// O navegador chama o Auth direto (login anônimo do visitante), como no Supabase real.
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "*",
+  "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+};
+
 function responder(res: ServerResponse, status: number, corpo?: unknown) {
-  res.writeHead(status, { "content-type": "application/json" });
+  res.writeHead(status, { "content-type": "application/json", ...CORS });
   res.end(corpo === undefined ? "" : JSON.stringify(corpo));
 }
 
@@ -77,9 +84,13 @@ async function main() {
   const db = await criarBanco();
   let proxima: Identidade = { nome: "Pessoa Teste", email: "pessoa@exemplo.com" };
   const codigos = new Map<string, string>();
+  // Códigos de 6 dígitos "enviados por e-mail" (VISITANTE.md): e-mail → código pendente.
+  const otps = new Map<string, { codigo: string; tipo: "email_change" | "email"; usuario: string; criado: number }>();
+  const novoOtp = () => String(100000 + Math.floor(Math.random() * 900000));
+  const erroAuth = (res: ServerResponse, status: number, codigo: string, msg: string) => responder(res, status, { error_code: codigo, msg });
 
   const usuarioJson = async (id: string) => {
-    const { rows } = await db.query<{ id: string; email: string; raw_user_meta_data: object; created_at: string }>(
+    const { rows } = await db.query<{ id: string; email: string; raw_user_meta_data: object; created_at: string; is_anonymous: boolean }>(
       "select * from auth.users where id = $1",
       [id],
     );
@@ -89,7 +100,8 @@ async function main() {
       aud: "authenticated",
       role: "authenticated",
       email: rows[0].email,
-      app_metadata: { provider: "google" },
+      is_anonymous: rows[0].is_anonymous,
+      app_metadata: { provider: rows[0].is_anonymous ? "anonymous" : "google" },
       user_metadata: rows[0].raw_user_meta_data,
       created_at: rows[0].created_at,
     };
@@ -107,6 +119,10 @@ async function main() {
   const servidor = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${PORTA}`);
     const caminho = url.pathname;
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, CORS);
+      return res.end();
+    }
     try {
       // ------------------------------------------------ controle do teste
       if (caminho === "/__controle/proximo-usuario") {
@@ -118,6 +134,10 @@ async function main() {
         return responder(res, 200, (await db.query(sql, params)).rows);
       }
       if (caminho === "/__controle/pronto") return responder(res, 200, { ok: true });
+      if (caminho === "/__controle/codigo") {
+        // O "e-mail" com o código, para o teste ler.
+        return responder(res, 200, { codigo: otps.get(url.searchParams.get("email") ?? "")?.codigo ?? null });
+      }
 
       // ------------------------------------------------------------ auth
       if (caminho === "/auth/v1/authorize") {
@@ -141,6 +161,44 @@ async function main() {
         const id = corpo.auth_code ? codigos.get(corpo.auth_code) : corpo.refresh_token?.replace(/^renovar-/, "");
         if (!id) return responder(res, 400, { error: "invalid_grant", error_description: "código inválido" });
         return responder(res, 200, await sessaoJson(id));
+      }
+      if (caminho === "/auth/v1/signup") {
+        // signInAnonymously: sem e-mail, cria um usuário anônimo.
+        const corpo = ((await lerCorpo(req)) ?? {}) as { email?: string };
+        if (corpo.email) return erroAuth(res, 400, "validation_failed", "só o login anônimo é imitado aqui");
+        const { rows } = await db.query<{ id: string }>("insert into auth.users (is_anonymous) values (true) returning id");
+        return responder(res, 200, await sessaoJson(rows[0].id));
+      }
+      if (caminho === "/auth/v1/user" && req.method === "PUT") {
+        // updateUser({ email }) no anônimo: manda o código de troca de e-mail.
+        const sub = lerSub(req);
+        if (!sub) return erroAuth(res, 401, "no_authorization", "sem sessão");
+        const { email } = (await lerCorpo(req)) as { email: string };
+        const existe = await db.query("select 1 from auth.users where email = $1 and id <> $2", [email, sub]);
+        if (existe.rows.length) return erroAuth(res, 422, "email_exists", "A user with this email address has already been registered");
+        otps.set(email, { codigo: novoOtp(), tipo: "email_change", usuario: sub, criado: Date.now() });
+        return responder(res, 200, await usuarioJson(sub));
+      }
+      if (caminho === "/auth/v1/otp") {
+        const { email, create_user } = (await lerCorpo(req)) as { email: string; create_user?: boolean };
+        const { rows } = await db.query<{ id: string }>("select id from auth.users where email = $1", [email]);
+        if (!rows[0] && !create_user) return erroAuth(res, 422, "otp_disabled", "Signups not allowed for otp");
+        if (!rows[0]) return erroAuth(res, 400, "validation_failed", "criar conta por OTP não é imitado aqui");
+        otps.set(email, { codigo: novoOtp(), tipo: "email", usuario: rows[0].id, criado: Date.now() });
+        return responder(res, 200, {});
+      }
+      if (caminho === "/auth/v1/verify") {
+        const { email, token, type } = (await lerCorpo(req)) as { email: string; token: string; type: string };
+        const otp = otps.get(email);
+        const tipoOk = otp && (otp.tipo === "email_change" ? type === "email_change" : ["email", "magiclink"].includes(type));
+        if (!otp || !tipoOk || otp.codigo !== token || Date.now() - otp.criado > 600_000) {
+          return erroAuth(res, 403, "otp_expired", "Token has expired or is invalid");
+        }
+        otps.delete(email);
+        if (otp.tipo === "email_change") {
+          await db.query("update auth.users set email = $2, is_anonymous = false where id = $1", [otp.usuario, email]);
+        }
+        return responder(res, 200, await sessaoJson(otp.usuario));
       }
       if (caminho === "/auth/v1/user") {
         const sub = lerSub(req);

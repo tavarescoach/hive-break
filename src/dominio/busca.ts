@@ -6,7 +6,7 @@ export const BUSCA_DEBOUNCE_MS = 300;
 export interface ResultadoBusca {
   id: string;
   apelido: string | null;
-  username: string;
+  username: string | null;
   avatar_url: string | null;
   divisao_atual: string;
   objetivo: string | null;

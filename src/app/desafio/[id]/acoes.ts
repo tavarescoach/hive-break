@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { dispararLembretes } from "@/lib/lembretes";
-import { exigirCadastroCompleto } from "@/lib/sessao";
+import { exigirJogador } from "@/lib/sessao";
 
 import type { BlocoEnviado } from "@/dominio/agregar";
 
@@ -33,9 +33,9 @@ const REGIOES = ["joelho", "ombro", "lombar", "punho", "quadril", "tornozelo", "
  * e calcula XP, ofensiva e o que foi liberado.
  */
 export async function finalizarDesafio(id: string, modo: "camera" | "manual", blocos: BlocoEnviado[]): Promise<ResultadoDesafio> {
-  const sessao = await exigirCadastroCompleto();
+  const sessao = await exigirJogador();
   // Pontos da liga antes do desafio: base para avisar amigos ultrapassados (S4).
-  const antes = await sessao.supabase.rpc("lembretes_meus_pontos_liga");
+  const antes = sessao.perfil.visitante ? { data: null, error: null } : await sessao.supabase.rpc("lembretes_meus_pontos_liga");
   const { data, error } = await sessao.supabase.rpc("finalizar_desafio", {
     p_challenge_id: id,
     p_modo: modo,
@@ -52,6 +52,8 @@ export async function finalizarDesafio(id: string, modo: "camera" | "manual", bl
     };
   }
   revalidatePath("/trilha");
+  // Visitante não recebe lembretes até confirmar o e-mail (VISITANTE.md, seção 3).
+  if (sessao.perfil.visitante) return { ok: true, ...(data as Omit<ResultadoDesafio, "ok">) };
   // Dia 1, marco de ofensiva, volta após 14 dias e ultrapassagem na liga.
   dispararLembretes(async () => {
     const { data: eventos } = await sessao.supabase.rpc("lembretes_apos_desafio", {
@@ -75,7 +77,7 @@ export async function finalizarDesafio(id: string, modo: "camera" | "manual", bl
 /** Botão "Senti dor": registra a região e encerra o desafio (seção 12.4). */
 export async function registrarDor(id: string, exercicio: string, regiao: string): Promise<{ ok: boolean }> {
   if (!REGIOES.includes(regiao)) return { ok: false };
-  const sessao = await exigirCadastroCompleto();
+  const sessao = await exigirJogador();
   const { error } = await sessao.supabase.rpc("registrar_dor", { p_challenge_id: id, p_exercise_id: exercicio, p_regiao: regiao });
   return { ok: !error };
 }
@@ -83,7 +85,7 @@ export async function registrarDor(id: string, exercicio: string, regiao: string
 /** Percepção de esforço (PSE, 1 a 10) respondida no fim do desafio. */
 export async function registrarEsforco(id: string, valor: number): Promise<{ ok: boolean }> {
   if (!Number.isInteger(valor) || valor < 1 || valor > 10) return { ok: false };
-  const sessao = await exigirCadastroCompleto();
+  const sessao = await exigirJogador();
   const { data, error } = await sessao.supabase.rpc("registrar_esforco", { p_challenge_id: id, p_valor: valor });
   return { ok: !error && data === true };
 }

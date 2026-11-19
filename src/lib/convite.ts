@@ -34,6 +34,8 @@ export function normalizarGanchoCookie(bruto: string | undefined | null): { fami
 
 /** Link de convite com o gancho usado, para o funil da seção 4 (`?g=&h=&ref=`). */
 export function montarLinkConvite(origem: string, codigo: string, gancho?: { familia: Familia; id: string } | null): string {
+  // Sem código (visitante: o código dele não vale como convite), só o site.
+  if (!codigo) return new URL("/", origem).toString();
   const url = new URL(`/c/${codigo}`, origem);
   if (gancho) {
     url.searchParams.set("g", gancho.familia);
@@ -42,3 +44,17 @@ export function montarLinkConvite(origem: string, codigo: string, gancho?: { fam
   url.searchParams.set("ref", codigo);
   return url.toString();
 }
+
+/**
+ * Token de migração do visitante (docs/VISITANTE.md, seção 2): quando o e-mail
+ * dele já tem conta, o resultado é levado para essa conta depois do login.
+ * httpOnly e curto: só serve neste aparelho e por 1 dia.
+ */
+export const COOKIE_MIGRACAO = "hb_migracao";
+export const OPCOES_COOKIE_MIGRACAO = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  maxAge: 60 * 60 * 24,
+  path: "/",
+};

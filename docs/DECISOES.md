@@ -552,3 +552,42 @@ Regras e textos: FUNIL_LEMBRETES.md (v2). Configuração: `docs/CONFIGURACAO.md`
      imagem (principalmente com o app na tela inicial). No iPhone, "Salvar imagem" abre o
      menu de compartilhar (que tem "Salvar imagem"); sem ele, mostra a imagem por cima do
      card para tocar, segurar e salvar. No Android e no computador continua o download.
+
+## Visitante: joga antes do cadastro (18/11/2026)
+
+Especificação: `docs/VISITANTE.md`. Migração `20261122000100_visitante.sql`.
+
+### Respondidas pelo Luan
+
+1. **"Tenho 18 anos ou mais e aceito os termos"** numa caixa só, na tela do username. Grava os
+   3 aceites. O resto do perfil (nascimento, altura, peso…) vem depois de confirmar o e-mail.
+2. **Declaração de saúde no lugar das perguntas**, para todo mundo (visitante e cadastro pelo
+   Google): dois pop-ups rápidos, "Respondo NÃO a todas" ou "Respondo SIM a alguma", e o termo de
+   responsabilidade ("o app não se responsabiliza"). Só segue depois de "Li e estou ciente".
+   Refazer em `/perfil/saude`.
+3. **"Alongamento leve" = respiração + mobilidade de baixa intensidade.** Quem não declara NÃO
+   fica só com esses (não há desafio com modalidade "alongamento"; yoga ficou de fora).
+4. **O username preenche o apelido** (o que aparece na liga), e a tela de apelido é pulada.
+5. **Bônus de tamanho da hive**: o visitante entra na hive e conta como participante
+   (`exigir_cadastro` aceita o visitante com declaração), então conta no bônus quando a branch do
+   `BONUS_HIVE.md` entrar.
+
+### Decididas na implementação (revisar)
+
+6. **O visitante convidado joga o desafio que quem convidou fez por último** (antes de ele
+   chegar), mesmo bloqueado na trilha dele. Se esse desafio estiver travado pela declaração de
+   saúde, vai para o primeiro liberado.
+7. **Sem lembretes até confirmar**: o visitante não tem `notification_preferences` (fica fora do
+   motor de lembretes), não tem e-mail e não pode ligar o push.
+8. **O código do visitante não vale como convite**: `convite_publico` não o mostra e o card
+   pós-treino dele leva só o link do site.
+9. **"Entrar" não cria conta**: e-mail sem conta recebe "Não achei uma conta com esse e-mail" e o
+   link para começar como visitante. Conta nova só pelo caminho do username.
+10. **Errado × expirado**: o Supabase responde "expirado ou inválido" nos dois casos. O app separa
+    pela idade do envio (mais de 10 min = expirado). As 5 tentativas e o reenvio de 60 s ficam numa
+    tabela com o hash do e-mail (`codigo_email_tentativas`).
+11. **E-mail que já tem conta**: um token de migração (cookie httpOnly, 1 dia) liga o visitante à
+    conta depois do login por código ou pelo Google; `migrar_visitante` move desafios, XP, progresso,
+    hive e dias de ofensiva, lança na liga só o XP que veio do visitante e apaga o visitante.
+12. **Ofensiva do visitante**: é contada normalmente no banco (fica guardada); não há bloqueio
+    extra porque o visitante some em 7 dias se não confirmar.

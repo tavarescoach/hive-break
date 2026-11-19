@@ -54,29 +54,8 @@ describe("cadastro", () => {
     expect(rows[0].codigo_convite).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
   });
 
-  it("conta nova ganha um username único, gerado a partir do nome", async () => {
-    const dupla1 = await criarUsuario(db, "Zé Dup", "ze.dup.1@exemplo.com");
-    const dupla2 = await criarUsuario(db, "Zé Dup", "ze.dup.2@exemplo.com");
-    const { rows } = await db.query<{ username: string }>(
-      "select username from public.profiles where id in ($1, $2) order by criado_em", [dupla1, dupla2],
-    );
-    expect(rows[0].username).toMatch(/^[a-z0-9_]{3,20}$/);
-    expect(rows[1].username).not.toBe(rows[0].username);
-  });
-
-  it("o dono troca o próprio username, mas não para um já usado", async () => {
-    await como(db, { usuario: bruno }, (tx) => tx.query("update public.profiles set username = 'bruno_novo' where id = $1", [bruno]));
-    const { rows } = await db.query<{ username: string }>("select username from public.profiles where id = $1", [bruno]);
-    expect(rows[0].username).toBe("bruno_novo");
-
-    const usernameDaAna = (await db.query<{ username: string }>("select username from public.profiles where id = $1", [ana])).rows[0].username;
-    await expect(
-      como(db, { usuario: bruno }, (tx) => tx.query("update public.profiles set username = $1 where id = $2", [usernameDaAna, bruno])),
-    ).rejects.toThrow(/duplicate key|unique/);
-    await expect(
-      como(db, { usuario: bruno }, (tx) => tx.query("update public.profiles set username = 'AB' where id = $1", [bruno])),
-    ).rejects.toThrow(/violates check constraint/);
-  });
+  // O username (e a troca, via trocar_username) é do Visitante (docs/VISITANTE.md);
+  // essa cobertura mora em src/banco/__tests__/visitante.test.ts, não aqui.
 
   it("todas as tabelas do schema public têm RLS ligada", async () => {
     const { rows } = await db.query<{ tablename: string }>(
@@ -84,7 +63,7 @@ describe("cadastro", () => {
     );
     expect(rows).toEqual([]);
     const total = await db.query<{ n: number }>("select count(*)::int as n from pg_tables where schemaname = 'public'");
-    expect(total.rows[0].n).toBe(45);
+    expect(total.rows[0].n).toBe(49);
   });
 });
 
@@ -126,6 +105,8 @@ describe("dados de saúde ficam só com o dono", () => {
   });
 
   it("a view pública mostra identidade, objetivo e meta da semana, nunca dados de saúde", async () => {
+    // Username é do Visitante (docs/VISITANTE.md): nulo até a pessoa escolher um.
+    await db.query("update public.profiles set username = 'ana_souza' where id = $1", [ana]);
     await como(db, { usuario: bruno }, async (tx) => {
       const { rows } = await tx.query<Record<string, unknown>>("select * from public.perfis_publicos where id = $1", [ana]);
       expect(Object.keys(rows[0]).sort()).toEqual([
@@ -137,7 +118,7 @@ describe("dados de saúde ficam só com o dono", () => {
     // Perfil público (seção 6 do docs/PERFIL.md): quem não está logado também lê a view.
     await como(db, { usuario: null }, async (tx) => {
       const { rows } = await tx.query<Record<string, unknown>>("select apelido, username from public.perfis_publicos where id = $1", [ana]);
-      expect(rows).toEqual([{ apelido: "Ana", username: expect.stringMatching(/^[a-z0-9_]{3,20}$/) }]);
+      expect(rows).toEqual([{ apelido: "Ana", username: "ana_souza" }]);
     });
   });
 

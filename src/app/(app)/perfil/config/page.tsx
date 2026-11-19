@@ -4,12 +4,12 @@ import { botaoSecundario, campoTexto, cartao, sobrelinha } from "@/componentes/e
 import { Formulario } from "@/componentes/Formulario";
 import { Opcoes } from "@/componentes/Opcoes";
 import {
-  DIAS_SEMANA, EQUIPAMENTOS, ESTILOS_MUSICA, faixaEtaria, idade, imc, LIMITACOES, METAS_DIARIAS, OBJETIVOS, rotuloDe, SEXOS,
+  DIAS_SEMANA, EQUIPAMENTOS, ESTILOS_MUSICA, ESTILOS_PROGRESSO, faixaEtaria, idade, imc, LIMITACOES, METAS_DIARIAS, OBJETIVOS, rotuloDe, SEXOS,
 } from "@/dominio/perfil";
 import { VISIBILIDADES_PESO } from "@/dominio/peso";
 import { AVISO_MEDICO } from "@/dominio/termos";
 import { exigirCadastroCompleto } from "@/lib/sessao";
-import { declararLiberacao, salvarConfiguracoes, salvarEsconderXp, salvarPrivacidadePeso, salvarUsername } from "../acoes";
+import { declararLiberacao, salvarConfiguracoes, salvarEsconderXp, salvarPrivacidadePeso } from "../acoes";
 import { Lembretes, type PreferenciasLembrete } from "./Lembretes";
 
 export const metadata: Metadata = { title: "Configurações · Hive Break" };
@@ -30,26 +30,6 @@ export default async function Configuracoes() {
         <p className={sobrelinha}>Perfil</p>
         <h1 className="mt-1 text-3xl font-black leading-tight">Dados e configurações</h1>
       </header>
-
-      <Formulario acao={salvarUsername} botao="Salvar nome de usuário">
-        <label>
-          <span className={rotulo}>Nome de usuário</span>
-          <div className="flex items-center gap-2">
-            <span className="text-xl font-black text-apagado">@</span>
-            <input
-              name="username"
-              defaultValue={perfil.username}
-              minLength={3}
-              maxLength={20}
-              pattern="[a-z0-9_]{3,20}"
-              className={campoTexto}
-            />
-          </div>
-          <span className="mt-1.5 block text-sm text-apagado">
-            É o link do seu perfil: hivebreak.app/@{perfil.username}. De 3 a 20 letras minúsculas, números ou _.
-          </span>
-        </label>
-      </Formulario>
 
       <Formulario acao={salvarPrivacidadePeso} botao="Salvar privacidade do peso">
         <div className="flex flex-col gap-4">
@@ -170,6 +150,10 @@ export default async function Configuracoes() {
             <span className={rotulo}>Volume da voz do treinador</span>
             <input type="range" name="volume_voz" min={0} max={100} step={5} defaultValue={perfil.volume_voz} className="h-12 w-full accent-[var(--color-mel)]" />
           </label>
+          <fieldset>
+            <legend className={rotulo}>Visual da tela de treino</legend>
+            <Opcoes nome="estilo_progresso" opcoes={ESTILOS_PROGRESSO} atual={perfil.estilo_progresso ?? "barra"} />
+          </fieldset>
           {perfil.contagem_preparo_s !== undefined && (
             <fieldset>
               <legend className={rotulo}>Contagem antes de cada exercício</legend>
@@ -191,6 +175,12 @@ export default async function Configuracoes() {
           </label>
           <Link href="/camera" className={botaoSecundario}>
             Reposicionar a câmera
+          </Link>
+          <Link href="/perfil/username" className={botaoSecundario}>
+            {perfil.username ? `Trocar username (@${perfil.username})` : "Criar username"}
+          </Link>
+          <Link href="/perfil/saude" className={botaoSecundario}>
+            Refazer a declaração de saúde
           </Link>
           <p className="text-sm leading-relaxed text-apagado">
             Exportar dados e excluir a conta entram nas próximas versões do teste.

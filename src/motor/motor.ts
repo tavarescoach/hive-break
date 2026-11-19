@@ -33,6 +33,8 @@ interface ErroCompilado {
   desde: number;
   /** Já foi anunciado nesta repetição / nesta sustentação. */
   anunciado: boolean;
+  /** Índices dos pontos de `def.pontos` (vazio quando o erro não define segmento). */
+  pontosIdx: number[];
 }
 
 interface LadoAlternado {
@@ -186,6 +188,7 @@ export class Motor {
         ativa: false,
         desde: 0,
         anunciado: false,
+        pontosIdx: (erro.pontos ?? []).flatMap(indicesDoPonto),
       };
       (erro.quando === "fim_rep" ? this.errosFim : this.errosDurante).push(compilado);
     }
@@ -658,9 +661,11 @@ export class Motor {
   // -------------------------------------------------------------------- saídas
 
   get estado(): EstadoMotor {
-    const errosAtivos = this.errosDurante
-      .filter((e) => e.ativa && (this.tAnterior ?? 0) - e.desde >= this.erroMinimoMs)
-      .map((e) => e.def.id);
+    const ativos = this.errosDurante.filter((e) => e.ativa && (this.tAnterior ?? 0) - e.desde >= this.erroMinimoMs);
+    const errosAtivos = ativos.map((e) => e.def.id);
+    // Esqueleto só pinta o segmento certo quando TODO erro ativo define `pontos`;
+    // senão (ex.: erro de amplitude sem segmento claro) a tela cai no esqueleto inteiro.
+    const segmentoErro = ativos.length > 0 && ativos.every((e) => e.pontosIdx.length > 0) ? [...new Set(ativos.flatMap((e) => e.pontosIdx))] : [];
     return {
       repsValidas: this.repsValidas,
       repsParciais: this.repsParciais,
@@ -672,6 +677,7 @@ export class Motor {
       foraDoQuadro: this.foraDoQuadro,
       frameValido: this.frameValido,
       errosAtivos,
+      segmentoErro,
       medidas: this.medidas,
       alvo: this.alvo ? { x: this.alvo.x / this.proporcao, y: this.alvo.y, raio: this.alvo.raio } : null,
     };

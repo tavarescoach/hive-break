@@ -156,10 +156,8 @@ end;
 $$;
 grant execute on function public.meta_semana(uuid) to anon, authenticated;
 
--- Título do objetivo e a meta da semana aparecem para todo mundo (seção 6).
--- Nunca o peso, a altura, o IMC nem qualquer outro dado de saúde.
-create or replace view public.perfis_publicos with (security_invoker = false) as
-  select id, apelido, avatar_url, divisao_atual, nivel_atual, username, criado_em,
-    objetivo, meta_desafios_dia, dias_semana
-  from public.profiles
-  where onboarding_concluido_em is not null;
+-- Título do objetivo e a meta da semana aparecem para todo mundo (seção 6):
+-- entram em perfis_publicos junto com o username e o resto, só na view final
+-- (perfil_social.sql). "create or replace view" não deixa tirar coluna, e a
+-- migração do Visitante (depois desta) volta a view para as 5 colunas
+-- originais — se essas 3 entrassem aqui, a dela quebraria o encadeamento.
