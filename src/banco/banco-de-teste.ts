@@ -49,7 +49,10 @@ export async function criarBanco(opcoes: { ate?: string } = {}): Promise<PGlite>
       throw new Error(`Migração ${arquivo} falhou: ${(erro as Error).message}`);
     }
   }
-  for (const seed of ["seed.sql", "seed_trilha.sql"]) {
+  // seed_trilha_acessoria.sql depende da coluna levels.categoria (migração
+  // 20261125000100): pulado quando `ate` corta antes dela.
+  for (const seed of ["seed.sql", "seed_trilha.sql", "seed_trilha_acessoria.sql"]) {
+    if (seed === "seed_trilha_acessoria.sql" && opcoes.ate && "20261125000100" >= opcoes.ate) continue;
     await db.exec(readFileSync(path.join(PASTA_SUPABASE, seed), "utf8"));
   }
   return db;

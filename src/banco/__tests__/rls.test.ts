@@ -328,7 +328,8 @@ describe("liga e conteúdo", () => {
   });
 
   it("qualquer pessoa lê o conteúdo: 8 níveis e as conquistas do seed", async () => {
-    const niveis = await como(db, { usuario: null }, (tx) => tx.query<{ tema: string }>("select tema from public.levels order by ordem"));
+    const niveis = await como(db, { usuario: null }, (tx) =>
+      tx.query<{ tema: string }>("select tema from public.levels where categoria = 'principal' order by ordem"));
     expect(niveis.rows).toHaveLength(8);
     expect(niveis.rows[0].tema).toBe("Primeiros passos");
     const conquistas = await como(db, { usuario: carla }, (tx) => tx.query("select id from public.achievements"));

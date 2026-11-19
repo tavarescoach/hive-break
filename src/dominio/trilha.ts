@@ -147,6 +147,8 @@ export const ROTULO_MODALIDADE: Record<string, string> = {
   yoga: "Yoga e alongamento",
   respiracao: "Volta à calma",
   desafio_final: "Desafio da unidade",
+  cardio: "Cardio",
+  alongamento: "Alongamento",
 };
 
 export const ROTULO_EQUIPAMENTO: Record<string, string> = { tapete: "Tapete", cabo_vassoura: "Cabo de vassoura" };
