@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { EstadoFormulario } from "@/app/onboarding/acoes";
 import { ESTILOS_MUSICA, LIMITACOES, METAS_DIARIAS, validarCampo, validarInteiro, validarUsername, type CampoPerfil } from "@/dominio/perfil";
+import { VISIBILIDADES_PESO } from "@/dominio/peso";
 import { exigirSessao } from "@/lib/sessao";
 
 const FALHA = "Não consegui salvar. Confira a internet e tente de novo.";
@@ -29,6 +30,30 @@ export async function salvarUsername(_anterior: EstadoFormulario, formulario: Fo
   revalidatePath("/perfil/config");
   revalidatePath(`/@${resultado.valor}`);
   redirect("/perfil/config");
+}
+
+/** Privacidade do peso (docs/PERFIL.md, seção 7): quem vê a variação, e a meta em kg. */
+export async function salvarPrivacidadePeso(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {
+  const sessao = await exigirSessao();
+  const visibilidade = String(formulario.get("visibilidade_peso") ?? "");
+  if (!VISIBILIDADES_PESO.some((v) => v.valor === visibilidade)) return { erro: "Escolha uma opção de privacidade." };
+
+  const metaBruta = String(formulario.get("peso_meta_kg") ?? "").trim();
+  let pesoMetaKg: number | null = null;
+  if (metaBruta !== "") {
+    const resultado = validarCampo("peso_kg", [metaBruta]);
+    if (!resultado.ok) return { erro: `Confira a meta de peso: ${resultado.erro}` };
+    pesoMetaKg = resultado.valor as number;
+  }
+
+  const { error } = await sessao.supabase
+    .from("profiles")
+    .update({ visibilidade_peso: visibilidade, peso_meta_kg: pesoMetaKg })
+    .eq("id", sessao.usuarioId);
+  if (error) return { erro: FALHA };
+  revalidatePath("/perfil/config");
+  revalidatePath(`/@${sessao.perfil.username}`);
+  return {};
 }
 
 export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulario: FormData): Promise<EstadoFormulario> {

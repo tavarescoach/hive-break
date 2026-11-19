@@ -6,9 +6,10 @@ import { Opcoes } from "@/componentes/Opcoes";
 import {
   DIAS_SEMANA, EQUIPAMENTOS, ESTILOS_MUSICA, faixaEtaria, idade, imc, LIMITACOES, METAS_DIARIAS, OBJETIVOS, rotuloDe, SEXOS,
 } from "@/dominio/perfil";
+import { VISIBILIDADES_PESO } from "@/dominio/peso";
 import { AVISO_MEDICO } from "@/dominio/termos";
 import { exigirCadastroCompleto } from "@/lib/sessao";
-import { declararLiberacao, salvarConfiguracoes, salvarUsername } from "../acoes";
+import { declararLiberacao, salvarConfiguracoes, salvarPrivacidadePeso, salvarUsername } from "../acoes";
 import { Lembretes, type PreferenciasLembrete } from "./Lembretes";
 
 export const metadata: Metadata = { title: "Configurações · Hive Break" };
@@ -48,6 +49,28 @@ export default async function Configuracoes() {
             É o link do seu perfil: hivebreak.app/@{perfil.username}. De 3 a 20 letras minúsculas, números ou _.
           </span>
         </label>
+      </Formulario>
+
+      <Formulario acao={salvarPrivacidadePeso} botao="Salvar privacidade do peso">
+        <div className="flex flex-col gap-4">
+          <h2 className="text-lg font-bold">Privacidade do peso</h2>
+          <fieldset>
+            <legend className={rotulo}>Quem vê o seu peso</legend>
+            <Opcoes nome="visibilidade_peso" opcoes={VISIBILIDADES_PESO} atual={perfil.visibilidade_peso} colunas={1} />
+          </fieldset>
+          <label>
+            <span className={rotulo}>Meta de peso (kg, opcional)</span>
+            <input
+              name="peso_meta_kg"
+              inputMode="decimal"
+              defaultValue={perfil.peso_meta_kg === null ? "" : Number(perfil.peso_meta_kg).toLocaleString("pt-BR")}
+              className={campoTexto}
+            />
+            <span className="mt-1.5 block text-sm text-apagado">
+              O peso em si continua {perfil.visibilidade_peso === "eu" ? "só seu" : "controlado pela opção acima"}; a meta nunca aparece no perfil público.
+            </span>
+          </label>
+        </div>
       </Formulario>
 
       {perfil.liberado_alta_intensidade ? (

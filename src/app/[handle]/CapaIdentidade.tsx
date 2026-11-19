@@ -10,6 +10,9 @@ export interface PerfilResumo {
   divisao_atual: string;
   nivel_atual: number;
   criado_em: string;
+  objetivo: string | null;
+  meta_desafios_dia: number | null;
+  dias_semana: number | null;
 }
 
 export type VarianteNoBanner = "proprio" | "visitante_logado" | "publico";

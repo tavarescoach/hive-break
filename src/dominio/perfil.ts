@@ -228,6 +228,8 @@ export interface Perfil {
   /** Segundos da contagem do pop-up "PREPARE-SE" (migração 0009; ausente antes dela). */
   contagem_preparo_s?: number;
   limitacoes: string[];
+  peso_meta_kg: number | null;
+  visibilidade_peso: "eu" | "variacao" | "tudo";
   dificuldade_atual: number;
   liberado_alta_intensidade: boolean;
   liberacao_declarada_em: string | null;

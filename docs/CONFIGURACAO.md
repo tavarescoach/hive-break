@@ -99,6 +99,9 @@ conforme ela for implementada:
    — cria o `username` (rota `/@username`) e as funções que o geram. Precisa da extensão
    **unaccent**: se o `create extension` da migração falhar por permissão, ative-a antes em
    **Database > Extensions** no painel do Supabase e rode a migração de novo.
+2. [`supabase/migrations/20261121000400_perfil_objetivo.sql`](../supabase/migrations/20261121000400_perfil_objetivo.sql)
+   — cria `pesagens`, a meta e a privacidade do peso, e as funções `peso_card`/`meta_semana`
+   usadas pelo card de objetivo e pela meta da semana.
 
 ## 2. Login com Google
 

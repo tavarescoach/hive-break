@@ -84,7 +84,7 @@ describe("cadastro", () => {
     );
     expect(rows).toEqual([]);
     const total = await db.query<{ n: number }>("select count(*)::int as n from pg_tables where schemaname = 'public'");
-    expect(total.rows[0].n).toBe(41);
+    expect(total.rows[0].n).toBe(42);
   });
 });
 
@@ -125,10 +125,12 @@ describe("dados de saúde ficam só com o dono", () => {
     }
   });
 
-  it("a view pública mostra só apelido, foto, username, divisão e nível", async () => {
+  it("a view pública mostra identidade, objetivo e meta da semana, nunca dados de saúde", async () => {
     await como(db, { usuario: bruno }, async (tx) => {
       const { rows } = await tx.query<Record<string, unknown>>("select * from public.perfis_publicos where id = $1", [ana]);
-      expect(Object.keys(rows[0]).sort()).toEqual(["apelido", "avatar_url", "criado_em", "divisao_atual", "id", "nivel_atual", "username"]);
+      expect(Object.keys(rows[0]).sort()).toEqual([
+        "apelido", "avatar_url", "criado_em", "dias_semana", "divisao_atual", "id", "meta_desafios_dia", "nivel_atual", "objetivo", "username",
+      ]);
       expect(rows[0].apelido).toBe("Ana");
     });
     // Perfil público (seção 6 do docs/PERFIL.md): quem não está logado também lê a view.
@@ -349,5 +351,49 @@ describe("liga e conteúdo", () => {
     expect(niveis.rows[0].tema).toBe("Primeiros passos");
     const conquistas = await como(db, { usuario: carla }, (tx) => tx.query("select id from public.achievements"));
     expect(conquistas.rows).toHaveLength(14);
+  });
+});
+
+describe("peso e meta da semana (docs/PERFIL.md)", () => {
+  it("registrar_peso grava 1 linha por dia e só o dono lê", async () => {
+    await como(db, { usuario: ana }, (tx) => tx.query("select public.registrar_peso(80)"));
+    await como(db, { usuario: ana }, (tx) => tx.query("select public.registrar_peso(79.5)"));
+    const { rows } = await db.query<{ peso_kg: string }>("select peso_kg from public.pesagens where usuario_id = $1", [ana]);
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0].peso_kg)).toBe(79.5);
+
+    await expect(como(db, { usuario: bruno }, (tx) => tx.query("select * from public.pesagens where usuario_id = $1", [ana])))
+      .resolves.toMatchObject({ rows: [] });
+  });
+
+  it("peso_card respeita a visibilidade: eu (padrão), variação e tudo", async () => {
+    const paraOutro = (quem: string | null) => como(db, { usuario: quem }, (tx) => tx.query<{ peso_card: Record<string, unknown> }>("select public.peso_card($1)", [ana]));
+
+    expect((await paraOutro(bruno)).rows[0].peso_card).toEqual({ papel: "outro", visivel: false });
+
+    await db.query("update public.profiles set visibilidade_peso = 'variacao' where id = $1", [ana]);
+    let r = (await paraOutro(bruno)).rows[0].peso_card as Record<string, unknown>;
+    expect(r).toMatchObject({ papel: "outro", visivel: true });
+    expect(r.atual).toBeUndefined();
+    expect(typeof r.variacao_kg).toBe("number");
+
+    await db.query("update public.profiles set visibilidade_peso = 'tudo' where id = $1", [ana]);
+    r = (await paraOutro(bruno)).rows[0].peso_card as Record<string, unknown>;
+    expect(r.atual).toBeDefined();
+    // Nunca o absoluto para quem não está logado, mesmo com "mostrar tudo".
+    const semLogin = (await paraOutro(null)).rows[0].peso_card as Record<string, unknown>;
+    expect(semLogin.atual).toBeUndefined();
+    expect(typeof semLogin.variacao_kg).toBe("number");
+
+    await db.query("update public.profiles set visibilidade_peso = 'eu' where id = $1", [ana]);
+  });
+
+  it("meta_semana devolve a meta, os 7 dias da semana e o streak, até sem login", async () => {
+    const r = await como(db, { usuario: null }, (tx) => tx.query<{ meta_semana: Record<string, unknown> }>("select public.meta_semana($1)", [ana]));
+    const dados = r.rows[0].meta_semana as { meta_hives_dia: number; dias: unknown[]; feitas_na_semana: number; streak: number };
+    expect(dados.meta_hives_dia).toBe(1);
+    expect(dados.dias).toHaveLength(7);
+    expect(dados.feitas_na_semana).toBeGreaterThanOrEqual(0);
+    expect(dados.streak).toBeGreaterThanOrEqual(0);
   });
 });

@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { lerSessao } from "@/lib/sessao";
+import { lerSessao, type Sessao } from "@/lib/sessao";
 import { criarClienteServidor } from "@/lib/supabase/servidor";
 import { CapaIdentidade, type PerfilResumo, type VarianteNoBanner } from "./CapaIdentidade";
+import { MetaSemanaCard, type MetaSemanaDados } from "./MetaSemanaCard";
+import { ObjetivoCard, type PesoCard } from "./ObjetivoCard";
 import { PerfilColunas } from "./PerfilColunas";
 
 /**
@@ -15,10 +17,20 @@ async function buscarPerfilPublico(username: string): Promise<PerfilResumo | nul
   const supabase = await criarClienteServidor();
   const { data } = await supabase
     .from("perfis_publicos")
-    .select("id, apelido, avatar_url, username, divisao_atual, nivel_atual, criado_em")
+    .select("id, apelido, avatar_url, username, divisao_atual, nivel_atual, criado_em, objetivo, meta_desafios_dia, dias_semana")
     .eq("username", username)
     .maybeSingle();
   return (data as PerfilResumo | null) ?? null;
+}
+
+/** peso_card() e meta_semana() valem para quem está logado e para quem não está (seção 2.3/2.4). */
+async function carregarCardsDoCentro(sessao: Sessao | null, perfilId: string) {
+  const supabase = sessao ? sessao.supabase : await criarClienteServidor();
+  const [peso, meta] = await Promise.all([
+    supabase.rpc("peso_card", { p_user: perfilId }),
+    supabase.rpc("meta_semana", { p_user: perfilId }),
+  ]);
+  return { pesoCard: (peso.data as PesoCard | null) ?? null, metaSemana: (meta.data as MetaSemanaDados | null) ?? null };
 }
 
 async function carregarPagina(handleBruto: string) {
@@ -59,9 +71,17 @@ export default async function PaginaPerfil({ params }: { params: Promise<{ handl
     hivesAoVivo = count ?? 0;
   }
 
+  const { pesoCard, metaSemana } = await carregarCardsDoCentro(sessao, perfil.id);
+
   return (
     <PerfilColunas perfilHref={sessao ? `/@${sessao.perfil.username}` : undefined} hivesAoVivo={hivesAoVivo}>
-      <CapaIdentidade perfil={perfil} variante={variante} />
+      <div className="flex flex-col gap-4">
+        <CapaIdentidade perfil={perfil} variante={variante} />
+        <div className="flex flex-col gap-4 px-5">
+          <ObjetivoCard objetivo={perfil.objetivo} pesoCard={pesoCard} souEu={variante === "proprio"} />
+          {metaSemana && <MetaSemanaCard dados={metaSemana} />}
+        </div>
+      </div>
     </PerfilColunas>
   );
 }
