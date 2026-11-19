@@ -156,8 +156,17 @@ describe("pontos", () => {
     const protetores = await db.query<{ protetores: number }>(
       "select protetores from public.streaks where user_id in ($1, $2) order by user_id", [eva, fabio]);
     expect(protetores.rows.map((r) => r.protetores)).toEqual([1, 1]);
-    await concluir(fabio, "n1u1d02"); // o 2º desafio não ativa de novo
+    // Convite ativado também segue os dois automaticamente (docs/PERFIL.md, seção 4.1), e é reversível.
+    const evaSegueFabio = await db.query("select 1 from public.seguidores where seguidor_id = $1 and seguido_id = $2", [eva, fabio]);
+    const fabioSegueEva = await db.query("select 1 from public.seguidores where seguidor_id = $1 and seguido_id = $2", [fabio, eva]);
+    expect(evaSegueFabio.rows).toHaveLength(1);
+    expect(fabioSegueEva.rows).toHaveLength(1);
+    await como(db, { usuario: eva }, (tx) => tx.query("select public.deixar_de_seguir($1)", [fabio]));
+    const soFabioSegue = await db.query("select seguidor_id from public.seguidores where seguido_id = $1", [eva]);
+    expect(soFabioSegue.rows).toEqual([{ seguidor_id: fabio }]);
+    await concluir(fabio, "n1u1d02"); // o 2º desafio não ativa de novo, e não ressuscita o seguir desfeito
     expect(await membro(eva)).toMatchObject({ pontos: "20.00" });
+    expect((await db.query("select 1 from public.seguidores where seguidor_id = $1 and seguido_id = $2", [eva, fabio])).rows).toHaveLength(0);
   });
 
   it("até 10 convites recompensados com XP por mês", async () => {

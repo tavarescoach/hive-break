@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { Avatar } from "@/componentes/Avatar";
-import { cartao, sobrelinha } from "@/componentes/estilos";
+import { sobrelinha } from "@/componentes/estilos";
 import { exigirCadastroCompleto } from "@/lib/sessao";
 import { buscarSugestoes } from "./buscar/acoes";
 import { CartaoConvite } from "./CartaoConvite";
@@ -8,6 +7,7 @@ import { FaixaAmigosSumidos } from "./FaixaAmigosSumidos";
 import { FeedAmigos, type EventoFeed } from "./FeedAmigos";
 import { ListaRede, type PessoaRede } from "./ListaRede";
 import { ModalBuscarAmigos } from "./ModalBuscarAmigos";
+import { ModalConvites, type ConvidadoResumo } from "./ModalConvites";
 
 export const metadata: Metadata = { title: "Amigos · Hive Break" };
 
@@ -31,12 +31,25 @@ export default async function Amigos() {
       .order("cadastrado_em", { ascending: false }),
   ]);
   const lista = (convites ?? []) as Convite[];
-  // Dos convidados só dá para ver o que é público: apelido e foto.
+  // Dos convidados só dá para ver o que é público: apelido, foto e username.
   const { data: publicos } = lista.length
-    ? await sessao.supabase.from("perfis_publicos").select("id,apelido,avatar_url").in("id", lista.map((c) => c.invitee_id))
+    ? await sessao.supabase.from("perfis_publicos").select("id,apelido,avatar_url,username").in("id", lista.map((c) => c.invitee_id))
     : { data: [] };
-  const porId = new Map((publicos ?? []).map((p) => [p.id as string, p as { apelido: string; avatar_url: string | null }]));
+  const porId = new Map(
+    (publicos ?? []).map((p) => [p.id as string, p as { apelido: string; avatar_url: string | null; username: string | null }]),
+  );
   const ativados = lista.filter((c) => c.ativado_em).length;
+  // Quem já fez o 1º desafio virou seguidor automático (ativar_convite): o perfil dessa pessoa já é inspecionável.
+  const convidados: ConvidadoResumo[] = lista.map((convite) => {
+    const pessoa = porId.get(convite.invitee_id);
+    return {
+      id: convite.invitee_id,
+      nome: pessoa?.apelido ?? "Novo convidado",
+      username: pessoa?.username ?? null,
+      avatarUrl: pessoa?.avatar_url ?? null,
+      situacao: convite.ativado_em ? "fez_desafio" : pessoa ? "cadastro_pronto" : "cadastrando",
+    };
+  });
 
   return (
     <main className="flex flex-col gap-6 px-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
@@ -58,38 +71,7 @@ export default async function Amigos() {
 
       <CartaoConvite codigo={sessao.perfil.codigo_convite} />
 
-      <section>
-        <h2 className="text-base font-bold">Seus convites</h2>
-        {lista.length === 0 ? (
-          <p className="mt-2 text-[15px] leading-relaxed text-apagado">
-            Ninguém entrou pelo seu link ainda. Mande para quem você quer ver treinando.
-          </p>
-        ) : (
-          <>
-            <p className="mt-1 text-[15px] text-apagado">
-              {lista.length} {lista.length === 1 ? "pessoa entrou" : "pessoas entraram"} pelo seu link · {ativados}{" "}
-              {ativados === 1 ? "já fez" : "já fizeram"} o 1º desafio
-            </p>
-            <ul className="mt-3 flex flex-col gap-2">
-              {lista.map((convite) => {
-                const pessoa = porId.get(convite.invitee_id);
-                const nome = pessoa?.apelido ?? "Novo convidado";
-                return (
-                  <li key={convite.invitee_id} className={`${cartao} flex items-center gap-3 py-3`}>
-                    <Avatar url={pessoa?.avatar_url ?? null} nome={nome} tamanho={44} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-bold">{nome}</p>
-                      <p className="text-sm text-apagado">
-                        {convite.ativado_em ? "Fez o 1º desafio" : pessoa ? "Cadastro pronto, falta o 1º desafio" : "Ainda terminando o cadastro"}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-      </section>
+      <ModalConvites convidados={convidados} ativados={ativados} />
     </main>
   );
 }
