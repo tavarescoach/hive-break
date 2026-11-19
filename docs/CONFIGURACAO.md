@@ -110,6 +110,9 @@ conforme ela for implementada:
    e afins. Precisa da extensão **pg_trgm**: mesma observação do item 1, se o `create
    extension` falhar por permissão, ative-a em **Database > Extensions** no painel do
    Supabase e rode a migração de novo.
+5. [`supabase/migrations/20261123000100_perfil_social.sql`](../supabase/migrations/20261123000100_perfil_social.sql)
+   — cria `profiles.vitrine_conquistas` e as funções `progresso_conquistas`, `definir_vitrine`,
+   `feed_amigos`, `dar_high_five` e `minha_rede` (coluna da direita do perfil).
 
 ## 2. Login com Google
 

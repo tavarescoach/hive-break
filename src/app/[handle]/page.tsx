@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import type { ProgressoConquista } from "@/dominio/conquistas";
 import { lerSessao, type Sessao } from "@/lib/sessao";
 import { criarClienteServidor } from "@/lib/supabase/servidor";
 import { CalendarioHexagonos, type DiaCalendario } from "./CalendarioHexagonos";
 import { CapaIdentidade, type PerfilResumo, type VarianteNoBanner } from "./CapaIdentidade";
 import { EstatisticasGrid, type EstatisticasPerfil } from "./EstatisticasGrid";
+import { FeedAmigos, type EventoFeed } from "./FeedAmigos";
+import { ListaRede, type PessoaRede } from "./ListaRede";
 import { MetaSemanaCard, type MetaSemanaDados } from "./MetaSemanaCard";
 import { ObjetivoCard, type PesoCard } from "./ObjetivoCard";
 import { PerfilColunas } from "./PerfilColunas";
+import { VitrineConquistas } from "./VitrineConquistas";
 
 /**
  * Rota /@username (docs/PERFIL.md): logado mostra o perfil próprio ou o de
@@ -19,7 +23,7 @@ async function buscarPerfilPublico(username: string): Promise<PerfilResumo | nul
   const supabase = await criarClienteServidor();
   const { data } = await supabase
     .from("perfis_publicos")
-    .select("id, apelido, avatar_url, username, divisao_atual, nivel_atual, criado_em, objetivo, meta_desafios_dia, dias_semana")
+    .select("id, apelido, avatar_url, username, divisao_atual, nivel_atual, criado_em, objetivo, meta_desafios_dia, dias_semana, vitrine_conquistas")
     .eq("username", username)
     .maybeSingle();
   return (data as PerfilResumo | null) ?? null;
@@ -45,6 +49,34 @@ async function carregarEstatisticas(sessao: Sessao | null, perfilId: string, ano
   }
   const calendario = await sessao.supabase.rpc("calendario_mes", { p_user: perfilId, p_ano: ano, p_mes: mes });
   return { estatisticas: dados, dias: (calendario.data as DiaCalendario[] | null) ?? [] };
+}
+
+/** Coluna da direita (seção 3): vitrine sempre; feed e seguindo/seguidores só no próprio perfil. */
+async function carregarColunaDaDireita(sessao: Sessao | null, variante: VarianteNoBanner, perfilId: string) {
+  const supabase = sessao ? sessao.supabase : await criarClienteServidor();
+  const conquistas = await supabase.rpc("progresso_conquistas", { p_user: perfilId });
+
+  let conquistasViewer: ProgressoConquista[] | null = null;
+  if (variante === "visitante_logado" && sessao) {
+    const r = await sessao.supabase.rpc("progresso_conquistas", { p_user: sessao.usuarioId });
+    conquistasViewer = (r.data as ProgressoConquista[] | null) ?? null;
+  }
+
+  let feed: EventoFeed[] = [];
+  let seguindo: PessoaRede[] = [];
+  let seguidores: PessoaRede[] = [];
+  if (variante === "proprio" && sessao) {
+    const [f, s1, s2] = await Promise.all([
+      sessao.supabase.rpc("feed_amigos"),
+      sessao.supabase.rpc("minha_rede", { p_tipo: "seguindo" }),
+      sessao.supabase.rpc("minha_rede", { p_tipo: "seguidores" }),
+    ]);
+    feed = (f.data as EventoFeed[] | null) ?? [];
+    seguindo = (s1.data as PessoaRede[] | null) ?? [];
+    seguidores = (s2.data as PessoaRede[] | null) ?? [];
+  }
+
+  return { conquistas: (conquistas.data as ProgressoConquista[] | null) ?? [], conquistasViewer, feed, seguindo, seguidores };
 }
 
 function lerMes(bruto: string | undefined): { ano: number; mes: number } {
@@ -109,18 +141,36 @@ export default async function PaginaPerfil({
   }
 
   const { ano, mes } = lerMes(mesBruto);
-  const [{ pesoCard, metaSemana }, { estatisticas, dias }, relacao] = await Promise.all([
+  const [{ pesoCard, metaSemana }, { estatisticas, dias }, relacao, direitaDados] = await Promise.all([
     carregarCardsDoCentro(sessao, perfil.id),
     carregarEstatisticas(sessao, perfil.id, ano, mes),
     variante === "visitante_logado" && sessao
       ? sessao.supabase.rpc("relacao_com", { p_user: sessao.usuarioId, p_alvo: perfil.id }).then((r) => r.data as { seguindo: boolean; segue_voce: boolean } | null)
       : Promise.resolve(null),
+    carregarColunaDaDireita(sessao, variante, perfil.id),
   ]);
   const hojeIso = new Date().toISOString().slice(0, 10);
   const treinouHoje = metaSemana?.dias.some((d) => d.dia === hojeIso && d.hives > 0) ?? false;
 
+  const direita = (
+    <div className="flex flex-col gap-4">
+      <VitrineConquistas
+        conquistas={direitaDados.conquistas}
+        vitrineIds={perfil.vitrine_conquistas}
+        souEu={variante === "proprio"}
+        conquistasViewer={direitaDados.conquistasViewer}
+      />
+      {variante === "proprio" && (
+        <>
+          <FeedAmigos eventos={direitaDados.feed} />
+          <ListaRede seguindo={direitaDados.seguindo} seguidores={direitaDados.seguidores} />
+        </>
+      )}
+    </div>
+  );
+
   return (
-    <PerfilColunas perfilHref={sessao ? `/@${sessao.perfil.username}` : undefined} hivesAoVivo={hivesAoVivo}>
+    <PerfilColunas perfilHref={sessao ? `/@${sessao.perfil.username}` : undefined} hivesAoVivo={hivesAoVivo} direita={direita}>
       <div className="flex flex-col gap-4">
         <CapaIdentidade perfil={perfil} variante={variante} relacao={relacao} />
         <div className="flex flex-col gap-4 px-5">

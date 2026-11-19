@@ -231,6 +231,7 @@ export interface Perfil {
   peso_meta_kg: number | null;
   visibilidade_peso: "eu" | "variacao" | "tudo";
   esconder_xp: boolean;
+  vitrine_conquistas: string[];
   dificuldade_atual: number;
   liberado_alta_intensidade: boolean;
   liberacao_declarada_em: string | null;

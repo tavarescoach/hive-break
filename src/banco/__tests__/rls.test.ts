@@ -130,6 +130,7 @@ describe("dados de saúde ficam só com o dono", () => {
       const { rows } = await tx.query<Record<string, unknown>>("select * from public.perfis_publicos where id = $1", [ana]);
       expect(Object.keys(rows[0]).sort()).toEqual([
         "apelido", "avatar_url", "criado_em", "dias_semana", "divisao_atual", "id", "meta_desafios_dia", "nivel_atual", "objetivo", "username",
+        "vitrine_conquistas",
       ]);
       expect(rows[0].apelido).toBe("Ana");
     });
@@ -521,5 +522,55 @@ describe("busca de amigos, seguir e bloquear (docs/PERFIL.md, seção 4)", () =>
     const r = await como(db, { usuario: bruno }, (tx) => tx.query<{ sugestoes_busca: Record<string, unknown>[] }>("select public.sugestoes_busca()"));
     expect(r.rows[0].sugestoes_busca.map((x) => x.id)).toContain(carla);
     await como(db, { usuario: carla }, (tx) => tx.query("select public.deixar_de_seguir($1)", [bruno]));
+  });
+});
+
+describe("vitrine, feed de amigos e seguindo/seguidores (docs/PERFIL.md, seção 3)", () => {
+  it("progresso_conquistas traz as 14 conquistas, com progresso para quem dá para contar", async () => {
+    await db.query("insert into public.user_achievements (user_id, achievement_id) values ($1, 'primeiro_desafio')", [ana]);
+    const r = await como(db, { usuario: null }, (tx) => tx.query<{ progresso_conquistas: Record<string, unknown>[] }>("select public.progresso_conquistas($1)", [ana]));
+    const lista = r.rows[0].progresso_conquistas;
+    expect(lista).toHaveLength(14);
+    const primeira = lista.find((c) => c.id === "primeiro_desafio");
+    expect(primeira).toMatchObject({ conquistada: true });
+    const ofensiva30 = lista.find((c) => c.id === "ofensiva_30");
+    expect(ofensiva30).toMatchObject({ conquistada: false, meta: 30 });
+    expect(typeof ofensiva30?.atual).toBe("number");
+  });
+
+  it("a vitrine só aceita até 3 conquistas que a pessoa já tem", async () => {
+    await expect(como(db, { usuario: ana }, (tx) => tx.query("select public.definir_vitrine($1)", [["ofensiva_100"]]))).rejects.toThrow(/conquista_nao_sua/);
+    await como(db, { usuario: ana }, (tx) => tx.query("select public.definir_vitrine($1)", [["primeiro_desafio"]]));
+    const { rows } = await db.query<{ vitrine_conquistas: string[] }>("select vitrine_conquistas from public.profiles where id = $1", [ana]);
+    expect(rows[0].vitrine_conquistas).toEqual(["primeiro_desafio"]);
+    await expect(como(db, { usuario: ana }, (tx) => tx.query("select public.definir_vitrine($1)", [["a", "b", "c", "d"]]))).rejects.toThrow(/vitrine_demais/);
+  });
+
+  it("feed de amigos mostra a conquista de quem é amigo (ana e bruno já são, pela amizade do convite)", async () => {
+    const r = await como(db, { usuario: bruno }, (tx) => tx.query<{ feed_amigos: Record<string, unknown>[] }>("select public.feed_amigos()"));
+    const doAna = r.rows[0].feed_amigos.find((e) => e.user_id === ana);
+    expect(doAna).toMatchObject({ tipo: "conquista", rotulo: "Primeiro desafio" });
+
+    // Carla não é amiga da Ana: não aparece no feed da Carla.
+    const doCarla = await como(db, { usuario: carla }, (tx) => tx.query<{ feed_amigos: Record<string, unknown>[] }>("select public.feed_amigos()"));
+    expect(doCarla.rows[0].feed_amigos.find((e) => e.user_id === ana)).toBeUndefined();
+  });
+
+  it("high five: um por pessoa por dia, só quem está logado", async () => {
+    await como(db, { usuario: bruno }, (tx) => tx.query("select public.dar_high_five($1)", [ana]));
+    await como(db, { usuario: bruno }, (tx) => tx.query("select public.dar_high_five($1)", [ana]));
+    const { rows } = await db.query("select * from public.high_fives where de_user = $1 and para_user = $2", [bruno, ana]);
+    expect(rows).toHaveLength(1);
+    const r = await como(db, { usuario: bruno }, (tx) => tx.query<{ feed_amigos: Record<string, unknown>[] }>("select public.feed_amigos()"));
+    expect(r.rows[0].feed_amigos.find((e) => e.user_id === ana)).toMatchObject({ eu_dei_high_five: true, high_fives: 1 });
+  });
+
+  it("minha_rede lista seguindo/seguidores ordenados por XP da semana", async () => {
+    await como(db, { usuario: carla }, (tx) => tx.query("select public.seguir_usuario($1)", [ana]));
+    const seguidores = await como(db, { usuario: ana }, (tx) => tx.query<{ minha_rede: Record<string, unknown>[] }>("select public.minha_rede('seguidores')"));
+    expect(seguidores.rows[0].minha_rede.map((x) => x.id)).toContain(carla);
+    const seguindo = await como(db, { usuario: carla }, (tx) => tx.query<{ minha_rede: Record<string, unknown>[] }>("select public.minha_rede('seguindo')"));
+    expect(seguindo.rows[0].minha_rede.map((x) => x.id)).toContain(ana);
+    await como(db, { usuario: carla }, (tx) => tx.query("select public.deixar_de_seguir($1)", [ana]));
   });
 });

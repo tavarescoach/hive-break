@@ -16,6 +16,7 @@ export interface PerfilResumo {
   objetivo: string | null;
   meta_desafios_dia: number | null;
   dias_semana: number | null;
+  vitrine_conquistas: string[];
 }
 
 export type VarianteNoBanner = "proprio" | "visitante_logado" | "publico";

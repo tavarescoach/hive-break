@@ -495,7 +495,9 @@ describe("funções do app", () => {
   it("desativar pelo link: só com token válido", async () => {
     const dora = await pessoa();
     const token = (await db.query<{ t: string }>("select public.lembrete_token($1, 'ofensiva') as t", [dora])).rows[0].t;
-    expect(await comoUsuario(null, "public.desativar_lembretes($1)", [token.slice(0, -1) + "0"])).toEqual({ ok: false });
+    // Troca o último caractere por um garantidamente diferente (nunca o mesmo token por coincidência).
+    const ultimoTrocado = token.slice(0, -1) + (token.at(-1) === "0" ? "1" : "0");
+    expect(await comoUsuario(null, "public.desativar_lembretes($1)", [ultimoTrocado])).toEqual({ ok: false });
     expect(await comoUsuario(null, "public.desativar_lembretes($1)", [""])).toEqual({ ok: false });
     expect(await comoUsuario(null, "public.desativar_lembretes($1)", [token])).toEqual({ ok: true, categoria: "ofensiva" });
     let prefs = (await db.query("select ofensiva, lembrete, email_ativo from public.notification_preferences where user_id = $1", [dora])).rows[0];
