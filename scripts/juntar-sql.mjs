@@ -12,7 +12,7 @@ export function juntarSql() {
     .filter((nome) => nome.endsWith(".sql"))
     .sort()
     .map((nome) => `-- >>> migrations/${nome}\n${readFileSync(path.join(pasta, nome), "utf8").trim()}\n`);
-  for (const nome of ["seed.sql", "seed_trilha.sql"]) {
+  for (const nome of ["seed.sql", "seed_trilha.sql", "seed_trilha_acessoria.sql"]) {
     partes.push(`-- >>> ${nome}\n${readFileSync(path.join(supabase, nome), "utf8").trim()}\n`);
   }
   return [

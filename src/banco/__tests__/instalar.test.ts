@@ -24,7 +24,7 @@ describe("supabase/instalar.sql", () => {
       create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
     `);
     await db.exec(readFileSync(ARQUIVO, "utf8"));
-    const { rows } = await db.query<{ n: number }>("select count(*)::int as n from public.levels");
+    const { rows } = await db.query<{ n: number }>("select count(*)::int as n from public.levels where categoria = 'principal'");
     expect(rows[0].n).toBe(8);
   });
 });

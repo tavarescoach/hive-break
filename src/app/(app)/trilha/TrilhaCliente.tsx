@@ -8,8 +8,11 @@ import {
   formatarDuracao, montarCaminho, ROTULO_EQUIPAMENTO, ROTULO_MODALIDADE, XP_BAU,
   type DadosTrilha, type ItemCaminho, type SecaoCaminho,
 } from "@/dominio/trilha";
+import { montarTrilhasAcessorias, type HiveAcessoriaBanco, type TrilhaAcessoriaMontada } from "@/dominio/trilhaAcessoria";
 import { abrirBau, pularParaSecao } from "./acoes";
 import { Hexagono, type Icone, type Visual } from "./Hexagono";
+import { HexagonoAcessorio } from "./HexagonoAcessorio";
+import { PopupTrilhaAcessoria } from "./PopupTrilhaAcessoria";
 
 /** Distância horizontal de cada passo do zigue-zague, em px. */
 const PASSO = 36;
@@ -44,13 +47,29 @@ function Chama({ acesa }: { acesa: boolean }) {
   );
 }
 
-export function TrilhaCliente({ dados }: { dados: DadosTrilha }) {
+export function TrilhaCliente({ dados, acessorias: hivesAcessorias }: { dados: DadosTrilha; acessorias: HiveAcessoriaBanco[] }) {
   const router = useRouter();
   const caminho = useMemo(() => montarCaminho(dados), [dados]);
   const todasUnidades = useMemo(
     () => caminho.secoes.flatMap((s) => s.unidades.map((u) => ({ id: u.id, secao: s.ordem, unidade: u.ordem, titulo: u.titulo }))),
     [caminho],
   );
+  const acessorias = useMemo(() => montarTrilhasAcessorias(hivesAcessorias), [hivesAcessorias]);
+  // Personagens das trilhas acessórias, intercalados ao lado dos nós da trilha
+  // principal: espalhados por igual ao longo do caminho (sem baús), alternando
+  // de lado. Com poucos itens (conta nova), dois podem cair no mesmo nó.
+  const ancorasAcessorias = useMemo(() => {
+    const itens = caminho.secoes.flatMap((s) => s.unidades.flatMap((u) => u.itens.filter((i) => i.tipo !== "bau")));
+    const mapa = new Map<string, { trilha: TrilhaAcessoriaMontada; lado: "left" | "right" }[]>();
+    if (itens.length === 0) return mapa;
+    acessorias.forEach((trilha, i) => {
+      const posicao = Math.min(itens.length - 1, Math.floor(((i + 1) / (acessorias.length + 1)) * itens.length));
+      const chave = itens[posicao].chave;
+      mapa.set(chave, [...(mapa.get(chave) ?? []), { trilha, lado: i % 2 === 0 ? "left" : "right" }]);
+    });
+    return mapa;
+  }, [caminho, acessorias]);
+  const [trilhaAberta, setTrilhaAberta] = useState<TrilhaAcessoriaMontada | null>(null);
   const [aberto, setAberto] = useState<string | null>(null);
   const [lista, setLista] = useState(false);
   const [visivel, setVisivel] = useState<string | null>(null);
@@ -238,6 +257,20 @@ export function TrilhaCliente({ dados }: { dados: DadosTrilha }) {
                             <Hexagono visual={a.visual} icone={a.icone} tamanho={a.tamanho} />
                           </button>
                         </div>
+                        {ancorasAcessorias.get(item.chave)?.map(({ trilha, lado }) => (
+                          <button
+                            key={trilha.id}
+                            onClick={() => setTrilhaAberta(trilha)}
+                            aria-label={`Trilha acessória ${trilha.nome}, ${trilha.progresso} de ${trilha.total} hives`}
+                            data-hex
+                            className={`absolute top-2 z-[6] flex flex-col items-center gap-1 ${lado === "left" ? "left-0" : "right-0"}`}
+                          >
+                            <HexagonoAcessorio trilha={trilha.id} cor={trilha.cor} corSombra={trilha.corSombra} tamanho={48} />
+                            <span className="rounded-full border border-borda bg-superficie px-2 py-0.5 text-[11px] font-black tabular-nums">
+                              {trilha.progresso}/{trilha.total}
+                            </span>
+                          </button>
+                        ))}
                         {estaAberto && (
                           <CartaoItem
                             item={item}
@@ -333,6 +366,8 @@ export function TrilhaCliente({ dados }: { dados: DadosTrilha }) {
           </ul>
         </div>
       )}
+
+      {trilhaAberta && <PopupTrilhaAcessoria trilha={trilhaAberta} aoFechar={() => setTrilhaAberta(null)} />}
     </main>
   );
 }

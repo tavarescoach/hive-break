@@ -3,7 +3,8 @@ import "server-only";
 import type { BlocoDesafio } from "@/app/desafio/[id]/Desafio";
 import type { RecordesAnteriores } from "@/dominio/card";
 import type { Estrutura, MetodoAntigo } from "@/dominio/metodos";
-import type { DadosTrilha } from "@/dominio/trilha";
+import type { DadosTrilha, DesafioTrilha } from "@/dominio/trilha";
+import type { HiveAcessoriaBanco } from "@/dominio/trilhaAcessoria";
 import type { Sessao } from "./sessao";
 
 export interface PlacarConvite {
@@ -56,8 +57,17 @@ export async function carregarDesafio(sessao: Sessao, id: string): Promise<Desaf
     sessao.supabase.from("challenges").select("*").eq("id", id).maybeSingle(),
   ]);
   const dados = trilha.data as DadosTrilha | null;
-  const desafio = dados?.desafios.find((d) => d.id === id);
-  if (!dados || !desafio) return null;
+  if (!dados) return null;
+  let desafio: DesafioTrilha | undefined = dados.desafios.find((d) => d.id === id);
+  // Hive de uma trilha acessória: não vem em ler_trilha() (ela só traz a
+  // trilha principal), mas dá para jogar do mesmo jeito.
+  let contextoAcessoria: string | null = null;
+  if (!desafio) {
+    const acessorias = await sessao.supabase.rpc("ler_trilhas_acessorias");
+    desafio = ((acessorias.data as HiveAcessoriaBanco[] | null) ?? []).find((d) => d.id === id);
+    if (desafio) contextoAcessoria = "Trilha acessória";
+  }
+  if (!desafio) return null;
 
   const nomes = new Map((exercicios.data ?? []).map((e) => [e.id as string, e as { nome: string; camera: string }]));
   const lista: BlocoDesafio[] = (blocos.data ?? []).map((b) => ({
@@ -77,7 +87,7 @@ export async function carregarDesafio(sessao: Sessao, id: string): Promise<Desaf
       id: desafio.id,
       titulo: desafio.titulo,
       modalidade: desafio.modalidade,
-      contexto: `Seção ${nivel?.ordem ?? ""} · Unidade ${unidade?.ordem ?? ""} · ${unidade?.titulo ?? ""}`,
+      contexto: contextoAcessoria ?? `Seção ${nivel?.ordem ?? ""} · Unidade ${unidade?.ordem ?? ""} · ${unidade?.titulo ?? ""}`,
       xp: desafio.xp,
       equipamento: desafio.equipamento,
       jaFeito: desafio.estado === "concluido",
