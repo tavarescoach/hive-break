@@ -44,7 +44,10 @@ export async function salvarPrivacidadePeso(_anterior: EstadoFormulario, formula
     .from("profiles")
     .update({ visibilidade_peso: visibilidade, peso_meta_kg: pesoMetaKg })
     .eq("id", sessao.usuarioId);
-  if (error) return { erro: FALHA };
+  if (error) {
+    console.error(`[salvarPrivacidadePeso] ${JSON.stringify(error)}`);
+    return { erro: FALHA };
+  }
   revalidatePath("/perfil/config");
   revalidarPerfilPublico(sessao.perfil.username);
   return {};
@@ -57,7 +60,10 @@ export async function salvarEsconderXp(_anterior: EstadoFormulario, formulario: 
     .from("profiles")
     .update({ esconder_xp: formulario.get("esconder_xp") === "on" })
     .eq("id", sessao.usuarioId);
-  if (error) return { erro: FALHA };
+  if (error) {
+    console.error(`[salvarEsconderXp] ${JSON.stringify(error)}`);
+    return { erro: FALHA };
+  }
   revalidatePath("/perfil/config");
   revalidarPerfilPublico(sessao.perfil.username);
   return {};
@@ -140,7 +146,10 @@ export async function salvarConfiguracoes(_anterior: EstadoFormulario, formulari
   });
 
   const { error } = await sessao.supabase.from("profiles").update(dados).eq("id", sessao.usuarioId);
-  if (error) return { erro: FALHA };
+  if (error) {
+    console.error(`[salvarConfiguracoes] ${JSON.stringify(error)} dados=${JSON.stringify(dados)}`);
+    return { erro: FALHA };
+  }
   revalidatePath("/perfil/config");
   revalidarPerfilPublico(sessao.perfil.username);
   redirect("/perfil/config");
