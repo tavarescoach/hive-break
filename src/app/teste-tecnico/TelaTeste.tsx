@@ -2,7 +2,7 @@
 
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { abrirCameraFrontal, fecharCamera } from "@/camera/camera";
-import { desenharEsqueleto } from "@/camera/desenhar-esqueleto";
+import { acompanharVideo, desenharEsqueleto } from "@/camera/desenhar-esqueleto";
 import { criarDetector, type Detector } from "@/camera/pose";
 import { som } from "@/camera/som";
 import { serializarFrame, type FrameFixture } from "@/motor/fixture";
@@ -232,6 +232,7 @@ export function TelaTeste({ config, aoFim, aoSair }: Props) {
         if (bateuMeta) finalizar(agora);
       }
 
+      acompanharVideo(canvas, video);
       desenharEsqueleto(ctx, pontos, { valido: corpoVisivel, erro: erroAtivo, visibilidadeMinima: VISIBILIDADE_MINIMA });
 
       if (forcar || agora - ultimoHud >= 100) {

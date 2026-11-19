@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { abrirCameraFrontal, fecharCamera } from "@/camera/camera";
-import { desenharEsqueleto } from "@/camera/desenhar-esqueleto";
+import { acompanharVideo, desenharEsqueleto } from "@/camera/desenhar-esqueleto";
 import { criarDetector, type Detector } from "@/camera/pose";
 import { botaoPrimario, botaoSecundario, cartao } from "@/componentes/estilos";
 import { VISIBILIDADE_MINIMA_PADRAO } from "@/motor/motor";
@@ -62,6 +62,7 @@ export function ConfigCamera({ destino }: { destino: string }) {
       if (visivel) bomDesde ??= agora;
       else bomDesde = null;
       const bom = bomDesde !== null && agora - bomDesde >= 500;
+      acompanharVideo(canvas, video);
       desenharEsqueleto(ctx, pontos, { valido: true, erro: false, cor: bom ? "#4ADE80" : "#FFC42E", visibilidadeMinima: VISIBILIDADE_MINIMA });
       if (bom !== ultimoEstado) {
         ultimoEstado = bom;

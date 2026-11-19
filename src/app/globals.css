@@ -159,3 +159,62 @@ a {
   background-size: 20px 20px;
   background-position: 0 0, 10px 10px;
 }
+
+/*
+ * Modo TV (src/lib/modo-tv.ts): TV presa em pé na parede, iPhone espelhado na horizontal.
+ * Com o celular na horizontal, o <body> vira uma caixa em pé (largura = altura da tela,
+ * altura = largura da tela) girada 270° (ou 90°) para preencher a tela inteira sem cortar.
+ * Com o celular em pé, a media query não vale e nada gira.
+ * O <body> fica parado (é o containing block dos elementos `fixed`, que assim continuam
+ * presos às bordas do app girado); quem rola é o container #raiz.
+ */
+@media (orientation: landscape) {
+  html.modo-tv {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  html.modo-tv body {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100dvh;
+    height: 100dvw;
+    min-height: 0;
+    overflow: hidden;
+    transform-origin: 0 0;
+  }
+
+  html.modo-tv[data-tv-giro="270"] body {
+    transform: translateY(100dvh) rotate(-90deg);
+  }
+
+  html.modo-tv[data-tv-giro="90"] body {
+    transform: translateX(100dvw) rotate(90deg);
+  }
+
+  html.modo-tv #raiz {
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Girado, a "altura da tela" do app é a largura física: troca dvh por dvw. */
+  html.modo-tv .min-h-dvh {
+    min-height: 100dvw;
+  }
+  html.modo-tv .min-h-\[70dvh\] {
+    min-height: 70dvw;
+  }
+  html.modo-tv .min-h-\[80dvh\] {
+    min-height: 80dvw;
+  }
+  html.modo-tv .max-h-\[70dvh\] {
+    max-height: 70dvw;
+  }
+  html.modo-tv .max-h-\[92dvh\] {
+    max-height: 92dvw;
+  }
+}

@@ -22,6 +22,7 @@ import { registrarResultadoHive } from "@/app/hive/acoes";
 import { useHive } from "@/app/hive/AoVivo";
 import { CardColetivo } from "@/app/hive/CardColetivo";
 import type { PlacarConvite } from "@/lib/carregar-desafio";
+import { rolarParaOTopo } from "@/lib/modo-tv";
 import { finalizarDesafio, registrarEsforco, type ResultadoDesafio } from "./acoes";
 import { Execucao } from "./Execucao";
 
@@ -390,7 +391,7 @@ function Resultado({
   const setCompartilhando = (aberto: boolean) => {
     setCompartilhandoEstado(aberto);
     atualizarFim(id, { card: { aberto } });
-    window.scrollTo(0, 0);
+    rolarParaOTopo();
   };
   // Hora em que o treino terminou (fica fixa enquanto a pessoa monta o card).
   const [quando] = useState(() => (salvo?.quando ? new Date(salvo.quando) : new Date()));

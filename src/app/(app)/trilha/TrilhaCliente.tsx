@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { botaoPrimario, botaoSecundario } from "@/componentes/estilos";
+import { alturaVisivel, topoVisivel } from "@/lib/modo-tv";
 import {
   formatarDuracao, montarCaminho, ROTULO_EQUIPAMENTO, ROTULO_MODALIDADE, XP_BAU,
   type DadosTrilha, type ItemCaminho, type SecaoCaminho,
@@ -98,9 +99,9 @@ export function TrilhaCliente({ dados, acessorias: hivesAcessorias }: { dados: D
     const medir = () => {
       quadro = 0;
       let atual: string | null = null;
-      const limite = Math.max(ALTURA_TOPO + 40, window.innerHeight * 0.55);
+      const limite = Math.max(ALTURA_TOPO + 40, alturaVisivel() * 0.55);
       for (const el of document.querySelectorAll<HTMLElement>("[data-unidade]")) {
-        if (el.getBoundingClientRect().top <= limite) atual = el.dataset.unidade!;
+        if (topoVisivel(el) <= limite) atual = el.dataset.unidade!;
         else break;
       }
       setVisivel(atual);
@@ -109,9 +110,10 @@ export function TrilhaCliente({ dados, acessorias: hivesAcessorias }: { dados: D
       if (!quadro) quadro = requestAnimationFrame(medir);
     };
     medir();
-    window.addEventListener("scroll", aoRolar, { passive: true });
+    // capture: no modo TV quem rola é o container #raiz, e o evento de rolagem não borbulha.
+    window.addEventListener("scroll", aoRolar, { passive: true, capture: true });
     return () => {
-      window.removeEventListener("scroll", aoRolar);
+      window.removeEventListener("scroll", aoRolar, { capture: true });
       cancelAnimationFrame(quadro);
     };
   }, [caminho]);
