@@ -58,7 +58,8 @@
       "id": "tronco_inclinado",
       "condicao": "tronco > 35",
       "fase": "fundo",
-      "feedback": "Tronco mais reto"
+      "feedback": "Tronco mais reto",
+      "pontos": ["ombro_e", "ombro_d", "quadril_e", "quadril_d"]
     },
     {
       "id": "amplitude_curta",

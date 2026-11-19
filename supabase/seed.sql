@@ -29,6 +29,8 @@ insert into public.achievements (id, nome, descricao, criterio) values
   ('primeiro_amigo', 'Primeiro amigo ativado', 'Um convidado seu concluiu o primeiro desafio.', '{"tipo": "amigos_ativados", "valor": 1}'),
   ('cinco_amigos', '5 amigos ativados', 'Cinco convidados seus concluíram o primeiro desafio.', '{"tipo": "amigos_ativados", "valor": 5}'),
   ('primeira_subida', 'Primeira subida de divisão', 'Subiu de divisão na liga pela primeira vez.', '{"tipo": "subidas_divisao", "valor": 1}'),
-  ('nivelamento_melhor', 'Evolução comprovada', 'Refez o nivelamento com melhora.', '{"tipo": "nivelamento_melhora", "valor": 1}')
+  ('nivelamento_melhor', 'Evolução comprovada', 'Refez o nivelamento com melhora.', '{"tipo": "nivelamento_melhora", "valor": 1}'),
+  -- docs/RESGATE.md, seção 6: progresso por resgate com recompensa dada. Valor [validar].
+  ('acolhida', 'Acolhida', 'Resgatou 3 amigos: eles voltaram a treinar em até 48h do seu convite.', '{"tipo": "resgates_recompensados", "valor": 3}')
 on conflict (id) do update
   set nome = excluded.nome, descricao = excluded.descricao, criterio = excluded.criterio;

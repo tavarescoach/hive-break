@@ -74,7 +74,8 @@
       "id": "valgo",
       "condicao": "vis(tornozelos) > 0.7 e dist(joelhos) < 0.7 * dist(tornozelos)",
       "fase": "fundo",
-      "feedback": "Joelhos para fora"
+      "feedback": "Joelhos para fora",
+      "pontos": ["joelho_e", "joelho_d", "quadril_e", "quadril_d", "tornozelo_e", "tornozelo_d"]
     },
     {
       "id": "amplitude_curta",

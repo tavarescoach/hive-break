@@ -63,13 +63,15 @@
     {
       "id": "bracos_caem",
       "condicao": "vis(punhos) > 0.6 e maos_cabeca < -0.2",
-      "feedback": "Bastão acima da cabeça"
+      "feedback": "Bastão acima da cabeça",
+      "pontos": ["ombro_e", "ombro_d", "cotovelo_e", "cotovelo_d", "punho_e", "punho_d"]
     },
     {
       "id": "valgo",
       "condicao": "vis(tornozelos) > 0.7 e dist(joelhos) < 0.7 * dist(tornozelos)",
       "fase": "fundo",
-      "feedback": "Joelhos para fora"
+      "feedback": "Joelhos para fora",
+      "pontos": ["joelho_e", "joelho_d", "quadril_e", "quadril_d", "tornozelo_e", "tornozelo_d"]
     },
     {
       "id": "amplitude_curta",

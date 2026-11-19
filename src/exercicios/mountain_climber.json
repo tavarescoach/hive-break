@@ -70,7 +70,8 @@
     {
       "id": "quadril_alto",
       "condicao": "vis(tornozelo) > 0.7 e alinhamento < 145 e tronco > 40",
-      "feedback": "Abaixe o quadril"
+      "feedback": "Abaixe o quadril",
+      "pontos": ["ombro_e", "ombro_d", "quadril_e", "quadril_d"]
     }
   ],
   "kpis": [

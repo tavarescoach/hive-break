@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { prepararSom } from "@/camera/som";
 import { ConvitePush } from "@/componentes/ConvitePush";
+import { PopUpResgate } from "@/componentes/PopUpResgate";
 import { botaoPrimario, botaoSecundario, cartao, sobrelinha } from "@/componentes/estilos";
 import { Gabarito, dicaDoGabarito } from "@/componentes/Gabarito";
 import type { BlocoEnviado } from "@/dominio/agregar";
@@ -47,6 +48,8 @@ interface Props {
   metodoAntigo: MetodoAntigo | null;
   /** Segundos da contagem do pop-up "PREPARE-SE". */
   preparoS: number;
+  /** Visual do HUD de treino: "barra" (padrão) ou "moldura" (docs/HUD_TREINO.md). */
+  estiloProgresso: "barra" | "moldura";
   /** Identificação no card de compartilhamento. */
   usuario: string;
   instagram: string | null;
@@ -176,6 +179,7 @@ export function Desafio(props: Props) {
         exercicios={exercicios}
         linha={linha}
         comCamera={etapa === "camera"}
+        estiloProgresso={props.estiloProgresso}
         aoFim={(fim) => finalizar(etapa === "camera" ? "camera" : "manual", fim)}
         aoSemCamera={(mensagem) => {
           setAvisoCamera(mensagem);
@@ -461,6 +465,11 @@ function Resultado({
           <Link href="/salvar" onClick={() => apagarFim(id)} className={`${botaoPrimario} mt-3`}>Salvar meu resultado</Link>
         </section>
       )}
+      {resultado.resgate_voltou && (
+        <section className={`${cartao} border-mel/50 text-center`}>
+          <p className="text-lg font-black leading-tight">{resultado.resgate_voltou.amigo} te chamou e você voltou 🎉</p>
+        </section>
+      )}
 
       {hive && <CardColetivo hiveId={hive.hiveId} euId={hive.eu.id} />}
 
@@ -546,6 +555,8 @@ function Resultado({
           </Link>
         )}
       </div>
+      {/* Logo depois de concluir o próprio desafio (docs/RESGATE.md, seção 3). */}
+      <PopUpResgate />
     </main>
   );
 }

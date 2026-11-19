@@ -28,6 +28,8 @@ export interface DesafioCarregado {
     estrutura: Estrutura | null;
     metodoAntigo: MetodoAntigo | null;
     preparoS: number;
+    /** Visual do HUD de treino: "barra" (padrão) ou "moldura" (docs/HUD_TREINO.md). */
+    estiloProgresso: "barra" | "moldura";
     /** Identificação no card de compartilhamento. */
     usuario: string;
     instagram: string | null;
@@ -83,6 +85,7 @@ export async function carregarDesafio(sessao: Sessao, id: string): Promise<Desaf
       estrutura: (desafioBanco.data?.estrutura as Estrutura | null | undefined) ?? null,
       metodoAntigo: (desafioBanco.data?.metodo as MetodoAntigo | null | undefined) ?? null,
       preparoS: sessao.perfil.contagem_preparo_s ?? 10,
+      estiloProgresso: sessao.perfil.estilo_progresso ?? "barra",
       usuario: sessao.perfil.apelido ?? "Hive Break",
       // Campo ainda não existe no perfil: quando existir, aparece no card sozinho.
       instagram: (sessao.perfil as { instagram?: string | null }).instagram ?? null,
