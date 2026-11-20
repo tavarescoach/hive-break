@@ -1,0 +1,56 @@
+{
+  "id": "mobilidade_punho",
+  "nome": "Mobilidade de punho",
+  "modalidade": "mobilidade",
+  "camera": "frontal",
+  "formato": "postura",
+  "enquadramento": "meio_corpo",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d"
+  ],
+  "medida_principal": {
+    "tipo": "distancia",
+    "pontos": [
+      "ombro_e",
+      "ombro_d"
+    ]
+  },
+  "histerese": 0.01,
+  "sustentacao": {
+    "condicao": "medida > 0",
+    "feedback_perda": "Fique na frente da câmera"
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s"
+  ],
+  "instrucoes": [
+    "De frente para o celular. Pode ficar sentado, com o celular apoiado no monitor, mostrando da cintura para cima.",
+    "Siga o áudio: círculos com os punhos, dobrar e estender, abrir e fechar as mãos.",
+    "A câmera não vê as mãos direito: aqui ela só confere se você está na frente dela."
+  ],
+  "catalogo": {
+    "nome": "Mobilidade de punho",
+    "nomeOriginal": "ESC-13",
+    "familia": "punho",
+    "degrau": 0,
+    "funcoes": [
+      "mobilidade"
+    ],
+    "regioes": [
+      "punho"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V4",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

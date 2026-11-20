@@ -1,0 +1,83 @@
+{
+  "id": "flexor_quadril_em_pe",
+  "nome": "Alongamento do flexor do quadril em pé",
+  "modalidade": "alongamento",
+  "camera": "lateral",
+  "formato": "isometria",
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "joelho",
+    "tornozelo"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "quadril",
+      "joelho",
+      "tornozelo"
+    ],
+    "lado": "min",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "perna_tras": {
+      "tipo": "angulo",
+      "pontos": [
+        "quadril",
+        "joelho",
+        "tornozelo"
+      ],
+      "lado": "max",
+      "espaco": "2d"
+    },
+    "tronco": {
+      "tipo": "inclinacao",
+      "pontos": [
+        "quadril",
+        "ombro"
+      ]
+    }
+  },
+  "histerese": 4,
+  "sustentacao": {
+    "condicao": "medida < 135 e perna_tras > 150 e tronco < 20",
+    "feedback_perda": "Tronco em pé, perna de trás esticada",
+    "histerese": 6
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "De lado para o celular, a uns 2 m.",
+    "Um passo grande à frente, joelho da frente dobrado, perna de trás esticada.",
+    "Tronco em pé, empurre o quadril levemente para a frente. Troque de perna na metade."
+  ],
+  "catalogo": {
+    "nome": "Alongamento do flexor do quadril em pé",
+    "nomeOriginal": "ESC-10",
+    "familia": "flexor_quadril",
+    "degrau": 0,
+    "funcoes": [
+      "alongamento",
+      "mobilidade"
+    ],
+    "regioes": [
+      "quadril",
+      "pernas"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

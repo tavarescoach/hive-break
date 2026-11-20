@@ -11,6 +11,19 @@ import prancha_mesa from "./prancha_mesa.json";
 import sentar_levantar_uma_perna from "./sentar_levantar_uma_perna.json";
 import stiff_kickstand from "./stiff_kickstand.json";
 import stiff_unilateral from "./stiff_unilateral.json";
+import anjo from "./anjo.json";
+import elevacao_lateral from "./elevacao_lateral.json";
+import encolher_ombros from "./encolher_ombros.json";
+import extensao_coluna_em_pe from "./extensao_coluna_em_pe.json";
+import flexao_inclinada_mesa from "./flexao_inclinada_mesa.json";
+import flexor_quadril_em_pe from "./flexor_quadril_em_pe.json";
+import inclinacao_pescoco from "./inclinacao_pescoco.json";
+import mobilidade_punho from "./mobilidade_punho.json";
+import panturrilha_em_pe from "./panturrilha_em_pe.json";
+import remada from "./remada.json";
+import retracao_queixo from "./retracao_queixo.json";
+import rotacao_pescoco from "./rotacao_pescoco.json";
+import rotacao_tronco_sentado from "./rotacao_tronco_sentado.json";
 import afundo_alternado from "./afundo_alternado.json";
 import agachamento_bastao from "./agachamento_bastao.json";
 import agachamento_livre from "./agachamento_livre.json";
@@ -80,6 +93,20 @@ export const EXERCICIOS = [
   sentar_levantar_uma_perna,
   stiff_kickstand,
   stiff_unilateral,
+  // Etapa 1C-B: exercícios novos do Modo Escritório (docs/TRILHA_ESC_V2.md §6.3).
+  anjo,
+  elevacao_lateral,
+  encolher_ombros,
+  extensao_coluna_em_pe,
+  flexao_inclinada_mesa,
+  flexor_quadril_em_pe,
+  inclinacao_pescoco,
+  mobilidade_punho,
+  panturrilha_em_pe,
+  remada,
+  retracao_queixo,
+  rotacao_pescoco,
+  rotacao_tronco_sentado,
 ] as unknown as DefinicaoExercicio[];
 
 /** Exercícios do teste técnico da Fase 0. */

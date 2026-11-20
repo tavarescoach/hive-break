@@ -24,6 +24,9 @@ import { registrarDor } from "./acoes";
 import type { BlocoDesafio, FimDoDesafio } from "./Desafio";
 
 const VISIBILIDADE_MINIMA = VISIBILIDADE_MINIMA_PADRAO;
+
+/** Exercício marcado como sutil no catálogo (a câmera pode não pegar a repetição). */
+const ehSutil = (def: DefinicaoExercicio | null | undefined) => (def as { catalogo?: { sutil?: boolean } } | null | undefined)?.catalogo?.sutil === true;
 const REGIOES = [
   ["joelho", "Joelho"], ["ombro", "Ombro"], ["lombar", "Lombar"], ["punho", "Punho"],
   ["quadril", "Quadril"], ["tornozelo", "Tornozelo"], ["pescoco", "Pescoço"], ["outra", "Outro lugar"],
@@ -285,11 +288,18 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
             const r = e.resultado;
             // Sem câmera não existe "repetição válida" (ninguém validou): o resumo da série
             // é a pergunta "Quantas você fez?" (ou nada, nas de sustentação).
+            // Movimento sutil (regra do Luan, docs/TRILHA_ESC_V2.md §8): a câmera pode não pegar a
+            // repetição. Sem nenhuma contada, mas com a pessoa no quadro, a série aparece como "Feito".
+            const sutilSemContagem =
+              comCamera && f.tipo === "trabalho" && !f.sustentar && r.reps === 0 &&
+              ehSutil(defs[r.exercicio]) && (kpisPorFase.get(e.resultado.fase)?.fora_quadro_pct ?? 100) < 30;
             ultimoResultado = !comCamera
               ? null
-              : f.tipo === "trabalho" && f.sustentar
-                ? `${nomeEx(r.exercicio)}: ${Math.round(r.tempoValidoMs / 1000)} s na posição`
-                : `${nomeEx(r.exercicio)}: ${r.reps} ${r.reps === 1 ? "repetição válida" : "repetições válidas"}`;
+              : sutilSemContagem
+                ? `${nomeEx(r.exercicio)}: feito`
+                : f.tipo === "trabalho" && f.sustentar
+                  ? `${nomeEx(r.exercicio)}: ${Math.round(r.tempoValidoMs / 1000)} s na posição`
+                  : `${nomeEx(r.exercicio)}: ${r.reps} ${r.reps === 1 ? "repetição válida" : "repetições válidas"}`;
             // Sem câmera, ninguém contou: a série vale pelo que foi declarado — bipe de fim e,
             // fora das de sustentação, a pergunta opcional "Quantas você fez?" (seções 4 e 6).
             // Valor inicial: o que a pessoa tocou para contar ou, se não tocou, a meta da série

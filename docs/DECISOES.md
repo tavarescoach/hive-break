@@ -698,3 +698,27 @@ da Etapa 0" do mesmo documento; aqui ficam aplicadas e com o porquê de cada det
    até a prancha com joelhos (ABS-31) entrar; `joelhos_peito_cadeira` aponta para
    `joelho_cotovelo_cruzado` (em pé, mesma função). `sentar_levantar_uma_perna` → `agachamento_livre`.
 6. `docs/TRILHA_ESC_V2.md`: desenho da trilha Modo Escritório, aprovado pelo Luan em 20/11.
+
+## Etapa 1C-B: os exercícios novos do Modo Escritório (20/11/2026)
+
+1. **13 exercícios novos** (docs/TRILHA_ESC_V2.md §6.3), todos `calibrado: false`:
+   meio corpo, sentado (`enquadramento: "meio_corpo"`): `retracao_queixo` (de lado), `inclinacao_pescoco`,
+   `rotacao_pescoco`, `encolher_ombros`, `anjo`, `elevacao_lateral`, `rotacao_tronco_sentado`,
+   `mobilidade_punho` (V4: só confere presença); corpo inteiro, em pé: `remada`, `extensao_coluna_em_pe`,
+   `flexor_quadril_em_pe` (tempo), `panturrilha_em_pe`, `flexao_inclinada_mesa`. ESC-14 (respirações)
+   reaproveita `respiracao_guiada`: muda só o áudio.
+2. **Como cada um conta** (limiares [validar] na calibração): queixo = orelha se aproxima da linha do
+   ombro (de lado); pescoço = inclinação da linha das orelhas / nariz sai do centro dos ombros; ombros =
+   distância orelha–ombro encurta; anjo = punhos sobem de ~1 para ~1,6 larguras de ombro acima do ombro,
+   com aviso se os cotovelos caem; elevação lateral = cotovelos sobem até a linha do ombro, com aviso
+   acima dela; rotação de tronco = os ombros "afinam" em relação ao pescoço; remada = cotovelo dobra de
+   estendido (> 150°) para < 100° (o motor não distingue cotovelo atrás ou à frente do tronco, vista de
+   lado sem sinal); extensão de coluna = ombro vai para trás do quadril, no sentido oposto ao do nariz
+   (inclinar para a frente não conta); panturrilha = calcanhar sobe em relação à ponta do pé; flexão na
+   mesa = cotovelo dobra com o corpo em linha (quadril caído anula a rep).
+3. **Regra dos movimentos sutis** (decisão do Luan): `catalogo.sutil` marca retração do queixo, extensão
+   de coluna, rotação de tronco e panturrilha. O validador recusa exercício sutil em bloco por
+   repetições (precisa de `esforcoS`, para avançar sozinho). Na pausa, se a câmera não contou nada e a
+   pessoa ficou no quadro (< 30% fora), o resumo da série mostra "feito" em vez de "0 repetições
+   válidas". Ainda falta (1C-C, junto da trilha): o servidor contar esse bloco como ativo para não
+   rebaixar a tentativa inteira para manual.

@@ -1,0 +1,78 @@
+{
+  "id": "rotacao_pescoco",
+  "nome": "Rotação do pescoço",
+  "modalidade": "mobilidade",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "seg_por_rep": 2.5,
+  "enquadramento": "meio_corpo",
+  "pontos_obrigatorios": [
+    "nariz",
+    "ombro_e",
+    "ombro_d"
+  ],
+  "medida_principal": {
+    "tipo": "horizontal",
+    "pontos": [
+      "ombro",
+      "nariz"
+    ],
+    "normalizar_por": [
+      "ombro_e",
+      "ombro_d"
+    ]
+  },
+  "histerese": 0.03,
+  "fases": [
+    {
+      "nome": "centro",
+      "condicao": "abs(medida) < 0.08"
+    },
+    {
+      "nome": "lado",
+      "condicao": "abs(medida) > 0.28"
+    }
+  ],
+  "repeticao": [
+    "centro",
+    "lado",
+    "centro"
+  ],
+  "parcial_se": "max_medida > 0.18 ou min_medida < -0.18",
+  "parcial_feedback": "Gire um pouco mais",
+  "duracao_minima_ms": 1200,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De frente para o celular. Pode ficar sentado, com o celular apoiado no monitor, mostrando da cintura para cima.",
+    "Olhe por cima de um ombro, volte ao centro e olhe para o outro lado, devagar."
+  ],
+  "catalogo": {
+    "nome": "Rotação do pescoço",
+    "nomeOriginal": "ESC-03",
+    "familia": "pescoco",
+    "degrau": 1,
+    "funcoes": [
+      "mobilidade"
+    ],
+    "regioes": [
+      "pescoco"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

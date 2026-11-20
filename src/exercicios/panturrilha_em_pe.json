@@ -1,0 +1,81 @@
+{
+  "id": "panturrilha_em_pe",
+  "nome": "Panturrilha em pé",
+  "modalidade": "mobilidade",
+  "camera": "lateral",
+  "formato": "repeticoes",
+  "seg_por_rep": 2,
+  "pontos_obrigatorios": [
+    "calcanhar",
+    "ponta_pe",
+    "joelho",
+    "tornozelo"
+  ],
+  "medida_principal": {
+    "tipo": "altura",
+    "pontos": [
+      "ponta_pe",
+      "calcanhar"
+    ],
+    "lado": "visivel",
+    "normalizar_por": [
+      "joelho",
+      "tornozelo"
+    ]
+  },
+  "histerese": 0.02,
+  "fases": [
+    {
+      "nome": "baixo",
+      "condicao": "medida < 0.05"
+    },
+    {
+      "nome": "alto",
+      "condicao": "medida > 0.15"
+    }
+  ],
+  "repeticao": [
+    "baixo",
+    "alto",
+    "baixo"
+  ],
+  "parcial_se": "max_medida > 0.1",
+  "parcial_feedback": "Suba mais na ponta dos pés",
+  "duracao_minima_ms": 800,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De lado para o celular, a uns 2 m, pés inteiros na tela. Pode apoiar uma mão na mesa.",
+    "Suba na ponta dos pés e desça devagar."
+  ],
+  "catalogo": {
+    "nome": "Panturrilha em pé",
+    "nomeOriginal": "ESC-11",
+    "familia": "panturrilha",
+    "degrau": 0,
+    "funcoes": [
+      "equilibrio"
+    ],
+    "regioes": [
+      "pernas",
+      "tornozelos"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false,
+    "sutil": true
+  }
+}

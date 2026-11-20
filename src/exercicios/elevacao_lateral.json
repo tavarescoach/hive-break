@@ -1,0 +1,113 @@
+{
+  "id": "elevacao_lateral",
+  "nome": "Elevação lateral",
+  "modalidade": "mobilidade",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "seg_por_rep": 3,
+  "enquadramento": "meio_corpo",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "cotovelo_e",
+    "cotovelo_d",
+    "punho_e",
+    "punho_d"
+  ],
+  "medida_principal": {
+    "tipo": "altura",
+    "pontos": [
+      "ombro",
+      "cotovelo"
+    ],
+    "lado": "min",
+    "normalizar_por": [
+      "ombro_e",
+      "ombro_d"
+    ]
+  },
+  "medidas": {
+    "punhos": {
+      "tipo": "altura",
+      "pontos": [
+        "ombro",
+        "punho"
+      ],
+      "lado": "max",
+      "normalizar_por": [
+        "ombro_e",
+        "ombro_d"
+      ]
+    }
+  },
+  "histerese": 0.05,
+  "fases": [
+    {
+      "nome": "baixo",
+      "condicao": "medida < -0.7"
+    },
+    {
+      "nome": "alto",
+      "condicao": "medida > -0.15"
+    }
+  ],
+  "repeticao": [
+    "baixo",
+    "alto",
+    "baixo"
+  ],
+  "parcial_se": "max_medida > -0.45",
+  "parcial_feedback": "Suba até a altura do ombro",
+  "amplitude": {
+    "extremo": "max",
+    "minimo_aceito": -0.15,
+    "ideal": 0
+  },
+  "duracao_minima_ms": 1500,
+  "erros": [
+    {
+      "id": "acima_do_ombro",
+      "condicao": "punhos > 0.3",
+      "feedback": "Até a altura do ombro",
+      "fase": "alto",
+      "pontos": [
+        "punho_e",
+        "punho_d"
+      ]
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De frente para o celular. Pode ficar sentado, com o celular apoiado no monitor, mostrando da cintura para cima.",
+    "Braços ao lado do corpo. Suba os dois para o lado até a altura dos ombros e desça devagar.",
+    "Pode segurar uma garrafa em cada mão ou um elástico preso sob os pés."
+  ],
+  "catalogo": {
+    "nome": "Elevação lateral",
+    "nomeOriginal": "ESC-06 elevação lateral (Andersen 2011)",
+    "familia": "ombro_escapula",
+    "degrau": 2,
+    "funcoes": [
+      "mobilidade"
+    ],
+    "regioes": [
+      "ombros"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "id": "rotacao_tronco_sentado",
+  "nome": "Rotação de tronco sentado",
+  "modalidade": "mobilidade",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "seg_por_rep": 2.5,
+  "enquadramento": "meio_corpo",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "nariz"
+  ],
+  "medida_principal": {
+    "tipo": "distancia",
+    "pontos": [
+      "ombro_e",
+      "ombro_d"
+    ],
+    "normalizar_por": [
+      "ombro",
+      "nariz"
+    ]
+  },
+  "histerese": 0.05,
+  "fases": [
+    {
+      "nome": "frente",
+      "condicao": "medida > 1.8"
+    },
+    {
+      "nome": "girado",
+      "condicao": "medida < 1.45"
+    }
+  ],
+  "repeticao": [
+    "frente",
+    "girado",
+    "frente"
+  ],
+  "parcial_se": "min_medida < 1.65",
+  "parcial_feedback": "Gire mais o peito",
+  "duracao_minima_ms": 1200,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De frente para o celular. Pode ficar sentado, com o celular apoiado no monitor, mostrando da cintura para cima.",
+    "Braços cruzados no peito. Gire o tronco para um lado, volte e gire para o outro."
+  ],
+  "catalogo": {
+    "nome": "Rotação de tronco sentado",
+    "nomeOriginal": "ESC-08",
+    "familia": "rotacao_tronco",
+    "degrau": 0,
+    "funcoes": [
+      "rotacao",
+      "mobilidade"
+    ],
+    "regioes": [
+      "costas",
+      "core"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false,
+    "sutil": true
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "id": "anjo",
+  "nome": "Anjo",
+  "modalidade": "mobilidade",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "seg_por_rep": 3,
+  "enquadramento": "meio_corpo",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "cotovelo_e",
+    "cotovelo_d",
+    "punho_e",
+    "punho_d"
+  ],
+  "medida_principal": {
+    "tipo": "altura",
+    "pontos": [
+      "ombro",
+      "punho"
+    ],
+    "lado": "min",
+    "normalizar_por": [
+      "ombro_e",
+      "ombro_d"
+    ]
+  },
+  "medidas": {
+    "cotovelos": {
+      "tipo": "altura",
+      "pontos": [
+        "ombro",
+        "cotovelo"
+      ],
+      "lado": "min",
+      "normalizar_por": [
+        "ombro_e",
+        "ombro_d"
+      ]
+    }
+  },
+  "histerese": 0.05,
+  "fases": [
+    {
+      "nome": "w",
+      "condicao": "medida < 1.1"
+    },
+    {
+      "nome": "alto",
+      "condicao": "medida > 1.6"
+    }
+  ],
+  "repeticao": [
+    "w",
+    "alto",
+    "w"
+  ],
+  "parcial_se": "max_medida > 1.35",
+  "parcial_feedback": "Suba mais os braços",
+  "amplitude": {
+    "extremo": "max",
+    "minimo_aceito": 1.6,
+    "ideal": 2.0
+  },
+  "duracao_minima_ms": 1200,
+  "erros": [
+    {
+      "id": "cotovelos_caem",
+      "condicao": "cotovelos < -0.15",
+      "feedback": "Cotovelos na altura dos ombros",
+      "pontos": [
+        "cotovelo_e",
+        "cotovelo_d"
+      ]
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De frente para o celular. Costas e braços encostados no encosto da cadeira (ou na parede, em pé).",
+    "Braços em W, cotovelos na altura dos ombros. Deslize os braços para cima e volte ao W."
+  ],
+  "catalogo": {
+    "nome": "Anjo",
+    "nomeOriginal": "ESC-05 anjo na parede",
+    "familia": "ombro_escapula",
+    "degrau": 1,
+    "funcoes": [
+      "mobilidade",
+      "puxar"
+    ],
+    "regioes": [
+      "ombros",
+      "costas"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

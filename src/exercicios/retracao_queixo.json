@@ -1,0 +1,81 @@
+{
+  "id": "retracao_queixo",
+  "nome": "Retração do queixo",
+  "modalidade": "mobilidade",
+  "camera": "lateral",
+  "formato": "repeticoes",
+  "seg_por_rep": 2.5,
+  "enquadramento": "meio_corpo",
+  "pontos_obrigatorios": [
+    "orelha",
+    "ombro",
+    "cotovelo"
+  ],
+  "medida_principal": {
+    "tipo": "horizontal",
+    "pontos": [
+      "ombro",
+      "orelha"
+    ],
+    "lado": "visivel",
+    "normalizar_por": [
+      "ombro",
+      "cotovelo"
+    ]
+  },
+  "histerese": 0.03,
+  "fases": [
+    {
+      "nome": "solto",
+      "condicao": "abs(medida) > 0.2"
+    },
+    {
+      "nome": "recolhido",
+      "condicao": "abs(medida) < 0.12"
+    }
+  ],
+  "repeticao": [
+    "solto",
+    "recolhido",
+    "solto"
+  ],
+  "parcial_se": "min_medida < 0.17",
+  "parcial_feedback": "Puxe o queixo mais para trás",
+  "duracao_minima_ms": 1000,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De lado para o celular. Pode ficar sentado, com o celular apoiado no monitor, mostrando da cintura para cima.",
+    "Olhando para a frente, puxe o queixo para trás (como uma papada) e solte.",
+    "Sem inclinar a cabeça para baixo."
+  ],
+  "catalogo": {
+    "nome": "Retração do queixo",
+    "nomeOriginal": "ESC-01",
+    "familia": "pescoco",
+    "degrau": 0,
+    "funcoes": [
+      "mobilidade"
+    ],
+    "regioes": [
+      "pescoco"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false,
+    "sutil": true
+  }
+}

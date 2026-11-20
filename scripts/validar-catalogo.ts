@@ -147,6 +147,14 @@ export function validarCatalogo({ exercicios, objetos, contextos, licoes }: Entr
       }
     }
 
+    // Movimento sutil (regra do Luan, docs/TRILHA_ESC_V2.md §8): sempre por tempo, para a
+    // série avançar sozinha mesmo se a câmera não pegar a repetição.
+    for (const b of l.blocos) {
+      if (catalogos.get(b.exercicioId)?.sutil && b.esforcoS === undefined) {
+        erros.push(`lição "${l.id}": "${b.exercicioId}" é sutil e precisa de bloco por tempo (esforcoS), não por repetições`);
+      }
+    }
+
     // PSE no contexto "mesa": no máximo 4 (decisão do Luan — "mesa" é sem suor,
     // e suor numa dose leve é, na prática, uma questão de esforço percebido).
     if (l.contextos.includes("mesa")) {

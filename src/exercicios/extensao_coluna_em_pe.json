@@ -1,0 +1,94 @@
+{
+  "id": "extensao_coluna_em_pe",
+  "nome": "Extensão de coluna em pé",
+  "modalidade": "mobilidade",
+  "camera": "lateral",
+  "formato": "repeticoes",
+  "seg_por_rep": 3,
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "nariz"
+  ],
+  "medida_principal": {
+    "tipo": "horizontal",
+    "pontos": [
+      "quadril",
+      "ombro"
+    ],
+    "lado": "visivel",
+    "normalizar_por": [
+      "ombro",
+      "quadril"
+    ]
+  },
+  "medidas": {
+    "frente": {
+      "tipo": "horizontal",
+      "pontos": [
+        "ombro",
+        "nariz"
+      ],
+      "lado": "visivel",
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ]
+    }
+  },
+  "histerese": 0.02,
+  "fases": [
+    {
+      "nome": "neutro",
+      "condicao": "abs(medida) < 0.08"
+    },
+    {
+      "nome": "estendido",
+      "condicao": "medida * frente < -0.015",
+      "histerese": 0.004
+    }
+  ],
+  "repeticao": [
+    "neutro",
+    "estendido",
+    "neutro"
+  ],
+  "duracao_minima_ms": 1000,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De lado para o celular, a uns 2 m. Mãos na lombar.",
+    "Incline o tronco levemente para trás, olhando para a frente, e volte."
+  ],
+  "catalogo": {
+    "nome": "Extensão de coluna em pé",
+    "nomeOriginal": "ESC-09",
+    "familia": "extensao_coluna",
+    "degrau": 0,
+    "funcoes": [
+      "extensao-coluna",
+      "mobilidade"
+    ],
+    "regioes": [
+      "lombar",
+      "costas"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false,
+    "sutil": true
+  }
+}
