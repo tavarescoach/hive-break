@@ -63,7 +63,7 @@ describe("cadastro", () => {
     );
     expect(rows).toEqual([]);
     const total = await db.query<{ n: number }>("select count(*)::int as n from pg_tables where schemaname = 'public'");
-    expect(total.rows[0].n).toBe(50);
+    expect(total.rows[0].n).toBe(51); // + calibracao_series (Etapa C)
   });
 });
 

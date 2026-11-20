@@ -654,3 +654,23 @@ da Etapa 0" do mesmo documento; aqui ficam aplicadas e com o porquê de cada det
    (`Licao.blocos[].pseAlvo`, novo campo opcional) acima de 4.
 5. **Regiões novas**: `pescoco`, `costas`, `punho` (lista de `src/dominio/catalogo.ts`).
    `elevacao_bracos_y` passou a usar `ombros` e `costas` (em vez de `ombros` e `core`).
+
+## Etapa C: calibração (20/11/2026)
+
+1. **Tela `/admin/calibracao`** (só quem está em `ADMINS`, o mesmo critério de `/admin/lembretes`):
+   o aluno faz uma série com a câmera e o professor conta junto. Repetições: botão **+1** (e −1
+   para desfazer). Exercícios de tempo: o professor **segura** o botão enquanto a posição está
+   certa. A contagem do app fica **escondida** durante a série (sem número e sem som de rep
+   válida) para não influenciar quem conta; só aparece na revisão, lado a lado.
+2. **O que é gravado** (`calibracao_series`): exercício, rótulo curto de quem treinou (até 24
+   caracteres, nunca nome completo), contagem do app e do professor, duração, fps médio, posição
+   do celular, observação e a série temporal da medida principal (~10 Hz) para reajustar os
+   limiares depois. Nenhuma imagem.
+3. **Concordância** = 1 − |app − professor| / professor (o professor é a referência).
+   **Pronto para calibrar**: pelo menos `PESSOAS_MINIMAS = 5` pessoas diferentes com média
+   ≥ `CONCORDANCIA_MINIMA = 0,9`, e média geral ≥ 0,9 [validar com o primeiro dia de teste].
+4. **Virar `calibrado: true`** continua sendo uma mudança no JSON do exercício
+   (`src/exercicios/*.json`, chave `catalogo`), por PR, e não um botão no app: o catálogo é
+   versionado no repositório (Etapa 1B). O relatório diz quais exercícios estão prontos.
+5. A leitura do relatório diz para que lado ajustar: **app generoso** (conta rep que não valia →
+   limiar mais exigente) ou **app exigente** (perde rep boa → limiar mais tolerante).
