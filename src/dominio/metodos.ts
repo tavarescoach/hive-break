@@ -363,6 +363,18 @@ function estimar(fases: Fase[], exercicios: ExercicioMetodo[], tetoMs?: number):
   return Math.round(ms / 1000);
 }
 
+/**
+ * Sem câmera: tempo regressivo da fase quando ela não tem `duracaoMs` (reps,
+ * escada, contra o relógio) — estimado por `alvoReps` (ou o topo da faixa) ×
+ * o ritmo de referência do exercício. Evita um contador de reps travado em
+ * zero (ninguém está contando): o modo manual sempre mostra um regressivo.
+ */
+export function duracaoManualMs(fase: FaseTrabalho, exercicio: ExercicioMetodo | undefined): number {
+  if (fase.duracaoMs !== undefined) return fase.duracaoMs;
+  const meta = fase.alvoReps ?? fase.faixa?.max ?? 0;
+  return meta * (exercicio?.segPorRep ?? 3) * 1000;
+}
+
 /** Segundos de esforço planejados por bloco (para a validação de números no servidor). */
 export function segundosPorBloco(linha: LinhaDoTempo, exercicios: ExercicioMetodo[]): number[] {
   const total = linha.estrutura.blocos.map(() => 0);
@@ -481,6 +493,8 @@ export type EventoSessao =
   | { tipo: "resultado"; resultado: ResultadoFase }
   | { tipo: "emom_cumprido" }
   | { tipo: "contagem"; segundos: number }
+  /** Metade do tempo de uma fase de sustentação: hora de trocar de perna/lado nos exercícios unilaterais. */
+  | { tipo: "metade" }
   | { tipo: "fim"; motivo: "concluido" | "encerrado" | "teto" };
 
 /**
@@ -499,6 +513,7 @@ export class SessaoTreino {
   private tAnterior: number | null = null;
   private ultimaEntrada: EntradaSessao = { reps: 0, parciais: 0, tempoValidoMs: 0, foraDoQuadro: false, pausado: false };
   private ultimoSegundo = -1;
+  private avisouMetade = false;
 
   constructor(readonly linha: LinhaDoTempo) {}
 
@@ -555,6 +570,10 @@ export class SessaoTreino {
     }
     if (f.duracaoMs !== undefined) {
       this.contar(eventos);
+      if (f.sustentar && !this.avisouMetade && this.decorridoMs >= f.duracaoMs / 2) {
+        this.avisouMetade = true;
+        eventos.push({ tipo: "metade" });
+      }
       if (this.decorridoMs >= f.duracaoMs) this.avancar(eventos);
     } else if (f.alvoReps !== undefined && entrada.reps >= f.alvoReps) {
       this.avancar(eventos);
@@ -578,6 +597,28 @@ export class SessaoTreino {
     if (this.fase.tipo === "trabalho") this.registrar(eventos, true);
     this.fim(eventos, "encerrado");
     return eventos;
+  }
+
+  /**
+   * Sem câmera: o tempo da fase (real ou estimado, `duracaoManualMs`) acabou.
+   * Fecha a série como cumprida normalmente (não é um "Pular"), com o valor
+   * que a pessoa declarou (a meta, por padrão — ver seção 6 do pedido).
+   */
+  declarar(reps: number): EventoSessao[] {
+    const eventos: EventoSessao[] = [];
+    if (this.terminou) return eventos;
+    this.ultimaEntrada = { ...this.ultimaEntrada, reps };
+    this.avancar(eventos);
+    return eventos;
+  }
+
+  /** Corrige o valor declarado de uma série já registrada ("Quantas você fez?" é opcional). */
+  corrigir(faseIndice: number, reps: number): void {
+    const r = this.resultados.find((x) => x.fase === faseIndice);
+    const f = this.linha.fases[faseIndice];
+    if (!r || f.tipo !== "trabalho") return;
+    r.reps = Math.max(0, reps);
+    if (!f.sustentar) r.cumprida = f.alvoReps !== undefined ? r.reps >= f.alvoReps : f.faixa ? r.reps >= f.faixa.min : r.reps > 0;
   }
 
   private contar(eventos: EventoSessao[]) {
@@ -604,6 +645,7 @@ export class SessaoTreino {
     this.decorridoMs = 0;
     this.emomCumprido = false;
     this.ultimoSegundo = -1;
+    this.avisouMetade = false;
     this.ultimaEntrada = { ...this.ultimaEntrada, reps: 0, parciais: 0, tempoValidoMs: 0 };
     eventos.push({ tipo: "fase", indice, fase: this.fase });
   }
