@@ -84,6 +84,7 @@
   "catalogo": {
     "nome": "Bom-dia com bastão",
     "familia": "dobradura_quadril",
+    "variacaoDe": "bom_dia",
     "degrau": 0,
     "funcoes": ["dobrar"],
     "regioes": ["gluteos", "lombar", "pernas"],
@@ -91,7 +92,7 @@
     "validacao": "V1",
     "equipamento": "E1",
     "objetos": ["cabo_vassoura"],
-    "substitutoE0Id": "ponte_gluteo",
+    "substitutoE0Id": "bom_dia",
     "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
     "pesoPorTrilha": {},
     "calibrado": false

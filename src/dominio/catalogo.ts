@@ -28,6 +28,7 @@ export type Funcao = z.infer<typeof Funcao>;
  */
 export const REGIOES = [
   "pernas", "gluteos", "quadril", "core", "lombar", "peito", "ombros", "bracos", "tornozelos", "corpo_todo",
+  "pescoco", "costas", "punho",
 ] as const;
 export const Regiao = z.enum(REGIOES);
 export type Regiao = z.infer<typeof Regiao>;
@@ -61,6 +62,7 @@ export type Peso = z.infer<typeof Peso>;
 export const Flags = z.object({
   semChao: z.boolean(),
   semSalto: z.boolean(),
+  /** "Dá para fazer sem suar numa dose leve" (decisão do Luan) — não é "nunca cansa". */
   semSuor: z.boolean(),
   silencioso: z.boolean(),
 });
@@ -122,6 +124,7 @@ export type IdContexto = z.infer<typeof IdContexto>;
 export const RegrasContexto = z.object({
   semChao: z.boolean(),
   semSalto: z.boolean(),
+  /** Mesma definição de `Flags.semSuor`: "dá para fazer sem suar numa dose leve". */
   semSuor: z.boolean(),
   silencioso: z.boolean(),
   interrompivel: z.boolean(),
@@ -156,6 +159,12 @@ export const BlocoLicao = z.object({
   /** Segundos de esforço por série (AMRAP/isometria). Ausente nos blocos por repetição. */
   esforcoS: z.number().positive().optional(),
   pausaS: z.number().min(0),
+  /**
+   * Percepção de esforço esperada, de 1 a 10 (igual a `Bloco.pse_alvo` em
+   * src/dominio/metodos.ts). O validador recusa lição no contexto "mesa" com
+   * algum bloco de PSE acima de 4 (decisão do Luan).
+   */
+  pseAlvo: z.number().min(1).max(10).optional(),
 });
 export type BlocoLicao = z.infer<typeof BlocoLicao>;
 

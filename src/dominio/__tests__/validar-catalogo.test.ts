@@ -180,6 +180,51 @@ describe("validarCatalogo · lições", () => {
     expect(r.erros).toEqual([]);
   });
 
+  it("lição no contexto mesa com PSE acima de 4 é erro", () => {
+    const r = validarCatalogo(
+      base({
+        licoes: [
+          licao("l1", {
+            contextos: ["mesa"],
+            blocos: [{ exercicioId: "a", series: 3, esforcoS: 30, pausaS: 20, pseAlvo: 7 }],
+            duracaoExibidaS: 130,
+          }),
+        ],
+      }),
+    );
+    expect(r.erros).toEqual([expect.stringContaining('contexto "mesa" pede PSE ≤ 4, mas "a" está com PSE 7')]);
+  });
+
+  it("lição no contexto mesa com PSE até 4 passa", () => {
+    const r = validarCatalogo(
+      base({
+        licoes: [
+          licao("l1", {
+            contextos: ["mesa"],
+            blocos: [{ exercicioId: "a", series: 3, esforcoS: 30, pausaS: 20, pseAlvo: 4 }],
+            duracaoExibidaS: 130,
+          }),
+        ],
+      }),
+    );
+    expect(r.erros).toEqual([]);
+  });
+
+  it("PSE acima de 4 fora do contexto mesa não é erro", () => {
+    const r = validarCatalogo(
+      base({
+        licoes: [
+          licao("l1", {
+            contextos: ["casa"],
+            blocos: [{ exercicioId: "a", series: 3, esforcoS: 30, pausaS: 20, pseAlvo: 9 }],
+            duracaoExibidaS: 130,
+          }),
+        ],
+      }),
+    );
+    expect(r.erros).toEqual([]);
+  });
+
   it("duração calculada igual à exibida (dentro de 10 s) passa", () => {
     // 1 bloco: 3 séries de 30 s, pausa 20 s entre séries = 3*30 + 2*20 = 130 s (sem pausa entre blocos, só há 1).
     const r = validarCatalogo(base({ licoes: [licao("l1", { duracaoExibidaS: 130 })] }));

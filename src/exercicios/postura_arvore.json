@@ -57,8 +57,8 @@
   ],
   "catalogo": {
     "nome": "Postura da árvore",
-    "familia": "yoga_posturas",
-    "degrau": 1,
+    "familia": "equilibrio_unipodal",
+    "degrau": 2,
     "funcoes": ["equilibrio"],
     "regioes": ["pernas", "core"],
     "posicaoCamera": "frente",

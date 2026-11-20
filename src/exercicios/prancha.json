@@ -57,7 +57,7 @@
   "catalogo": {
     "nome": "Prancha",
     "familia": "prancha",
-    "degrau": 0,
+    "degrau": 2,
     "funcoes": ["anti-extensao"],
     "regioes": ["core", "ombros"],
     "posicaoCamera": "lado",

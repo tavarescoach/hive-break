@@ -95,7 +95,7 @@
     "nome": "Agachamento com bastão acima da cabeça",
     "familia": "agachamento",
     "variacaoDe": "agachamento_livre",
-    "degrau": 2,
+    "degrau": 1,
     "funcoes": ["agachar", "mobilidade"],
     "regioes": ["pernas", "gluteos", "ombros"],
     "posicaoCamera": "frente",

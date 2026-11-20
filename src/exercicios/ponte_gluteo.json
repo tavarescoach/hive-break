@@ -75,7 +75,7 @@
   "catalogo": {
     "nome": "Ponte de glúteo",
     "familia": "ponte_quadril",
-    "degrau": 0,
+    "degrau": 1,
     "funcoes": ["dobrar"],
     "regioes": ["gluteos", "lombar", "core"],
     "posicaoCamera": "lado",

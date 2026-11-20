@@ -147,6 +147,16 @@ export function validarCatalogo({ exercicios, objetos, contextos, licoes }: Entr
       }
     }
 
+    // PSE no contexto "mesa": no máximo 4 (decisão do Luan — "mesa" é sem suor,
+    // e suor numa dose leve é, na prática, uma questão de esforço percebido).
+    if (l.contextos.includes("mesa")) {
+      for (const b of l.blocos) {
+        if (b.pseAlvo !== undefined && b.pseAlvo > 4) {
+          erros.push(`lição "${l.id}": contexto "mesa" pede PSE ≤ 4, mas "${b.exercicioId}" está com PSE ${b.pseAlvo}`);
+        }
+      }
+    }
+
     // Duração calculada × exibida (mais de 10 s de diferença).
     const duracaoBlocos = l.blocos.reduce((soma, b) => soma + b.series * (b.esforcoS ?? 0) + (b.series - 1) * b.pausaS, 0);
     const duracaoCalculada = duracaoBlocos + Math.max(0, l.blocos.length - 1) * l.pausaEntreBlocosS;

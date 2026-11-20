@@ -80,7 +80,8 @@
     "posicaoCamera": "frente",
     "validacao": "V1",
     "equipamento": "E0",
-    "flags": { "semChao": true, "semSalto": true, "semSuor": false, "silencioso": false },
+    "versaoSemImpactoId": "marcha_estacionaria",
+    "flags": { "semChao": true, "semSalto": false, "semSuor": false, "silencioso": false },
     "pesoPorTrilha": {},
     "calibrado": false
   }

@@ -58,14 +58,14 @@ beforeAll(async () => {
 });
 
 describe("conteúdo da trilha (seed)", () => {
-  it("tem os 23 exercícios (19 da trilha + 4 variações fáceis da Etapa 1A), 8 níveis e 3 unidades por nível", async () => {
+  it("tem os 24 exercícios (19 da trilha + 4 variações fáceis da Etapa 1A + bom_dia da Etapa 1B), 8 níveis e 3 unidades por nível", async () => {
     const { rows } = await db.query<{ e: number; u: number; por_nivel: number[] }>(
       `select (select count(*)::int from public.exercises) as e,
               (select count(*)::int from public.units u join public.levels l on l.id = u.level_id and l.categoria = 'principal') as u,
               (select array_agg(n order by level_id) from
                  (select u.level_id, count(*)::int as n from public.units u
                   join public.levels l on l.id = u.level_id and l.categoria = 'principal' group by 1) x) as por_nivel`);
-    expect(rows[0]).toEqual({ e: 23, u: 24, por_nivel: [3, 3, 3, 3, 3, 3, 3, 3] });
+    expect(rows[0]).toEqual({ e: 24, u: 24, por_nivel: [3, 3, 3, 3, 3, 3, 3, 3] });
   });
 
   it("cada unidade tem de 8 a 12 desafios (8, 8, 10, 10, 10, 12, 12, 12) mais o desafio da unidade no fim", async () => {

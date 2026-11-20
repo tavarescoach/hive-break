@@ -89,7 +89,7 @@
     "familia": "mobilidade_ombro",
     "degrau": 0,
     "funcoes": ["mobilidade"],
-    "regioes": ["ombros", "core"],
+    "regioes": ["ombros", "costas"],
     "posicaoCamera": "frente",
     "validacao": "V1",
     "equipamento": "E0",

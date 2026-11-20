@@ -87,7 +87,7 @@
   "catalogo": {
     "nome": "Mountain climber",
     "familia": "mountain_climber",
-    "degrau": 0,
+    "degrau": 1,
     "funcoes": ["cardio", "anti-extensao"],
     "regioes": ["core", "pernas", "ombros"],
     "posicaoCamera": "lado",
