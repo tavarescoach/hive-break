@@ -11,7 +11,7 @@ import { calarVoz, falar } from "@/camera/voz";
 import { Gabarito, dicaDoGabarito } from "@/componentes/Gabarito";
 import { agregarPorExercicio, type BlocoEnviado } from "@/dominio/agregar";
 import {
-  descreverBloco, descreverScore, etiquetasDoBloco, explicarCadencia, formatarTempo, resumir, SessaoTreino,
+  descreverBloco, descreverScore, duracaoManualMs, etiquetasDoBloco, explicarCadencia, formatarTempo, resumir, SessaoTreino,
   type Bloco, type EventoSessao, type ExercicioMetodo, type Fase, type FaseTrabalho, type LinhaDoTempo,
 } from "@/dominio/metodos";
 import { ehSustentacao, exercicioPorId } from "@/exercicios";
@@ -35,6 +35,14 @@ interface Indicador {
   rotulo: string;
   valor: string;
   bom: boolean;
+}
+
+/** Modo sem câmera: pergunta opcional "Quantas você fez?" ao fim de uma série (seção 6 do pedido). */
+interface PerguntaManual {
+  id: number;
+  faseIndice: number;
+  exercicio: string;
+  reps: number;
 }
 
 interface Hud {
@@ -92,12 +100,22 @@ function indicadores(def: DefinicaoExercicio, k: Kpis): Indicador[] {
   return lista.slice(0, 3);
 }
 
-/** Legenda curta sob o número hero (meta da faixa, parciais, minuto cumprido…). */
-function legendaHero(fase: FaseTrabalho, hud: Hud): string | null {
+/**
+ * Legenda curta sob o número hero (meta da faixa, parciais, minuto cumprido…).
+ * Sem câmera (`manual`), o hero vira sempre um regressivo (`duracaoManualMs`):
+ * a legenda mostra a meta da série ("Meta: N repetições") ou, nos blocos por
+ * tempo sem meta de reps, "Mantenha o ritmo" (seção 2 do pedido).
+ */
+function legendaHero(fase: FaseTrabalho, hud: Hud, manual: boolean): string | null {
   if (fase.sustentar) return hud.naPosicao ? null : "Entre na posição do gabarito";
   if (fase.emom && hud.emomCumprido) return "Minuto cumprido · descanse até o próximo";
   if (fase.faixa) return `Meta: ${fase.faixa.min} a ${fase.faixa.max} repetições`;
-  if (hud.parciais > 0 && fase.duracaoMs === undefined) return `${hud.parciais} ${hud.parciais === 1 ? "parcial" : "parciais"} (não contam)`;
+  if (hud.parciais > 0 && fase.duracaoMs === undefined && !manual) return `${hud.parciais} ${hud.parciais === 1 ? "parcial" : "parciais"} (não contam)`;
+  if (manual) {
+    if (fase.emom && fase.alvoReps !== undefined) return `Meta: ${fase.alvoReps} repetições no minuto`;
+    if (fase.duracaoMs === undefined) return `Meta: ${fase.alvoReps ?? 0} repetições`;
+    return "Mantenha o ritmo";
+  }
   return null;
 }
 
@@ -130,7 +148,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
   const pausadoRef = useRef(false);
   const vozDesligadaRef = useRef(false);
   const manualRepsRef = useRef(0);
-  const acaoRef = useRef<(qual: "pular" | "encerrar" | "feito") => void>(() => {});
+  const acaoRef = useRef<(qual: "pular" | "encerrar" | "contarRep") => void>(() => {});
   const timerOverlayRef = useRef<number | undefined>(undefined);
   const [hud, setHud] = useState<Hud>(HUD_INICIAL);
   const [modal, setModal] = useState<"dor" | "sair" | null>(null);
@@ -139,6 +157,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
   const [pausadoUI, setPausadoUI] = useState(false);
   const [vozDesligada, setVozDesligada] = useState(false);
   const [tela, setTela] = useState({ w: 0, h: 0 });
+  /** Modo sem câmera: pergunta opcional "Quantas você fez?" (seção 6 do pedido). */
+  const [perguntaManual, setPerguntaManual] = useState<PerguntaManual | null>(null);
   const entregar = useEffectEvent(aoFim);
   const semCamera = useEffectEvent(aoSemCamera);
   const hive = useHive();
@@ -185,6 +205,9 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
     let segmentosRep: EstadoRep[] = [];
     let avisouFaltam10 = false;
     let avisouFaltam5 = false;
+    /** Sem câmera: a fase por reps/escada/contra o relógio já declarou o valor ao fim do seu regressivo estimado. */
+    let avisouFimManual = false;
+    let perguntaSeq = 0;
     let feedback: { texto: string; ate: number } | null = null;
     let ultimoResultado: string | null = null;
     let encerrado = false;
@@ -211,6 +234,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
         ultimoErro = null;
         avisouFaltam10 = false;
         avisouFaltam5 = false;
+        avisouFimManual = false;
         som.largada();
         const def = defs[f.exercicio];
         if (comCamera && def) motor = new Motor(def, { proporcao, visibilidadeMinima: VISIBILIDADE_MINIMA });
@@ -222,8 +246,12 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
         som.parcial();
         falarSeAtivo(`Descanse. A seguir: ${nomeEx(f.proximo)}.`, true);
       } else if (f.tipo === "transicao") {
+        // Troca de exercício sem pausa: a pergunta pendente era sobre o exercício anterior.
+        setPerguntaManual(null);
         falarSeAtivo(`Próximo: ${nomeEx(f.exercicio)}.`, true);
       } else if (f.tipo === "preparo") {
+        // Novo bloco (exercício diferente): a pergunta pendente da série anterior já não faz sentido.
+        setPerguntaManual(null);
         som.parcial();
         const bl = linha.estrutura.blocos[f.exercicio];
         falarSeAtivo(`Prepare-se. ${nomeEx(f.exercicio)}. ${bl ? descreverBloco(bl, exercicios[f.exercicio]).replace(/ · /g, ", ") : ""}.`, true);
@@ -231,7 +259,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
       }
     };
 
-    const tratarSessao = (eventos: EventoSessao[]) => {
+    const tratarSessao = (eventos: EventoSessao[], agora: number) => {
       for (const e of eventos) {
         switch (e.tipo) {
           case "fase":
@@ -244,6 +272,11 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
             som.valida();
             falarSeAtivo("Minuto cumprido. Descanse até o próximo.", true);
             break;
+          case "metade": {
+            const f = sessao.fase;
+            if (f.tipo === "trabalho" && f.sustentar && defs[f.exercicio]?.sustentacao?.lado) avisar("Troca de perna", agora);
+            break;
+          }
           case "resultado": {
             if (motor) kpisPorFase.set(e.resultado.fase, motor.kpis());
             const f = linha.fases[e.resultado.fase];
@@ -252,6 +285,14 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
               f.tipo === "trabalho" && f.sustentar
                 ? `${nomeEx(r.exercicio)}: ${Math.round(r.tempoValidoMs / 1000)} s na posição`
                 : `${nomeEx(r.exercicio)}: ${r.reps} ${r.reps === 1 ? "repetição válida" : "repetições válidas"}`;
+            // Sem câmera, ninguém contou: a série vale pelo que foi declarado — bipe de fim e,
+            // fora das de sustentação, a pergunta opcional "Quantas você fez?" (seções 4 e 6).
+            if (!comCamera) {
+              som.fim();
+              if (f.tipo === "trabalho" && !f.sustentar) {
+                setPerguntaManual({ id: ++perguntaSeq, faseIndice: e.resultado.fase, exercicio: nomeEx(r.exercicio), reps: r.reps });
+              }
+            }
             break;
           }
           case "fim":
@@ -277,11 +318,15 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
 
     acaoRef.current = (qual) => {
       if (encerrado) return;
-      if (qual === "pular") tratarSessao(sessao.pular());
-      else if (qual === "encerrar") tratarSessao(sessao.encerrar());
-      else if (qual === "feito") {
+      if (qual === "pular") tratarSessao(sessao.pular(), performance.now());
+      else if (qual === "encerrar") tratarSessao(sessao.encerrar(), performance.now());
+      else if (qual === "contarRep") {
+        // Toque opcional para contar, sem câmera (seção 7 do pedido): cada toque é +1.
         const f = sessao.fase;
-        if (f.tipo === "trabalho") manualRepsRef.current = f.alvoReps ?? manualRepsRef.current + 1;
+        if (f.tipo === "trabalho" && !f.sustentar) {
+          manualRepsRef.current += 1;
+          som.tique();
+        }
       }
     };
 
@@ -370,28 +415,46 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
           if (alvo && f.tipo === "trabalho") desenharAlvo(ctx, alvo);
         }
       } else if (f.tipo === "trabalho") {
-        // Sem câmera: reps pelo botão "Feito"; sustentação conta o tempo da fase.
+        // Sem câmera: reps só pelo toque opcional de contar; sustentação conta o tempo da fase.
         reps = manualRepsRef.current;
         tempoValidoMs = f.sustentar ? sessao.decorridoMs : 0;
         naPosicao = f.sustentar;
       }
 
-      tratarSessao(sessao.tick(agora, { reps, parciais, tempoValidoMs, foraDoQuadro: fora, pausado: pausadoRef.current }));
+      tratarSessao(sessao.tick(agora, { reps, parciais, tempoValidoMs, foraDoQuadro: fora, pausado: pausadoRef.current }), agora);
 
-      // "Faltam 10" e "faltam 5" falados, só no modo tempo (seção 9).
-      const faseAgora = sessao.fase;
-      if (faseAgora.tipo === "trabalho" && faseAgora.duracaoMs !== undefined && !pausadoRef.current) {
-        const restante = sessao.restanteMs;
-        if (restante !== null) {
-          if (!avisouFaltam10 && restante <= 10_000) {
-            avisouFaltam10 = true;
-            falarSeAtivo("Faltam 10 segundos");
-          }
-          if (!avisouFaltam5 && restante <= 5_000) {
-            avisouFaltam5 = true;
-            falarSeAtivo("Faltam 5 segundos", true);
-            som.tique();
-          }
+      // Sem câmera, reps/escada/contra o relógio não têm duracaoMs: um regressivo estimado
+      // (duracaoManualMs) toma o lugar do tempo real, para a série avançar sozinha também
+      // aí (seção 5) — ao fim dele, declara o que foi tocado (ou a meta) e segue.
+      let faseAgora = sessao.fase;
+      let restanteParaHud = sessao.restanteMs;
+      let progressoParaHud = sessao.progresso;
+      if (!comCamera && faseAgora.tipo === "trabalho" && !faseAgora.sustentar && faseAgora.duracaoMs === undefined) {
+        const estimadoMs = duracaoManualMs(faseAgora, exercicios[faseAgora.exercicio]);
+        const restanteEstimado = Math.max(0, estimadoMs - sessao.decorridoMs);
+        restanteParaHud = restanteEstimado;
+        progressoParaHud = estimadoMs > 0 ? Math.min(1, sessao.decorridoMs / estimadoMs) : 1;
+        if (restanteEstimado <= 0 && !avisouFimManual && !pausadoRef.current) {
+          avisouFimManual = true;
+          const valorPadrao = Math.max(manualRepsRef.current, faseAgora.alvoReps ?? faseAgora.faixa?.min ?? 0);
+          tratarSessao(sessao.declarar(valorPadrao), agora);
+          faseAgora = sessao.fase;
+          restanteParaHud = sessao.restanteMs;
+          progressoParaHud = sessao.progresso;
+        }
+      }
+
+      // "Faltam 10" e "faltam 5" falados: tempo real (AMRAP/isometria/Tabata/EMOM) ou,
+      // sem câmera, o regressivo estimado acima (seção 9).
+      if (faseAgora.tipo === "trabalho" && !pausadoRef.current && restanteParaHud !== null) {
+        if (!avisouFaltam10 && restanteParaHud <= 10_000) {
+          avisouFaltam10 = true;
+          falarSeAtivo("Faltam 10 segundos");
+        }
+        if (!avisouFaltam5 && restanteParaHud <= 5_000) {
+          avisouFaltam5 = true;
+          falarSeAtivo("Faltam 5 segundos", true);
+          som.tique();
         }
       }
 
@@ -400,9 +463,9 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
         setHud({
           carregando: false,
           indice: sessao.indice,
-          restanteMs: sessao.restanteMs,
+          restanteMs: restanteParaHud,
           restanteTetoMs: sessao.restanteTetoMs,
-          progresso: sessao.progresso,
+          progresso: progressoParaHud,
           reps,
           parciais,
           tempoValidoMs,
@@ -466,6 +529,22 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
   }, [blocos, exercicios, linha, comCamera]);
 
   useEffect(() => () => window.clearTimeout(timerOverlayRef.current), []);
+
+  // "Quantas você fez?" é opcional: desaparece sozinha depois de um tempo (reiniciado a cada toque no ±).
+  useEffect(() => {
+    if (!perguntaManual) return;
+    const t = window.setTimeout(() => setPerguntaManual(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [perguntaManual]);
+
+  const ajustarDeclarado = (delta: number) => {
+    setPerguntaManual((p) => {
+      if (!p) return p;
+      const novo = Math.max(0, p.reps + delta);
+      sessaoRef.current?.corrigir(p.faseIndice, novo);
+      return { ...p, reps: novo };
+    });
+  };
 
   const fase = linha.fases[hud.indice] ?? linha.fases[0];
   const exIndice = fase.tipo === "descanso" ? fase.proximo : fase.exercicio;
@@ -538,12 +617,17 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
   const popupAberto = fase.tipo === "preparo" && !hud.carregando;
   const cobertoPorPopup = popupAberto || modal !== null;
   const mostrarCameraCheia = comCamera && fase.tipo === "trabalho" && !hud.carregando;
+  // Sem câmera, o HUD do trabalho (herói + barra) ocupa o painel preto no lugar do vídeo (seções 1, 2, 7 e 8 do pedido).
+  const mostrarHudManual = !comCamera && fase.tipo === "trabalho" && !hud.carregando;
   const mostrarGabarito = fase.tipo !== "trabalho" || sustentar || !comCamera;
   const faseTrabalho: FaseTrabalho | null = fase.tipo === "trabalho" ? fase : null;
-  const heroTipo: "reps" | "tempo" = faseTrabalho && faseTrabalho.duracaoMs === undefined ? "reps" : "tempo";
+  const heroTipoBase: "reps" | "tempo" = faseTrabalho && faseTrabalho.duracaoMs === undefined ? "reps" : "tempo";
+  // Sem câmera ninguém conta reps sozinho: o hero vira sempre um regressivo (real ou estimado).
+  const heroTipo: "reps" | "tempo" = !comCamera && heroTipoBase === "reps" ? "tempo" : heroTipoBase;
   const mostrarHexagono = faseTrabalho !== null && heroTipo === "tempo" && !faseTrabalho.sustentar;
   const ultimosCincoSegundos = heroTipo === "tempo" && hud.restanteMs !== null && hud.restanteMs > 0 && hud.restanteMs <= 5000;
   const estiloMoldura = estiloProgresso === "moldura";
+  const podeContarToque = mostrarHudManual && faseTrabalho !== null && !faseTrabalho.sustentar;
 
   return (
     <main
@@ -559,7 +643,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
         </div>
       )}
 
-      {mostrarCameraCheia && estiloMoldura && tela.w > 0 && (
+      {(mostrarCameraCheia || mostrarHudManual) && estiloMoldura && tela.w > 0 && (
         <Moldura
           w={tela.w}
           h={tela.h}
@@ -571,7 +655,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
         />
       )}
 
-      {!mostrarCameraCheia && <PainelFase fase={fase} hud={hud} bloco={bloco} proximoNome={fase.tipo === "descanso" ? blocos[fase.proximo]?.exercicio ?? "" : ""} comCamera={comCamera} onJaToPronto={() => acaoRef.current("pular")} />}
+      {!mostrarCameraCheia && <PainelFase fase={fase} hud={hud} bloco={bloco} proximoNome={fase.tipo === "descanso" ? fase.rotuloProximo : ""} comCamera={comCamera} onJaToPronto={() => acaoRef.current("pular")} />}
 
       {/* Topo: sair, exercício e posição no desafio, pular — pequeno, sobre o degradê. */}
       <header
@@ -613,9 +697,10 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
       )}
 
       {/* HUD principal: hero + barra, hexágono secundário, avisos — tudo sobre o degradê de base. */}
-      {mostrarCameraCheia && faseTrabalho && (
+      {(mostrarCameraCheia || mostrarHudManual) && faseTrabalho && (
         <div
-          className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2 bg-gradient-to-t from-azul-noite/95 to-transparent px-5 pb-[max(3.5rem,calc(env(safe-area-inset-bottom)+3rem))] pt-16`}
+          className={`${podeContarToque ? "pointer-events-auto" : "pointer-events-none"} absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2 bg-gradient-to-t from-azul-noite/95 to-transparent px-5 pb-[max(3.5rem,calc(env(safe-area-inset-bottom)+3rem))] pt-16`}
+          onClick={podeContarToque ? () => acaoRef.current("contarRep") : undefined}
         >
           {hud.fora || hud.enquadramento ? (
             <p className={`fonte-rotulo mx-auto rounded-xl bg-black/55 px-3 py-1.5 text-center text-sm font-bold leading-snug ${hud.fora ? "text-coral" : "text-atencao"}`}>
@@ -627,24 +712,26 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
             <HeroReps
               valor={hud.reps}
               meta={faseTrabalho.alvoReps ?? 0}
-              legenda={legendaHero(faseTrabalho, hud)}
+              legenda={legendaHero(faseTrabalho, hud, !comCamera)}
               segmentos={estiloMoldura ? undefined : hud.segmentosRep}
               alinhamento={estiloMoldura ? "esquerda" : "centro"}
             />
           ) : (
             <HeroTempo
               texto={regressivo(hud.restanteMs ?? 0)}
-              legenda={legendaHero(faseTrabalho, hud)}
+              legenda={legendaHero(faseTrabalho, hud, !comCamera)}
               urgente={ultimosCincoSegundos}
               progresso={hud.progresso}
               mostrarBarra={!estiloMoldura}
               alinhamento={estiloMoldura ? "esquerda" : "centro"}
             />
           )}
+          {podeContarToque && <p className="fonte-rotulo text-center text-[11px] font-semibold text-white/45">Toque para contar</p>}
         </div>
       )}
 
-      {mostrarCameraCheia && mostrarHexagono && (
+      {/* Sem câmera, o hexágono só aparece se a pessoa tocou para contar — senão voltaria a travar em "0". */}
+      {mostrarHexagono && (mostrarCameraCheia || (mostrarHudManual && hud.reps > 0)) && (
         <Hexagono
           valor={hud.reps}
           meta={faseTrabalho?.alvoReps ?? faseTrabalho?.faixa?.max}
@@ -653,13 +740,18 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
         />
       )}
 
-      {/* Aviso de correção: coral, centro da tela, 1,5 s (seção 6). */}
-      {mostrarCameraCheia && hud.feedback && (
+      {/* Aviso de correção: coral, centro da tela, 1,5 s (seção 6). Sem câmera, também avisa a troca de perna/lado. */}
+      {(mostrarCameraCheia || mostrarHudManual) && hud.feedback && (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center px-8">
           <p role="alert" className="fonte-rotulo max-w-xs rounded-2xl bg-coral px-6 py-3 text-center text-[28px] font-extrabold leading-tight text-[#0E1726]">
             {hud.feedback}
           </p>
         </div>
+      )}
+
+      {/* Sem câmera: pergunta opcional "Quantas você fez?" ao fim de uma série (seção 6). */}
+      {perguntaManual && !modal && (
+        <QuantasVoceFez pergunta={perguntaManual} aoAjustar={ajustarDeclarado} aoFechar={() => setPerguntaManual(null)} />
       )}
 
       {/* "Senti dor": sempre visível, pequeno, embaixo. */}
@@ -875,6 +967,44 @@ function BarraContinua({ progresso, urgente }: { progresso: number; urgente: boo
   );
 }
 
+/**
+ * Sem câmera: pergunta opcional de 1 toque ao fim de uma série (seção 6 do
+ * pedido). A série já avançou sozinha — isto só corrige o valor declarado
+ * (± em torno da meta); some sozinha depois de alguns segundos.
+ */
+function QuantasVoceFez({
+  pergunta, aoAjustar, aoFechar,
+}: {
+  pergunta: PerguntaManual;
+  aoAjustar: (delta: number) => void;
+  aoFechar: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label="Quantas você fez?"
+      className="absolute inset-x-4 top-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] z-[60] rounded-2xl bg-superficie/95 p-4 text-texto shadow-lg"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="fonte-rotulo text-xs font-bold uppercase tracking-wide text-apagado">Quantas você fez?</p>
+          <p className="truncate text-sm font-semibold">{pergunta.exercicio}</p>
+        </div>
+        <button onClick={aoFechar} aria-label="Fechar" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-apagado active:bg-fundo">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+      <div className="mt-2 flex items-center justify-center gap-4">
+        <button onClick={() => aoAjustar(-1)} aria-label="Menos uma" className="flex h-11 w-11 items-center justify-center rounded-full border border-borda text-xl font-black active:bg-fundo">−</button>
+        <p className="fonte-numero numero-camera w-16 text-center text-3xl">{pergunta.reps}</p>
+        <button onClick={() => aoAjustar(1)} aria-label="Mais uma" className="flex h-11 w-11 items-center justify-center rounded-full border border-borda text-xl font-black active:bg-fundo">+</button>
+      </div>
+    </div>
+  );
+}
+
 /** Reps secundárias: hexágono amarelo (pointy-top) com o número em azul-noite. */
 function Hexagono({
   valor, meta, rotulo, posicao,
@@ -1014,7 +1144,7 @@ function PainelFase({
         )}
 
         <div className="mt-auto flex w-full max-w-xs flex-col items-center gap-3">
-          <p className="fonte-rotulo text-sm font-bold uppercase tracking-wide text-white/60">A seguir</p>
+          <p className="fonte-rotulo text-sm font-bold uppercase tracking-wide text-white/60">Próximo</p>
           <p className="fonte-rotulo text-xl font-black">{proximoNome}</p>
           <button onClick={onJaToPronto} className="h-14 w-full rounded-2xl bg-mel text-lg font-black text-black active:bg-mel-forte">
             Já tô pronto
@@ -1024,20 +1154,18 @@ function PainelFase({
     );
   }
 
-  // Modo sem câmera (ou "preparo", mascarado pelo pop-up PREPARE-SE por cima).
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 bg-black px-6 text-center">
-      {!comCamera && (
-        <>
-          <Gabarito exercicio={bloco.exercicioId} tamanho={210} />
-          <p className="text-base leading-relaxed text-white/75">{dicaDoGabarito(bloco.exercicioId)}</p>
-          {fase.tipo === "trabalho" && fase.alvoReps !== undefined && !fase.sustentar && (
-            <p className="fonte-numero text-[clamp(3rem,16vw,4rem)] text-mel">{hud.reps}/{fase.alvoReps}</p>
-          )}
-        </>
-      )}
-    </div>
-  );
+  // Modo sem câmera (ou "preparo", mascarado pelo pop-up PREPARE-SE por cima): Gabarito e dica
+  // ocupam o topo; o HUD (herói + barra, seções 1, 2, 7 e 8) é desenhado por fora, na base.
+  if (!comCamera) {
+    return (
+      <div className="flex h-full flex-col items-center gap-3 overflow-y-auto bg-azul-noite px-6 pb-[max(12rem,calc(env(safe-area-inset-bottom)+11rem))] pt-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] text-center">
+        <Gabarito exercicio={bloco.exercicioId} tamanho={fase.tipo === "trabalho" && fase.sustentar ? 160 : 130} />
+        <p className="text-[15px] leading-relaxed text-white/75">{dicaDoGabarito(bloco.exercicioId)}</p>
+      </div>
+    );
+  }
+
+  return <div className="h-full bg-black" />;
 }
 
 /**
