@@ -83,5 +83,18 @@
   "instrucoes": [
     "Fique de frente para o celular, com os braços aparecendo inteiros no alto.",
     "Suba os braços estendidos formando um Y e desça devagar."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Elevação de braços em Y",
+    "familia": "mobilidade_ombro",
+    "degrau": 0,
+    "funcoes": ["mobilidade"],
+    "regioes": ["ombros", "costas"],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

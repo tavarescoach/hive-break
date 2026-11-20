@@ -69,5 +69,20 @@
   "instrucoes": [
     "Fique de frente para o celular, com o corpo inteiro na tela.",
     "Corra no lugar levando cada joelho até a altura do quadril."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Skipping (elevação de joelhos)",
+    "familia": "corrida_no_lugar",
+    "variacaoDe": "marcha_estacionaria",
+    "degrau": 1,
+    "funcoes": ["cardio"],
+    "regioes": ["pernas", "corpo_todo"],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "versaoSemImpactoId": "marcha_estacionaria",
+    "flags": { "semChao": true, "semSalto": false, "semSuor": false, "silencioso": false },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

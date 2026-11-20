@@ -104,5 +104,19 @@
     "Fique de frente para o celular, com o corpo inteiro na tela, inclusive as mãos no alto.",
     "Comece com os pés juntos e os braços ao lado do corpo.",
     "Abra as pernas além da largura dos ombros e leve as mãos acima da cabeça."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Polichinelo",
+    "familia": "polichinelo",
+    "degrau": 1,
+    "funcoes": ["cardio", "potencia"],
+    "regioes": ["corpo_todo"],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "versaoSemImpactoId": "polichinelo_sem_salto",
+    "flags": { "semChao": true, "semSalto": false, "semSuor": false, "silencioso": false },
+    "pesoPorTrilha": {},
+    "calibrado": true
+  }
 }

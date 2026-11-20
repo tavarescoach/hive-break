@@ -68,5 +68,18 @@
     "Celular no chão, de lado para você.",
     "Mãos e pés no chão, quadril para o alto, formando um V invertido.",
     "Joelhos e cotovelos estendidos."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Cachorro olhando para baixo",
+    "familia": "yoga_posturas",
+    "degrau": 0,
+    "funcoes": ["mobilidade", "alongamento"],
+    "regioes": ["ombros", "pernas", "lombar"],
+    "posicaoCamera": "lado",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "flags": { "semChao": false, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

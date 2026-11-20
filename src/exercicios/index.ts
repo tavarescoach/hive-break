@@ -7,6 +7,7 @@ import agachamento_parcial_cadeira from "./agachamento_parcial_cadeira.json";
 import alongamento_posterior from "./alongamento_posterior.json";
 import apoio_uma_perna from "./apoio_uma_perna.json";
 import apoio_uma_perna_com_toque from "./apoio_uma_perna_com_toque.json";
+import bom_dia from "./bom_dia.json";
 import bom_dia_bastao from "./bom_dia_bastao.json";
 import cachorro_olhando_baixo from "./cachorro_olhando_baixo.json";
 import elevacao_bracos_y from "./elevacao_bracos_y.json";
@@ -55,6 +56,7 @@ export const EXERCICIOS = [
   flexao_joelhos,
   polichinelo_sem_salto,
   apoio_uma_perna_com_toque,
+  bom_dia,
 ] as unknown as DefinicaoExercicio[];
 
 /** Exercícios do teste técnico da Fase 0. */

@@ -631,3 +631,26 @@ da Etapa 0" do mesmo documento; aqui ficam aplicadas e com o porquê de cada det
    qualquer perfil existir e vêm do navegador, então ganharam a tabela `eventos` própria, com
    a função `registrar_evento` liberada para `anon` e `authenticated`. As duas tabelas medem
    coisas diferentes e não deveriam se misturar.
+
+## Etapa 1B: revisão do Luan no catálogo (27/11/2026)
+
+1. **`bom_dia` (sem bastão) criado como substituto E0 de `bom_dia_bastao`**, no lugar de
+   `ponte_gluteo`: a regra da câmera é a mesma (o bastão nunca era medido, só apoiado nas
+   costas), então é o mesmo exercício em pé, sem o bastão — diferente de `ponte_gluteo`, que é
+   no chão.
+2. **Escadas renumeradas para casar com os degraus da biblioteca** (para a Etapa 1C não
+   precisar renumerar depois de importar): `prancha` degrau 2 (ABS: mesa 0, joelhos 1,
+   antebraço 2 — a nossa é a de antebraço/mãos), `ponte_gluteo` degrau 1 (GLU: ponte
+   isométrica fica no degrau 0, ainda não importada), `postura_arvore` entrou na família
+   `equilibrio_unipodal` como degrau 2 (`apoio_uma_perna_com_toque` 0 → `apoio_uma_perna` 1 →
+   `postura_arvore` 2), `agachamento_bastao` com `variacaoDe = agachamento_livre` e degrau 1
+   (é variação de mobilidade — o bastão acima da cabeça —, não progressão de dificuldade).
+3. **TODO (Etapa 1C):** `mountain_climber` está com degrau 1. Quando a biblioteca trouxer
+   ABS-41 (mountain climber sem impacto), ele entra como degrau 0 da mesma família e
+   `mountain_climber.catalogo.versaoSemImpactoId` passa a apontar para ele. `skipping` já
+   aponta para `marcha_estacionaria` (que tem o mesmo papel hoje).
+4. **`semSuor` documentado**: significa "dá para fazer sem suar numa dose leve", não "nunca
+   cansa". O validador passou a recusar lição no contexto `mesa` com algum bloco de PSE
+   (`Licao.blocos[].pseAlvo`, novo campo opcional) acima de 4.
+5. **Regiões novas**: `pescoco`, `costas`, `punho` (lista de `src/dominio/catalogo.ts`).
+   `elevacao_bracos_y` passou a usar `ombros` e `costas` (em vez de `ombros` e `core`).

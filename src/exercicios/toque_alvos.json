@@ -40,5 +40,18 @@
   "instrucoes": [
     "Fique de frente para o celular, com espaço para abrir os braços.",
     "Um círculo aparece na tela: toque nele com a mão em até 2 segundos."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Toque nos alvos",
+    "familia": "precisao_maos",
+    "degrau": 0,
+    "funcoes": ["golpe"],
+    "regioes": ["bracos", "ombros"],
+    "posicaoCamera": "frente",
+    "validacao": "V3",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

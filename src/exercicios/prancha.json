@@ -53,5 +53,18 @@
     "Celular no chão, de lado para você.",
     "Apoie as mãos ou os antebraços, corpo reto da cabeça aos pés.",
     "O tempo só corre com o quadril alinhado."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Prancha",
+    "familia": "prancha",
+    "degrau": 2,
+    "funcoes": ["anti-extensao"],
+    "regioes": ["core", "ombros"],
+    "posicaoCamera": "lado",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "flags": { "semChao": false, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

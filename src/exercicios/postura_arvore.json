@@ -54,5 +54,18 @@
     "Fique de frente para o celular.",
     "Apoie a planta de um pé na perna de apoio, acima do tornozelo.",
     "Segure. Troque de perna na metade do tempo."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Postura da árvore",
+    "familia": "equilibrio_unipodal",
+    "degrau": 2,
+    "funcoes": ["equilibrio"],
+    "regioes": ["pernas", "core"],
+    "posicaoCamera": "frente",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

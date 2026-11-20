@@ -80,5 +80,19 @@
     "Fique de frente para o celular, com o corpo inteiro na tela.",
     "Uma cadeira firme atrás de você, sem rodinha.",
     "Desça até encostar levemente na cadeira (sem sentar o peso) e suba de novo."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Agachamento parcial na cadeira",
+    "familia": "agachamento",
+    "variacaoDe": "agachamento_livre",
+    "degrau": 0,
+    "funcoes": ["agachar"],
+    "regioes": ["pernas", "gluteos", "quadril"],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

@@ -57,5 +57,18 @@
     "Fique de frente para o celular, com o corpo inteiro na tela.",
     "Tire um pé do chão e segure. Pode ser qualquer perna.",
     "O tempo só corre enquanto o pé estiver no ar."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Apoio em uma perna",
+    "familia": "equilibrio_unipodal",
+    "degrau": 1,
+    "funcoes": ["equilibrio"],
+    "regioes": ["pernas", "core"],
+    "posicaoCamera": "frente",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": true
+  }
 }

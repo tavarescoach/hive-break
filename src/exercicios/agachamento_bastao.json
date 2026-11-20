@@ -90,5 +90,21 @@
     "Fique de frente para o celular.",
     "Segure o cabo de vassoura acima da cabeça, braços estendidos.",
     "Agache sem deixar o bastão cair para a frente."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Agachamento com bastão acima da cabeça",
+    "familia": "agachamento",
+    "variacaoDe": "agachamento_livre",
+    "degrau": 1,
+    "funcoes": ["agachar", "mobilidade"],
+    "regioes": ["pernas", "gluteos", "ombros"],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E1",
+    "objetos": ["cabo_vassoura"],
+    "substitutoE0Id": "agachamento_livre",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": false, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

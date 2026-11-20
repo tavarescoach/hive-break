@@ -73,5 +73,19 @@
     "Celular no chão, de lado para você, mostrando o corpo inteiro.",
     "Joelhos no chão, mãos no chão na linha dos ombros, do joelho ao ombro em linha reta.",
     "Desça até o cotovelo dobrar e suba, sem deixar o quadril cair."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Flexão com joelhos apoiados",
+    "familia": "flexao_braco",
+    "variacaoDe": "flexao_braco",
+    "degrau": 0,
+    "funcoes": ["empurrar"],
+    "regioes": ["peito", "ombros", "bracos", "core"],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": false, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

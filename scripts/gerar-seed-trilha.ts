@@ -1,7 +1,14 @@
-// Gera supabase/seed_trilha.sql: os 19 exercícios do catálogo (seção 7), as 24
-// unidades (3 por nível) e os desafios de cada unidade, seguindo a ordem
-// fisiológica da seção 6.2. Cada desafio é uma lista de blocos com as variáveis
-// metodológicas (docs/METODOS.md). Rode com: npm run seed:trilha
+// Algoritmo histórico que gerou a trilha hoje: monta as 24 unidades (3 por
+// nível) e os desafios de cada unidade, seguindo a ordem fisiológica da seção
+// 6.2, com as variáveis metodológicas (docs/METODOS.md). Ainda escreve
+// supabase/seed_trilha.sql quando rodado (npm run seed:trilha), mas desde a
+// Etapa 1B (docs/PLANO_ETAPAS_UX.md) a fonte da trilha é
+// content/trilhas/principal.json: quem gera o SQL de verdade é
+// scripts/gerar-sql-trilha.ts (npm run seed:sql), e é esse que o CI confere.
+// Este arquivo fica como ferramenta manual — útil se alguém quiser gerar uma
+// unidade nova do zero pelo algoritmo — mas rodá-lo não atualiza
+// content/trilhas/principal.json (isso é scripts/congelar-trilha.ts,
+// npm run trilha:congelar, rodado de propósito, não automaticamente).
 //
 // O conteúdo é um RASCUNHO para revisão do Luan: nomes das unidades, escolha
 // dos exercícios, métodos e números. A escala pela dificuldade pessoal entra depois.
