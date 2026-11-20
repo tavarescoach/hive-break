@@ -226,13 +226,40 @@ describe("recompensa ao voltar (seção 6)", () => {
 });
 
 describe("funil de lembretes (seção 1 e 8)", () => {
+  /**
+   * O W1 só dispara dentro de 1h do horário da última prática, e
+   * lembrete_no_dia empurra horários de silêncio (22h30–8h) para as 8h. Se
+   * historico() usasse o horário real de "agora" (que pode cair no silêncio,
+   * dependendo de quando o teste roda), tanto a última prática quanto a
+   * janela esperada dependeriam da hora real. Aqui as duas ficam fixas às
+   * 15h de São Paulo — um horário que nunca é empurrado — mudando só a data
+   * real (hoje, hoje−3) para a conta de dias bater.
+   */
+  /** "Hoje" (data real) menos `diasAtras`, sempre às 15h de São Paulo (nunca cai no silêncio). */
+  const AS_15H_SP = (diasAtras: string) =>
+    `(((now() at time zone 'America/Sao_Paulo')::date - (${diasAtras})::int) + time '15:00') at time zone 'America/Sao_Paulo'`;
+
+  async function historicoNoHorarioSeguro(id: string, dias: number) {
+    await db.query(
+      `insert into public.challenge_attempts (user_id, challenge_id, dificuldade, modo, status, concluido_em, xp)
+       values ($1, 'n1u1d01', 1, 'manual', 'concluido', now() - interval '60 days', 1),
+              ($1, 'n1u1d01', 1, 'manual', 'concluido', ${AS_15H_SP("$2")}, 1)`,
+      [id, dias],
+    );
+  }
+
   const pendentesDe = async (id: string) =>
-    (await db.query<{ gatilho: string }>("select gatilho from public.lembretes_pendentes() where user_id = $1", [id])).rows;
+    (
+      await db.query<{ gatilho: string }>(
+        `select gatilho from public.lembretes_pendentes(${AS_15H_SP("0")}) where user_id = $1`,
+        [id],
+      )
+    ).rows;
 
   it("W1 dispara normalmente para quem está há 3 dias sem desafio", async () => {
     await db.query("update public.lembretes_config set valor = 'false' where chave = 'LEMBRETES_SIMULAR'");
     const ana = await pessoa();
-    await historico(ana, 3, 2);
+    await historicoNoHorarioSeguro(ana, 3);
     expect((await pendentesDe(ana)).map((r) => r.gatilho)).toContain("W1");
   });
 
@@ -241,7 +268,7 @@ describe("funil de lembretes (seção 1 e 8)", () => {
     const carla = await pessoa();
     const bruno = await pessoa();
     await amizade(carla, bruno);
-    await historico(carla, 3, 2);
+    await historicoNoHorarioSeguro(carla, 3);
     await db.query(
       `insert into public.resgates (de_usuario_id, para_usuario_id, familia, gancho_id, texto_final, canal)
        values ($1, $2, 'D', 'RD3', 'Revanche?', 'whatsapp')`,
