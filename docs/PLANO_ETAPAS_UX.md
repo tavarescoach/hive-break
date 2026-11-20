@@ -61,7 +61,7 @@ Resumo do `docs/DIAGNOSTICO_UX.md`: o código é mais rico que a especificação
 | 7 | Meta de 60 s | **Manter 60 s e medir antes de otimizar** (eventos entram já na 1A). |
 | 8 | Troca automática por dor | **Entra na Etapa 5** (botão Trocar, motivo "dói"). Até lá, "Senti dor" segue encerrando sem XP. |
 
-Nota para a Etapa 4: hoje o username e a declaração de saúde vêm antes da 1ª rep. A declaração fica antes (obrigatória); o username pode ir para depois do resultado, já que o login anônimo (`signInAnonymously`) já existe [validar].
+Nota para a Etapa 4: hoje o username e a declaração de saúde vêm antes da 1ª rep. A declaração fica antes (obrigatória); o username pode ir para depois do resultado, já que o login anônimo (`signInAnonymously`) já existe. **Decidido (20/11): username depois da primeira hive**, pedido na tela de resultado junto do card ("Coloque seu @ no card"). Exceção: quem entra por convite numa hive ao vivo informa só um apelido antes de entrar, para os colegas verem quem é.
 
 ---
 
@@ -270,9 +270,9 @@ Testes: seleção de variante por objeto, conversão de carga, bloqueios de segu
 Contexto: Hive Break. Contextos (Etapa 2) e montarHive (Etapa 3). Ciência e regra de breaks em CIENCIA_BREAKS.md §2. Regra: V4 não gera XP de câmera nem conta na liga.
 
 Tarefa:
-1. Interrompível: estado da hive salvo a cada bloco (local + servidor). Pausa > 2 min ou app em segundo plano → "Pausado. Seus blocos já contam." Ao voltar (até 30 min [validar]) retoma do bloco interrompido; depois disso fecha com os blocos concluídos. Nunca quebra ofensiva por interrupção.
-2. Modo discreto: liga em 1 toque no seletor; sem câmera, sem som (vibração ou fone), só exercícios com flag silencioso e sem chão; timer guiado. Conta ofensiva, não conta liga [validar].
-3. Snack de 1 min: atalho na home ("1 minuto agora") que usa montarHive(tempo 60).
+1. Interrompível: estado da hive salvo a cada bloco (local + servidor). Pausa > 2 min ou app em segundo plano → "Pausado. Seus blocos já contam." Ao voltar (até 30 min, decidido em 20/11) retoma do bloco interrompido; depois disso fecha com os blocos concluídos. Nunca quebra ofensiva por interrupção.
+2. Modo discreto: liga em 1 toque no seletor; sem câmera, sem som (vibração ou fone), só exercícios com flag silencioso e sem chão; timer guiado. Conta ofensiva, não conta liga (decidido em 20/11).
+3. Snack de 1 min: atalho na home ("1 minuto agora") que usa montarHive(tempo 60). Decisão do Luan: o snack conta para a ofensiva do dia e dá XP pequeno [validar valor], mas NÃO marca lição como concluída nem avança a trilha.
 4. Micro-break: lembrete opcional a cada 30 min no horário de expediente configurado ("Levanta 1 min"), pausável durante reuniões; sem câmera, sem social.
 5. Pacotes: "Mesa" (3 hives de 3 min: pescoço/ombro, coluna/quadril, energia das 15h), "Plantão" (snack de alerta na madrugada, 3 min de pernas e circulação, Desacelerar pós-plantão), "Teleatendimento" (2 pausas de 10 min, NR-17 Anexo II). Conteúdo vem das trilhas Modo Escritório, Hive Office e Desacelerar.
 Testes: retomada após interrupção (tempos 1 min, 10 min, 40 min), contagem de ofensiva × liga no modo discreto, filtro do pacote Plantão.
@@ -336,9 +336,10 @@ Testes: inserção com RLS, cálculo das views com dados de exemplo.
 - **Hive agendada da equipe ("Break das 15h"):** depois do cadastro, o n8n envia e-mail de contatohivebreak@gmail.com com convite .ics (METHOD:REQUEST, recorrente, link da sala da hive). No Gmail e no Outlook aparece como convite com Sim/Não e entra na agenda de todos. É o formato que escritório já usa no dia a dia [validar].
 
 ## Decisões para o Luan (antes ou durante as etapas)
-1. **Snack de 1 min avança a trilha** ou só mantém a ofensiva?
-2. **Modo discreto (sem câmera)** conta para a ofensiva? (proposta: sim, fora da liga)
+1. ~~Snack de 1 min avança a trilha ou só mantém a ofensiva?~~ **Decidido (20/11): só mantém a ofensiva** (+ XP pequeno [validar valor]); não avança a trilha.
+2. ~~Modo discreto conta para a ofensiva?~~ **Decidido (20/11): sim**, fora da liga e sem XP de câmera.
 3. **Faixas da colocação** e da autoprogressão (110% / 60%): validar com alunos do TTC.
-4. **Garrafão de 10–20 L** entra para avançados ou fica fora?
-5. **Tempo máximo para retomar** uma hive interrompida (proposta: 30 min).
+4. ~~Garrafão de 10–20 L?~~ **Decidido (20/11): entra só para avançados** (terra e agachamento abraçado; nunca acima da cabeça).
+5. ~~Tempo para retomar hive interrompida?~~ **Decidido (20/11): 30 min.**
+7. ~~Username depois da primeira hive?~~ **Decidido (20/11): sim**, na tela de resultado junto do card; quem entra por convite numa hive ao vivo informa só um apelido antes.
 6. Ordem das etapas 5 a 9 se o piloto B2B começar antes: para escritório, puxar a Etapa 7 para logo depois da 4.
