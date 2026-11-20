@@ -36,3 +36,21 @@ describe("avisos de posicionamento", () => {
     expect(avaliarEnquadramento(frente(), definicao("bom_dia_bastao"), 0.5, PROPORCAO)).toEqual({ ok: true, aviso: "Vire de lado para o celular." });
   });
 });
+
+describe("meio corpo (Etapa 1C-A: sentado, celular no monitor)", () => {
+  const meioCorpo = { ...definicao("elevacao_bracos_y"), camera: "lateral" as const, enquadramento: "meio_corpo" as const, pontos_obrigatorios: ["ombro_e", "ombro_d", "nariz"] };
+  const semQuadril = () => frente({ quadril_e: 0.1, quadril_d: 0.1, joelho_e: 0.1, joelho_d: 0.1, tornozelo_e: 0.1, tornozelo_d: 0.1 });
+
+  it("quadril escondido pela mesa: não pede para virar nem para mostrar as pernas", () => {
+    expect(avaliarEnquadramento(semQuadril(), meioCorpo, 0.5, PROPORCAO)).toEqual({ ok: true, aviso: null });
+  });
+
+  it("sem a marcação de meio corpo, o mesmo quadro continua conferindo de frente/de lado", () => {
+    const corpoInteiro = { ...meioCorpo, enquadramento: undefined };
+    expect(avaliarEnquadramento(frente(), corpoInteiro, 0.5, PROPORCAO).aviso).toBe("Vire de lado para o celular.");
+  });
+
+  it("meio corpo com o quadril visível confere a orientação normalmente", () => {
+    expect(avaliarEnquadramento(frente(), meioCorpo, 0.5, PROPORCAO).aviso).toBe("Vire de lado para o celular.");
+  });
+});

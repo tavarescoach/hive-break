@@ -1,0 +1,63 @@
+{
+  "id": "cadeira_parede",
+  "nome": "Cadeira na parede",
+  "modalidade": "forca",
+  "camera": "lateral",
+  "formato": "isometria",
+  "pontos_obrigatorios": [
+    "quadril",
+    "joelho",
+    "tornozelo"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "quadril",
+      "joelho",
+      "tornozelo"
+    ],
+    "lado": "visivel",
+    "espaco": "2d"
+  },
+  "histerese": 4,
+  "sustentacao": {
+    "condicao": "medida entre 80 e 110",
+    "feedback_perda": "Joelhos perto de 90°",
+    "histerese": 6
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "estabilidade",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "Costas na parede, de lado para o celular.",
+    "Desça até os joelhos ficarem perto de 90°, como se sentasse numa cadeira.",
+    "O tempo só corre nessa altura."
+  ],
+  "catalogo": {
+    "nome": "Cadeira na parede",
+    "nomeOriginal": "GLU-27 cadeira na parede",
+    "familia": "agachamento",
+    "degrau": 0,
+    "funcoes": [
+      "agachar"
+    ],
+    "regioes": [
+      "pernas",
+      "gluteos"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

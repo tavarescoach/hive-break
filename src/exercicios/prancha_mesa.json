@@ -1,0 +1,86 @@
+{
+  "id": "prancha_mesa",
+  "nome": "Prancha com as mãos na mesa",
+  "modalidade": "core",
+  "camera": "lateral",
+  "formato": "isometria",
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "tornozelo",
+    "punho"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "quadril",
+      "tornozelo"
+    ],
+    "lado": "visivel",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "tronco": {
+      "tipo": "inclinacao",
+      "pontos": [
+        "quadril",
+        "ombro"
+      ],
+      "lado": "visivel"
+    }
+  },
+  "histerese": 4,
+  "sustentacao": {
+    "condicao": "medida > 165 e tronco entre 25 e 70",
+    "feedback_perda": "Corpo reto, da cabeça aos pés",
+    "histerese": 6,
+    "controle": {
+      "ponto": "quadril",
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ],
+      "oscilacao_maxima": 0.06
+    }
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "estabilidade",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "Celular de lado para você, a uns 2 m.",
+    "Mãos na borda de uma mesa firme, corpo reto dos ombros aos pés.",
+    "O tempo só corre com o corpo alinhado."
+  ],
+  "catalogo": {
+    "nome": "Prancha com as mãos na mesa",
+    "nomeOriginal": "ABS-30 prancha com as mãos na mesa",
+    "familia": "prancha",
+    "degrau": 0,
+    "funcoes": [
+      "anti-extensao"
+    ],
+    "regioes": [
+      "core",
+      "ombros"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V2",
+    "equipamento": "E1",
+    "objetos": [
+      "mesa_firme"
+    ],
+    "substitutoE0Id": "prancha",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

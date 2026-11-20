@@ -1,0 +1,109 @@
+{
+  "id": "stiff_kickstand",
+  "nome": "Stiff com pé de trás apoiado",
+  "modalidade": "forca",
+  "camera": "lateral",
+  "formato": "repeticoes",
+  "seg_por_rep": 3,
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "joelho",
+    "tornozelo"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "quadril",
+      "joelho"
+    ],
+    "lado": "min",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "joelho": {
+      "tipo": "angulo",
+      "pontos": [
+        "quadril",
+        "joelho",
+        "tornozelo"
+      ],
+      "lado": "min",
+      "espaco": "2d"
+    }
+  },
+  "histerese": 5,
+  "fases": [
+    {
+      "nome": "em_pe",
+      "condicao": "medida > 160"
+    },
+    {
+      "nome": "dobrado",
+      "condicao": "medida < 115"
+    }
+  ],
+  "repeticao": [
+    "em_pe",
+    "dobrado",
+    "em_pe"
+  ],
+  "parcial_se": "min_medida < 140",
+  "parcial_feedback": "Incline mais o tronco",
+  "amplitude": {
+    "extremo": "min",
+    "minimo_aceito": 115,
+    "ideal": 90
+  },
+  "duracao_minima_ms": 1000,
+  "erros": [
+    {
+      "id": "joelho_dobrado",
+      "condicao": "joelho < 140",
+      "fase": "dobrado",
+      "feedback": "Joelho só destravado",
+      "pontos": [
+        "joelho_e",
+        "joelho_d"
+      ]
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "indice_tecnico"
+  ],
+  "instrucoes": [
+    "De lado para o celular, a uns 2 m, corpo inteiro na tela.",
+    "Pé de trás apoiado só na ponta, um passo atrás, quase todo o peso na perna da frente.",
+    "Incline o tronco à frente com a coluna longa e volte."
+  ],
+  "catalogo": {
+    "nome": "Stiff com pé de trás apoiado",
+    "nomeOriginal": "GLU-12 stiff com pé de trás apoiado (kickstand)",
+    "familia": "dobradura_quadril",
+    "degrau": 1,
+    "funcoes": [
+      "dobrar"
+    ],
+    "regioes": [
+      "gluteos",
+      "pernas",
+      "lombar"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "variacaoDe": "bom_dia",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}
