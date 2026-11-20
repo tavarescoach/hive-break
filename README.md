@@ -58,3 +58,9 @@ A imagem da câmera é processada no aparelho e nunca é gravada nem enviada. O 
 `Content-Security-Policy: connect-src 'self'`, então o próprio navegador recusa
 conexões para fora do domínio, com exceção do projeto Supabase, que recebe só dados
 numéricos e de cadastro. Dados de saúde são protegidos por RLS: só o dono lê.
+
+## Licença
+
+Código e conteúdo proprietários: todos os direitos reservados. O repositório é público só
+para consulta; copiar, usar ou criar derivados exige autorização por escrito. Veja
+[`LICENSE`](LICENSE).
