@@ -11,7 +11,7 @@ import { calarVoz, falar } from "@/camera/voz";
 import { Gabarito, dicaDoGabarito } from "@/componentes/Gabarito";
 import { agregarPorExercicio, type BlocoEnviado } from "@/dominio/agregar";
 import {
-  descreverBloco, descreverScore, duracaoManualMs, etiquetasDoBloco, explicarCadencia, formatarTempo, resumir, SessaoTreino,
+  descreverBloco, descreverScore, duracaoManualMs, etiquetasDoBloco, explicarCadencia, formatarTempo, metaManual, resumir, SessaoTreino,
   type Bloco, type EventoSessao, type ExercicioMetodo, type Fase, type FaseTrabalho, type LinhaDoTempo,
 } from "@/dominio/metodos";
 import { ehSustentacao, exercicioPorId } from "@/exercicios";
@@ -208,6 +208,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
     /** Sem câmera: a fase por reps/escada/contra o relógio já declarou o valor ao fim do seu regressivo estimado. */
     let avisouFimManual = false;
     let perguntaSeq = 0;
+    /** A série está acabando por "Pular" (não pelo tempo): sem câmera, não presume a meta. */
+    let pulando = false;
     let feedback: { texto: string; ate: number } | null = null;
     let ultimoResultado: string | null = null;
     let encerrado = false;
@@ -281,16 +283,23 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
             if (motor) kpisPorFase.set(e.resultado.fase, motor.kpis());
             const f = linha.fases[e.resultado.fase];
             const r = e.resultado;
-            ultimoResultado =
-              f.tipo === "trabalho" && f.sustentar
+            // Sem câmera não existe "repetição válida" (ninguém validou): o resumo da série
+            // é a pergunta "Quantas você fez?" (ou nada, nas de sustentação).
+            ultimoResultado = !comCamera
+              ? null
+              : f.tipo === "trabalho" && f.sustentar
                 ? `${nomeEx(r.exercicio)}: ${Math.round(r.tempoValidoMs / 1000)} s na posição`
                 : `${nomeEx(r.exercicio)}: ${r.reps} ${r.reps === 1 ? "repetição válida" : "repetições válidas"}`;
             // Sem câmera, ninguém contou: a série vale pelo que foi declarado — bipe de fim e,
             // fora das de sustentação, a pergunta opcional "Quantas você fez?" (seções 4 e 6).
+            // Valor inicial: o que a pessoa tocou para contar ou, se não tocou, a meta da série
+            // (mesma regra das séries por reps, que já declaram a meta ao fim do regressivo).
             if (!comCamera) {
               som.fim();
               if (f.tipo === "trabalho" && !f.sustentar) {
-                setPerguntaManual({ id: ++perguntaSeq, faseIndice: e.resultado.fase, exercicio: nomeEx(r.exercicio), reps: r.reps });
+                const valor = r.reps > 0 || pulando ? r.reps : metaManual(f, exercicios[f.exercicio]);
+                if (valor !== r.reps) sessao.corrigir(e.resultado.fase, valor);
+                setPerguntaManual({ id: ++perguntaSeq, faseIndice: e.resultado.fase, exercicio: nomeEx(r.exercicio), reps: valor });
               }
             }
             break;
@@ -318,7 +327,12 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
 
     acaoRef.current = (qual) => {
       if (encerrado) return;
-      if (qual === "pular") tratarSessao(sessao.pular(), performance.now());
+      if (qual === "pular") {
+        // Série pulada: não presume a meta como feita.
+        pulando = true;
+        tratarSessao(sessao.pular(), performance.now());
+        pulando = false;
+      }
       else if (qual === "encerrar") tratarSessao(sessao.encerrar(), performance.now());
       else if (qual === "contarRep") {
         // Toque opcional para contar, sem câmera (seção 7 do pedido): cada toque é +1.
@@ -530,12 +544,6 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
 
   useEffect(() => () => window.clearTimeout(timerOverlayRef.current), []);
 
-  // "Quantas você fez?" é opcional: desaparece sozinha depois de um tempo (reiniciado a cada toque no ±).
-  useEffect(() => {
-    if (!perguntaManual) return;
-    const t = window.setTimeout(() => setPerguntaManual(null), 6000);
-    return () => window.clearTimeout(t);
-  }, [perguntaManual]);
 
   const ajustarDeclarado = (delta: number) => {
     setPerguntaManual((p) => {
@@ -547,6 +555,15 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
   };
 
   const fase = linha.fases[hud.indice] ?? linha.fases[0];
+  const emDescanso = fase.tipo === "descanso";
+
+  // "Quantas você fez?" é opcional. Na pausa ela fica no painel, abaixo do tempo, até a pausa
+  // acabar; fora da pausa (troca direta de série) desaparece sozinha em 6 s (reiniciado a cada ±).
+  useEffect(() => {
+    if (!perguntaManual || emDescanso) return;
+    const t = window.setTimeout(() => setPerguntaManual(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [perguntaManual, emDescanso]);
   const exIndice = fase.tipo === "descanso" ? fase.proximo : fase.exercicio;
   const bloco = blocos[exIndice] ?? blocos[0];
   const def = exercicioPorId(bloco.exercicioId);
@@ -655,7 +672,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
         />
       )}
 
-      {!mostrarCameraCheia && <PainelFase fase={fase} hud={hud} bloco={bloco} proximoNome={fase.tipo === "descanso" ? fase.rotuloProximo : ""} comCamera={comCamera} onJaToPronto={() => acaoRef.current("pular")} />}
+      {!mostrarCameraCheia && <PainelFase fase={fase} hud={hud} bloco={bloco} proximoNome={fase.tipo === "descanso" ? fase.rotuloProximo : ""} comCamera={comCamera} onJaToPronto={() => acaoRef.current("pular")}
+          pergunta={!modal ? perguntaManual : null} aoAjustarPergunta={ajustarDeclarado} aoFecharPergunta={() => setPerguntaManual(null)} />}
 
       {/* Topo: sair, exercício e posição no desafio, pular — pequeno, sobre o degradê. */}
       <header
@@ -670,9 +688,10 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
             </svg>
           </button>
           <div className="min-w-0 flex-1 text-center">
-            <p className="fonte-rotulo truncate text-[15px] font-bold leading-tight">{bloco.exercicio}</p>
+            {/* Topo = o que está acontecendo agora: na pausa, "Pausa" (o próximo exercício aparece no painel). */}
+            <p className="fonte-rotulo truncate text-[15px] font-bold leading-tight">{fase.tipo === "descanso" ? "Pausa" : bloco.exercicio}</p>
             <p className="truncate text-xs text-white/70">
-              {fase.tipo === "trabalho" ? fase.rotulo : `Etapa ${Math.min(trabalhoAtual + 1, totalTrabalhos)} de ${totalTrabalhos}`}
+              {fase.tipo === "trabalho" ? fase.rotulo : fase.tipo === "descanso" ? "Respira. A próxima já vem." : "Prepare-se"}
               {hud.restanteTetoMs !== null ? ` · teto ${regressivo(hud.restanteTetoMs)}` : ""}
             </p>
           </div>
@@ -750,8 +769,8 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
       )}
 
       {/* Sem câmera: pergunta opcional "Quantas você fez?" ao fim de uma série (seção 6). */}
-      {perguntaManual && !modal && (
-        <QuantasVoceFez pergunta={perguntaManual} aoAjustar={ajustarDeclarado} aoFechar={() => setPerguntaManual(null)} />
+      {perguntaManual && !modal && !emDescanso && (
+        <QuantasVoceFez pergunta={perguntaManual} aoAjustar={ajustarDeclarado} aoFechar={() => setPerguntaManual(null)} flutuante />
       )}
 
       {/* "Senti dor": sempre visível, pequeno, embaixo. */}
@@ -760,7 +779,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
           inert={cobertoPorPopup}
           aria-hidden={cobertoPorPopup || undefined}
           onClick={() => pausar("dor")}
-          className="pointer-events-auto h-10 rounded-full border border-white/30 bg-black/35 px-4 text-sm font-bold text-white active:bg-white/15"
+          className="pointer-events-auto h-11 rounded-full border border-white/30 bg-black/35 px-4 text-sm font-bold text-white active:bg-white/15"
         >
           Senti dor
         </button>
@@ -973,17 +992,19 @@ function BarraContinua({ progresso, urgente }: { progresso: number; urgente: boo
  * (± em torno da meta); some sozinha depois de alguns segundos.
  */
 function QuantasVoceFez({
-  pergunta, aoAjustar, aoFechar,
+  pergunta, aoAjustar, aoFechar, flutuante = false,
 }: {
   pergunta: PerguntaManual;
   aoAjustar: (delta: number) => void;
   aoFechar: () => void;
+  /** Fora da pausa: cartão sobre o topo da tela. Na pausa: dentro do painel, abaixo do tempo. */
+  flutuante?: boolean;
 }) {
   return (
     <div
       role="dialog"
       aria-label="Quantas você fez?"
-      className="absolute inset-x-4 top-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] z-[60] rounded-2xl bg-superficie/95 p-4 text-texto shadow-lg"
+      className={`${flutuante ? "absolute inset-x-4 top-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] z-[60] shadow-lg" : "w-full max-w-xs"} rounded-2xl bg-superficie p-4 text-left text-texto`}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
@@ -1091,7 +1112,7 @@ function Moldura({
  * todo o modo sem câmera.
  */
 function PainelFase({
-  fase, hud, bloco, proximoNome, comCamera, onJaToPronto,
+  fase, hud, bloco, proximoNome, comCamera, onJaToPronto, pergunta, aoAjustarPergunta, aoFecharPergunta,
 }: {
   fase: Fase;
   hud: Hud;
@@ -1099,6 +1120,10 @@ function PainelFase({
   proximoNome: string;
   comCamera: boolean;
   onJaToPronto: () => void;
+  /** Sem câmera: "Quantas você fez?" da série que acabou, mostrada abaixo do tempo da pausa. */
+  pergunta: PerguntaManual | null;
+  aoAjustarPergunta: (delta: number) => void;
+  aoFecharPergunta: () => void;
 }) {
   if (hud.carregando) {
     return (
@@ -1119,7 +1144,7 @@ function PainelFase({
 
   if (fase.tipo === "descanso") {
     return (
-      <div className="flex h-full flex-col items-center gap-4 overflow-y-auto bg-azul-noite px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] text-center">
+      <div className="flex h-full flex-col items-center gap-4 overflow-y-auto bg-azul-noite px-6 pb-[max(4.75rem,calc(env(safe-area-inset-bottom)+4.25rem))] pt-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] text-center">
         <div>
           <p className="fonte-numero numero-camera text-[clamp(4.5rem,24vw,7rem)] leading-none">{regressivo(hud.restanteMs ?? 0)}</p>
           <div className="mt-2 h-2 w-56 overflow-hidden rounded-full bg-white/15">
@@ -1138,6 +1163,7 @@ function PainelFase({
           </dl>
         )}
 
+        {pergunta && <QuantasVoceFez pergunta={pergunta} aoAjustar={aoAjustarPergunta} aoFechar={aoFecharPergunta} />}
         {hud.ultimoResultado && <p className="fonte-rotulo text-[15px] font-semibold text-white/80">{hud.ultimoResultado}</p>}
         {hud.dicaCorrecao && (
           <p className="fonte-rotulo max-w-xs rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold text-atencao">Dica: {hud.dicaCorrecao}</p>
@@ -1158,8 +1184,9 @@ function PainelFase({
   // ocupam o topo; o HUD (herói + barra, seções 1, 2, 7 e 8) é desenhado por fora, na base.
   if (!comCamera) {
     return (
-      <div className="flex h-full flex-col items-center gap-3 overflow-y-auto bg-azul-noite px-6 pb-[max(12rem,calc(env(safe-area-inset-bottom)+11rem))] pt-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] text-center">
-        <Gabarito exercicio={bloco.exercicioId} tamanho={fase.tipo === "trabalho" && fase.sustentar ? 160 : 130} />
+      <div className="flex h-full flex-col items-center justify-center gap-4 overflow-y-auto bg-azul-noite px-6 pb-[max(14rem,calc(env(safe-area-inset-bottom)+13rem))] pt-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))] text-center">
+        {/* O boneco é a referência de quem treina sem câmera: grande, no meio do espaço livre. */}
+        <Gabarito exercicio={bloco.exercicioId} tamanho={fase.tipo === "trabalho" && fase.sustentar ? 240 : 220} />
         <p className="text-[15px] leading-relaxed text-white/75">{dicaDoGabarito(bloco.exercicioId)}</p>
       </div>
     );

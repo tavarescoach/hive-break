@@ -375,6 +375,19 @@ export function duracaoManualMs(fase: FaseTrabalho, exercicio: ExercicioMetodo |
   return meta * (exercicio?.segPorRep ?? 3) * 1000;
 }
 
+/**
+ * Sem câmera: valor inicial da pergunta "Quantas você fez?" quando a pessoa não
+ * tocou para contar. É a meta da série: `alvoReps`, o piso da faixa (o mesmo
+ * critério de "série cumprida" em `corrigir`) ou, nos blocos só por tempo, o
+ * tempo dividido pelo ritmo de referência do exercício.
+ */
+export function metaManual(fase: FaseTrabalho, exercicio: ExercicioMetodo | undefined): number {
+  if (fase.alvoReps !== undefined) return fase.alvoReps;
+  if (fase.faixa) return fase.faixa.min;
+  if (fase.duracaoMs !== undefined) return Math.round(fase.duracaoMs / 1000 / (exercicio?.segPorRep ?? 3));
+  return 0;
+}
+
 /** Segundos de esforço planejados por bloco (para a validação de números no servidor). */
 export function segundosPorBloco(linha: LinhaDoTempo, exercicios: ExercicioMetodo[]): number[] {
   const total = linha.estrutura.blocos.map(() => 0);
