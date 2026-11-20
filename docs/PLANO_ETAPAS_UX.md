@@ -215,6 +215,15 @@ Métricas (eventos): ftue_aberto, contexto_escolhido, camera_permitida/negada, p
 Testes: colocação (tabela de entradas → nível), migração visitante → conta, fluxo sem câmera.
 ```
 
+**Achado do teste em preview da Etapa 1A (27/11/2026):** um desafio inteiro rodou com o corpo
+99–100% fora do quadro (câmera mal enquadrada) sem nenhum aviso na tela — o enquadramento
+(`avaliarEnquadramento`) já existe e aparece no pop-up "PREPARE-SE" antes de começar, mas nada
+avisa DURANTE o bloco se a pessoa sai do quadro (o HUD só mostra `corpoVisivel`/`lento`, sem
+destaque). Isso derruba a 1ª experiência exatamente no momento em que mais importa (resultado
+final sem nenhuma rep válida, sem explicação). Entra como parte do "assistente de encaixe" desta
+etapa: um aviso persistente e óbvio em tela enquanto o corpo estiver fora do quadro durante o
+próprio bloco, não só antes dele.
+
 ---
 
 ## Etapa 5 · Rotas por nível
