@@ -340,3 +340,18 @@ describe("validarCatalogo · lições", () => {
     expect(r.avisos).toEqual([]);
   });
 });
+
+describe("validarCatalogo · movimento sutil (Etapa 1C-B)", () => {
+  const sutil = { exercicios: [exercicio("a", { sutil: true })] };
+
+  it("exercício sutil em bloco por tempo passa", () => {
+    expect(validarCatalogo(base({ ...sutil, licoes: [licao("l1")] })).erros).toEqual([]);
+  });
+
+  it("exercício sutil em bloco por repetições (sem esforcoS) é erro", () => {
+    const r = validarCatalogo(
+      base({ ...sutil, licoes: [licao("l1", { blocos: [{ exercicioId: "a", series: 3, pausaS: 20 }], duracaoExibidaS: 40 })] }),
+    );
+    expect(r.erros).toContainEqual(expect.stringContaining('"a" é sutil e precisa de bloco por tempo'));
+  });
+});

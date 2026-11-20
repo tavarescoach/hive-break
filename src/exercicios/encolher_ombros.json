@@ -1,0 +1,81 @@
+{
+  "id": "encolher_ombros",
+  "nome": "Encolher e soltar os ombros",
+  "modalidade": "mobilidade",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "seg_por_rep": 2.5,
+  "enquadramento": "meio_corpo",
+  "pontos_obrigatorios": [
+    "orelha_e",
+    "orelha_d",
+    "ombro_e",
+    "ombro_d"
+  ],
+  "medida_principal": {
+    "tipo": "altura",
+    "pontos": [
+      "ombro",
+      "orelha"
+    ],
+    "lado": "media",
+    "normalizar_por": [
+      "ombro_e",
+      "ombro_d"
+    ]
+  },
+  "histerese": 0.02,
+  "fases": [
+    {
+      "nome": "solto",
+      "condicao": "medida > 0.45"
+    },
+    {
+      "nome": "encolhido",
+      "condicao": "medida < 0.36"
+    }
+  ],
+  "repeticao": [
+    "solto",
+    "encolhido",
+    "solto"
+  ],
+  "parcial_se": "min_medida < 0.42",
+  "parcial_feedback": "Suba mais os ombros",
+  "duracao_minima_ms": 800,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De frente para o celular. Pode ficar sentado, com o celular apoiado no monitor, mostrando da cintura para cima.",
+    "Suba os ombros em direção às orelhas, segure um instante e solte bem."
+  ],
+  "catalogo": {
+    "nome": "Encolher e soltar os ombros",
+    "nomeOriginal": "ESC-04",
+    "familia": "ombro_escapula",
+    "degrau": 0,
+    "funcoes": [
+      "mobilidade"
+    ],
+    "regioes": [
+      "ombros",
+      "pescoco"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

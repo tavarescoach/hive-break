@@ -94,6 +94,12 @@ export const ExercicioCatalogo = z.object({
   pesoPorTrilha: z.record(z.string(), Peso).default({}),
   /** Testado com pessoas reais (decisão 55 de docs/DECISOES.md). */
   calibrado: z.boolean(),
+  /**
+   * Movimento sutil, que a câmera pode não pegar (ex.: retração do queixo). Regra do Luan
+   * (docs/TRILHA_ESC_V2.md §8): o bloco é sempre por tempo e avança sozinho; se a câmera não
+   * contou nada com o corpo no quadro, o resultado mostra "Feito" no lugar de "0".
+   */
+  sutil: z.boolean().optional(),
 });
 export type ExercicioCatalogo = z.infer<typeof ExercicioCatalogo>;
 
