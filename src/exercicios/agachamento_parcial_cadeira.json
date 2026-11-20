@@ -1,0 +1,84 @@
+{
+  "id": "agachamento_parcial_cadeira",
+  "nome": "Agachamento parcial na cadeira",
+  "modalidade": "forca",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "seg_por_rep": 3,
+  "pontos_obrigatorios": [
+    "quadril_e",
+    "quadril_d",
+    "joelho_e",
+    "joelho_d"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "quadril",
+      "joelho",
+      "tornozelo"
+    ],
+    "lado": "media",
+    "espaco": "3d"
+  },
+  "medidas": {
+    "joelhos_tornozelos": {
+      "tipo": "distancia",
+      "pontos": [
+        "joelho_e",
+        "joelho_d"
+      ],
+      "normalizar_por": [
+        "tornozelo_e",
+        "tornozelo_d"
+      ]
+    }
+  },
+  "histerese": 5,
+  "fases": [
+    {
+      "nome": "topo",
+      "condicao": "medida > 155"
+    },
+    {
+      "nome": "fundo",
+      "condicao": "medida < 140"
+    }
+  ],
+  "repeticao": [
+    "topo",
+    "fundo",
+    "topo"
+  ],
+  "parcial_se": "min_medida < 150",
+  "parcial_feedback": "Desça até a cadeira",
+  "amplitude": {
+    "extremo": "min",
+    "minimo_aceito": 140,
+    "ideal": 110
+  },
+  "duracao_minima_ms": 500,
+  "fase_minima_ms": 150,
+  "erros": [
+    {
+      "id": "valgo",
+      "condicao": "vis(tornozelos) > 0.7 e dist(joelhos) < 0.7 * dist(tornozelos)",
+      "fase": "fundo",
+      "feedback": "Joelhos para fora",
+      "pontos": ["joelho_e", "joelho_d", "quadril_e", "quadril_d", "tornozelo_e", "tornozelo_d"]
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "tempo_excentrico",
+    "tempo_concentrico",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "Fique de frente para o celular, com o corpo inteiro na tela.",
+    "Uma cadeira firme atrás de você, sem rodinha.",
+    "Desça até encostar levemente na cadeira (sem sentar o peso) e suba de novo."
+  ]
+}

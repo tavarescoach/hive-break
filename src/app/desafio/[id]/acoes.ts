@@ -52,6 +52,7 @@ export async function finalizarDesafio(id: string, modo: "camera" | "manual", bl
     };
   }
   revalidatePath("/trilha");
+  await sessao.supabase.rpc("registrar_evento", { p_nome: "desafio_concluido", p_props: { challenge_id: id, modo } });
   // Visitante não recebe lembretes até confirmar o e-mail (VISITANTE.md, seção 3).
   if (sessao.perfil.visitante) return { ok: true, ...(data as Omit<ResultadoDesafio, "ok">) };
   // Dia 1, marco de ofensiva, volta após 14 dias e ultrapassagem na liga.

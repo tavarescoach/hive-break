@@ -15,6 +15,7 @@ import {
   type Bloco, type EventoSessao, type ExercicioMetodo, type Fase, type FaseTrabalho, type LinhaDoTempo,
 } from "@/dominio/metodos";
 import { ehSustentacao, exercicioPorId } from "@/exercicios";
+import { registrarEvento, registrarPrimeiraRepSeNecessario } from "@/lib/eventos";
 import { Motor, VISIBILIDADE_MINIMA_PADRAO } from "@/motor/motor";
 import { avaliarEnquadramento } from "@/motor/enquadramento";
 import { gruposObrigatorios } from "@/motor/pontos";
@@ -226,6 +227,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
         som.parcial();
         const bl = linha.estrutura.blocos[f.exercicio];
         falarSeAtivo(`Prepare-se. ${nomeEx(f.exercicio)}. ${bl ? descreverBloco(bl, exercicios[f.exercicio]).replace(/ · /g, ", ") : ""}.`, true);
+        registrarEvento("preparo_iniciado", { exercicio_id: blocos[f.exercicio]?.exercicioId });
       }
     };
 
@@ -330,6 +332,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
             if (e.tipo === "rep_valida" || e.tipo === "alvo_acerto") {
               som.valida();
               segmentosRep.push("valida");
+              registrarPrimeiraRepSeNecessario(blocos[f.exercicio]?.exercicioId ?? "");
             } else if (e.tipo === "rep_parcial") {
               som.parcial();
               segmentosRep.push("parcial");
@@ -421,6 +424,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
     const iniciar = async () => {
       if (comCamera && video && canvas) {
         stream = await abrirCameraFrontal();
+        registrarEvento("camera_permitida");
         if (cancelado) return fecharCamera(stream);
         video.srcObject = stream;
         await video.play();
@@ -442,6 +446,7 @@ export function Execucao({ id, blocos, exercicios, linha, comCamera, estiloProgr
     };
 
     iniciar().catch((falha: Error) => {
+      if (comCamera) registrarEvento("camera_negada", { motivo: falha.message });
       if (!cancelado) semCamera(falha.message || "Não consegui abrir a câmera.");
     });
 

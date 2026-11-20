@@ -65,6 +65,7 @@ export async function iniciarVisitante(usernameBruto: string, todasNao: boolean,
     p_versao: VERSAO_DECLARACAO,
   });
   if (declaracao.error) return { ok: false, erro: "Não consegui salvar a declaração. Tente de novo." };
+  await sessao.supabase.rpc("registrar_evento", { p_nome: "declaracao_aceita" });
 
   jarra.delete(COOKIE_CONVITE);
   jarra.delete(COOKIE_GANCHO);

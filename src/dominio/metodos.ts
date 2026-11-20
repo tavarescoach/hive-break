@@ -185,8 +185,9 @@ export function descreverBloco(b: Bloco, ex?: ExercicioMetodo): string {
   return partes.join(" · ");
 }
 
+/** Rótulo "Conta como:" (não "Score:" — o score 0-100 foi abandonado, ver docs/DECISOES.md). */
 export function descreverScore(b: Bloco): string {
-  return `Score: ${ROTULO_SCORE[b.score]}`;
+  return `Conta como: ${ROTULO_SCORE[b.score]}`;
 }
 
 /** Variáveis em etiquetas curtas (PSE, cadência, ADM, ação, densidade). */

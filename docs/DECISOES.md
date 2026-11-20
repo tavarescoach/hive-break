@@ -591,3 +591,43 @@ Especificação: `docs/VISITANTE.md`. Migração `20261122000100_visitante.sql`.
     hive e dias de ofensiva, lança na liga só o XP que veio do visitante e apaga o visitante.
 12. **Ofensiva do visitante**: é contada normalmente no banco (fica guardada); não há bloqueio
     extra porque o visitante some em 7 dias se não confirmar.
+
+## Etapa 1A: fonte única de blocos, score abandonado, eventos (26/11/2026)
+
+Execução de `docs/PLANO_ETAPAS_UX.md`, Etapa 1A. As propostas já estavam na seção "Resultado
+da Etapa 0" do mesmo documento; aqui ficam aplicadas e com o porquê de cada detalhe.
+
+### Decididas na implementação
+
+1. **`challenges.estrutura` é a única fonte dos blocos de um desafio.** `finalizar_desafio`
+   (migração `20261126000100_blocos_fonte_unica.sql`) deixou de ler `challenge_blocks` para
+   validar os números e gravar a tentativa. A tabela `challenge_blocks` continua existindo
+   (comentada como obsoleta), porque `carregar-desafio.ts` ainda lê dela para montar a tela
+   do desafio (lista de blocos, posição da câmera) — essa segunda leitura só deixa de existir
+   quando a Etapa 3 (`montarHive`) passar a montar a tela a partir de `estrutura` direto.
+2. **`attempt_blocks.challenge_block_id` ficou opcional.** Era obrigatório com chave
+   estrangeira para `challenge_blocks`, o que impediria gravar a tentativa de um desafio só
+   com `estrutura` (sem nenhuma linha em `challenge_blocks`). A chave de verdade agora é a
+   nova coluna `ordem` (a posição do bloco em `estrutura.blocos`, igual à antiga
+   `challenge_blocks.ordem`); `challenge_block_id` só é preenchido quando ainda existir a
+   linha correspondente, para as leituras antigas que ainda dependem dela.
+3. **Score 0–100 e estrelas (seção 9.1 da `ESPECIFICACAO.md`) abandonados.** Nunca foram
+   implementados (decisão 65) e não cabem no jeito como a decisão 140 (card) e o recorde já
+   funcionam na prática: a pessoa entende e compartilha "62 reps" ou "48 s", não uma nota de
+   0 a 100. **Recorde passa a ser, formalmente, o melhor número cru por exercício e variante**
+   (reps válidas ou segundos válidos), exatamente o que `lerRecordes`
+   (`src/lib/carregar-desafio.ts`) já calculava. As colunas `challenge_attempts.score`,
+   `challenge_attempts.estrelas`, `attempt_blocks.score_bloco`,
+   `user_challenge_progress.melhor_score` e `user_challenge_progress.melhores_estrelas` ficam
+   comentadas como obsoletas no banco (sem apagar: `convite_publico` e a migração do
+   visitante ainda as leem). Na tela, o rótulo "Score: …" (`descreverScore`,
+   `src/dominio/metodos.ts`) virou **"Conta como: …"**, para não sugerir uma nota que não
+   existe.
+4. **Eventos do primeiro acesso: tabela nova (`eventos`), não extensão de `eventos_visitante`.**
+   `eventos_visitante` (migração `20261122000100_visitante.sql`) tem uma lista fechada de
+   tipos específicos do funil de conversão do visitante (`visitor_started`,
+   `email_code_sent`...) e grava só pelo servidor, com `user_id` sempre de alguém que já tem
+   perfil. Os eventos desta etapa (`ftue_aberto`, `camera_permitida`...) acontecem antes de
+   qualquer perfil existir e vêm do navegador, então ganharam a tabela `eventos` própria, com
+   a função `registrar_evento` liberada para `anon` e `authenticated`. As duas tabelas medem
+   coisas diferentes e não deveriam se misturar.

@@ -1,0 +1,61 @@
+{
+  "id": "apoio_uma_perna_com_toque",
+  "nome": "Apoio em uma perna, com toque",
+  "modalidade": "equilibrio",
+  "camera": "frontal",
+  "formato": "equilibrio",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "quadril_e",
+    "quadril_d",
+    "tornozelo_e",
+    "tornozelo_d"
+  ],
+  "medida_principal": {
+    "tipo": "altura",
+    "pontos": [
+      "tornozelo_d",
+      "tornozelo_e"
+    ],
+    "normalizar_por": [
+      "ombro",
+      "quadril"
+    ]
+  },
+  "histerese": 0.04,
+  "fase_minima_ms": 150,
+  "sustentacao": {
+    "condicao": "abs(medida) > 0.12",
+    "feedback_perda": "Pé tocou o chão",
+    "toques_tolerados": 2,
+    "lado": {
+      "medida": "medida",
+      "positivo": "e",
+      "negativo": "d"
+    },
+    "controle": {
+      "ponto": "quadril",
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ],
+      "oscilacao_maxima": 0.08
+    }
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "tempo_valido_e_s",
+    "tempo_valido_d_s",
+    "oscilacao",
+    "estabilidade",
+    "simetria",
+    "perdas_posicao"
+  ],
+  "instrucoes": [
+    "Fique de frente para o celular, com o corpo inteiro na tela.",
+    "Tire um pé do chão e segure. Pode ser qualquer perna.",
+    "O tempo só corre enquanto o pé estiver no ar; tocar o chão de leve até 2 vezes na série não reinicia a contagem."
+  ]
+}
