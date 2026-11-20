@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  compilar, duracaoManualMs, SessaoTreino,
+  compilar, duracaoManualMs, metaManual, SessaoTreino,
   type Bloco, type Estrutura, type EventoSessao, type ExercicioMetodo, type FaseTrabalho,
 } from "../metodos";
 
@@ -147,5 +147,29 @@ describe("sessão de treino sem câmera", () => {
     const cumpridaAntes = s.resultados[0].cumprida;
     s.corrigir(1, 999);
     expect(s.resultados[0].cumprida).toBe(cumpridaAntes); // cumprida continua pelo tempo válido, não pelas "reps"
+  });
+});
+
+describe("metaManual: valor inicial de 'Quantas você fez?' quando a pessoa não tocou para contar", () => {
+  it("usa alvoReps quando a série tem meta de reps", () => {
+    const [f] = trabalhos(est([BLOCOS_7_METODOS.reps]), [AGACHAMENTO]);
+    expect(metaManual(f, AGACHAMENTO)).toBe(6);
+  });
+
+  it("usa o piso da faixa (ex.: 20 de 20–30), o mesmo critério de série cumprida", () => {
+    const [f] = trabalhos(est([BLOCOS_7_METODOS.amrap]), [AGACHAMENTO]);
+    const comFaixa: FaseTrabalho = { ...f, alvoReps: undefined, faixa: { min: 20, max: 30 } };
+    expect(metaManual(comFaixa, AGACHAMENTO)).toBe(20);
+  });
+
+  it("bloco só por tempo, sem meta: tempo ÷ ritmo de referência (30 s ÷ 3 s = 10)", () => {
+    const [f] = trabalhos(est([BLOCOS_7_METODOS.amrap]), [AGACHAMENTO]);
+    const soTempo: FaseTrabalho = { ...f, alvoReps: undefined, faixa: undefined, duracaoMs: 30_000 };
+    expect(metaManual(soTempo, AGACHAMENTO)).toBe(10);
+  });
+
+  it("sem meta e sem tempo: 0", () => {
+    const [f] = trabalhos(est([BLOCOS_7_METODOS.reps]), [AGACHAMENTO]);
+    expect(metaManual({ ...f, alvoReps: undefined, faixa: undefined, duracaoMs: undefined }, AGACHAMENTO)).toBe(0);
   });
 });
