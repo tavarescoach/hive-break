@@ -50,6 +50,11 @@ export function avaliarEnquadramento(pontos: Ponto[] | null, def: DefinicaoExerc
     return { ok: false, aviso: AVISOS[regiao] };
   }
 
+  // Meio corpo (sentado, celular no monitor): o quadril pode estar escondido pela mesa.
+  // Sem quadril visível, não dá para conferir de frente/de lado pela proporção do tronco.
+  const quadrilVisivel = visivel(INDICE_PONTO.quadril_e) || visivel(INDICE_PONTO.quadril_d);
+  if (def.enquadramento === "meio_corpo" && !quadrilVisivel) return { ok: true, aviso: null };
+
   // De frente ou de lado: largura dos ombros em relação ao tronco.
   const p = (nome: string) => ({ x: pontos[INDICE_PONTO[nome]].x * proporcao, y: pontos[INDICE_PONTO[nome]].y, z: 0 });
   const ombros = distancia(p("ombro_e"), p("ombro_d"));

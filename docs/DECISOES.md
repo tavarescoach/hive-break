@@ -674,3 +674,27 @@ da Etapa 0" do mesmo documento; aqui ficam aplicadas e com o porquê de cada det
    versionado no repositório (Etapa 1B). O relatório diz quais exercícios estão prontos.
 5. A leitura do relatório diz para que lado ajustar: **app generoso** (conta rep que não valia →
    limiar mais exigente) ou **app exigente** (perde rep boa → limiar mais tolerante).
+
+## Etapa 1C-A: meio corpo + 11 exercícios da biblioteca para o Modo Escritório (20/11/2026)
+
+1. **Motor:** nova medida `horizontal` (b.x − a.x, normalizável; usar `abs()` quando o lado não
+   importa), novo modo de lado `centro` (mede uma vez, com os nomes sem sufixo no ponto médio:
+   ângulo tornozelo_e–quadril–tornozelo_d) e campo `enquadramento: "meio_corpo"` (sentado, celular
+   no monitor): sem quadril visível, o aviso de posição não confere de frente/de lado.
+2. **Importados** (regras de `ABS_EXERCICIOS.md` e `GLU_EXERCICIOS.md`, traduzidas para o formato do
+   motor, ângulos em 2D): `prancha_mesa` (ABS-30), `pallof_em_pe` (ABS-52),
+   `inclinacao_lateral_em_pe` (ABS-58), `joelho_cotovelo_cruzado` (ABS-59), `joelhos_peito_cadeira`
+   (ABS-60), `stiff_unilateral` (GLU-11), `stiff_kickstand` (GLU-12), `aviao` (GLU-13),
+   `abducao_em_pe` (GLU-23), `cadeira_parede` (GLU-27), `sentar_levantar_uma_perna` (GLU-34).
+   Todos com `calibrado: false`.
+3. **Adaptações em relação aos docs:** o ângulo do motor vai de 0 a 180° (sem sinal), então "quadril
+   alto" (> 195°) da prancha não é detectável; a inclinação dos ombros/quadris é medida contra a
+   vertical (90° = nivelado). Nos unilaterais (stiff, sentar numa perna) a perna de apoio é a de
+   **menor** ângulo (`lado: "min"`).
+4. **Avisos de técnica só valem dentro da posição** nos exercícios de tempo (regra do motor): os
+   avisos de "fora da posição" que vinham dos docs (quadril caiu, braços dobrados, desce mais)
+   ficaram de fora; a tela já mostra "entre na posição" e o `feedback_perda`.
+5. **Substitutos E0 provisórios:** `prancha_mesa` e `pallof_em_pe` apontam para `prancha` (no chão)
+   até a prancha com joelhos (ABS-31) entrar; `joelhos_peito_cadeira` aponta para
+   `joelho_cotovelo_cruzado` (em pé, mesma função). `sentar_levantar_uma_perna` → `agachamento_livre`.
+6. `docs/TRILHA_ESC_V2.md`: desenho da trilha Modo Escritório, aprovado pelo Luan em 20/11.

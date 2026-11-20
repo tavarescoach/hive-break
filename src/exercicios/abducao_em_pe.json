@@ -1,0 +1,105 @@
+{
+  "id": "abducao_em_pe",
+  "nome": "Abdução em pé",
+  "modalidade": "forca",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "seg_por_rep": 2,
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "quadril_e",
+    "quadril_d",
+    "tornozelo_e",
+    "tornozelo_d"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "tornozelo_e",
+      "quadril",
+      "tornozelo_d"
+    ],
+    "lado": "centro",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "tronco": {
+      "tipo": "inclinacao",
+      "pontos": [
+        "quadril",
+        "ombro"
+      ]
+    }
+  },
+  "histerese": 3,
+  "fases": [
+    {
+      "nome": "fechado",
+      "condicao": "medida < 12"
+    },
+    {
+      "nome": "aberto",
+      "condicao": "medida > 25"
+    }
+  ],
+  "repeticao": [
+    "fechado",
+    "aberto",
+    "fechado"
+  ],
+  "parcial_se": "max_medida > 18",
+  "parcial_feedback": "Abra um pouco mais a perna",
+  "amplitude": {
+    "extremo": "max",
+    "minimo_aceito": 25,
+    "ideal": 40
+  },
+  "duracao_minima_ms": 600,
+  "erros": [
+    {
+      "id": "tronco_inclina",
+      "condicao": "tronco > 15",
+      "feedback": "Tronco em pé, só a perna sai",
+      "pontos": [
+        "ombro_e",
+        "ombro_d"
+      ]
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De frente para o celular, a uns 2 m. Pode apoiar uma mão na mesa.",
+    "Leve uma perna para o lado, sem inclinar o tronco, e volte.",
+    "Faça um lado de cada vez."
+  ],
+  "catalogo": {
+    "nome": "Abdução em pé",
+    "nomeOriginal": "GLU-23 abdução em pé",
+    "familia": "abducao",
+    "degrau": 0,
+    "funcoes": [
+      "equilibrio"
+    ],
+    "regioes": [
+      "gluteos",
+      "quadril"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

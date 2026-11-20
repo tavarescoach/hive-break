@@ -1,0 +1,86 @@
+{
+  "id": "joelhos_peito_cadeira",
+  "nome": "Joelhos ao peito sentado na cadeira",
+  "modalidade": "core",
+  "camera": "lateral",
+  "formato": "repeticoes",
+  "seg_por_rep": 2,
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "joelho"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "quadril",
+      "joelho"
+    ],
+    "lado": "visivel",
+    "espaco": "2d"
+  },
+  "histerese": 5,
+  "fases": [
+    {
+      "nome": "sentado",
+      "condicao": "medida > 95"
+    },
+    {
+      "nome": "fechado",
+      "condicao": "medida < 70"
+    }
+  ],
+  "repeticao": [
+    "sentado",
+    "fechado",
+    "sentado"
+  ],
+  "parcial_se": "min_medida < 85",
+  "parcial_feedback": "Traga os joelhos mais perto do peito",
+  "amplitude": {
+    "extremo": "min",
+    "minimo_aceito": 70,
+    "ideal": 50
+  },
+  "duracao_minima_ms": 1000,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "Sentado na ponta de uma cadeira firme, sem rodinha, de lado para o celular.",
+    "Mãos no assento, tronco levemente para trás.",
+    "Traga os joelhos ao peito e estenda de novo, sem apoiar os pés."
+  ],
+  "catalogo": {
+    "nome": "Joelhos ao peito na cadeira",
+    "nomeOriginal": "ABS-60 joelhos ao peito sentado na cadeira",
+    "familia": "flexao_rotacao_em_pe",
+    "degrau": 1,
+    "funcoes": [
+      "flexao-coluna"
+    ],
+    "regioes": [
+      "core"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E1",
+    "objetos": [
+      "cadeira_fixa"
+    ],
+    "substitutoE0Id": "joelho_cotovelo_cruzado",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

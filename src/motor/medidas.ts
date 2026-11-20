@@ -53,13 +53,14 @@ function medirLado(def: DefinicaoMedida, pose: PoseMedida, lado: Lado | null): n
   const a = ponto(lista, def.pontos[0], lado);
   const b = ponto(lista, def.pontos[1], lado);
   if (def.tipo === "distancia") return razao(distancia(a, b), lista, def.normalizar_por, lado);
+  if (def.tipo === "horizontal") return razao(b.x - a.x, lista, def.normalizar_por, lado);
   // altura: y cresce para baixo na imagem, então a.y - b.y é positivo quando b está acima de a.
   return razao(a.y - b.y, lista, def.normalizar_por, lado);
 }
 
 export function calcularMedida(def: DefinicaoMedida, pose: PoseMedida): number {
   const combinar: CombinarLados | undefined = def.lado ?? (def.tipo === "angulo" ? "media" : undefined);
-  if (!combinar) return medirLado(def, pose, null);
+  if (!combinar || combinar === "centro") return medirLado(def, pose, null);
   if (combinar === "e" || combinar === "d") return medirLado(def, pose, combinar);
   if (combinar === "visivel") return medirLado(def, pose, ladoMaisVisivel(def.pontos, pose));
   const e = medirLado(def, pose, "e");

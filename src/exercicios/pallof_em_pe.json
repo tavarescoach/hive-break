@@ -1,0 +1,85 @@
+{
+  "id": "pallof_em_pe",
+  "nome": "Pallof em pé com elástico",
+  "modalidade": "core",
+  "camera": "frontal",
+  "formato": "isometria",
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "cotovelo_e",
+    "cotovelo_d",
+    "punho_e",
+    "punho_d",
+    "quadril_e",
+    "quadril_d"
+  ],
+  "medida_principal": {
+    "tipo": "horizontal",
+    "pontos": [
+      "quadril",
+      "punho"
+    ],
+    "normalizar_por": [
+      "ombro_e",
+      "ombro_d"
+    ]
+  },
+  "medidas": {
+    "cotovelos": {
+      "tipo": "angulo",
+      "pontos": [
+        "ombro",
+        "cotovelo",
+        "punho"
+      ],
+      "lado": "min",
+      "espaco": "2d"
+    }
+  },
+  "histerese": 0.03,
+  "sustentacao": {
+    "condicao": "abs(medida) < 0.12 e cotovelos > 150",
+    "feedback_perda": "Mãos no meio do peito",
+    "histerese": 0.04
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "estabilidade",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "De frente para o celular, elástico preso de lado na altura do peito.",
+    "Braços estendidos à frente, mãos no meio do peito.",
+    "Não deixe o elástico puxar as mãos para o lado."
+  ],
+  "catalogo": {
+    "nome": "Pallof em pé",
+    "nomeOriginal": "ABS-52 Pallof em pé com elástico",
+    "familia": "pallof",
+    "degrau": 0,
+    "funcoes": [
+      "anti-rotacao"
+    ],
+    "regioes": [
+      "core",
+      "ombros"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V2",
+    "equipamento": "E2",
+    "objetos": [
+      "elastico_com_alca"
+    ],
+    "substitutoE0Id": "prancha",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

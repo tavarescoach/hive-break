@@ -1,0 +1,97 @@
+{
+  "id": "joelho_cotovelo_cruzado",
+  "nome": "Joelho ao cotovelo cruzado em pé",
+  "modalidade": "core",
+  "camera": "frontal",
+  "formato": "alternado",
+  "seg_por_rep": 1.5,
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "cotovelo_e",
+    "cotovelo_d",
+    "quadril_e",
+    "quadril_d",
+    "joelho_e",
+    "joelho_d"
+  ],
+  "medida_principal": {
+    "tipo": "distancia",
+    "pontos": [
+      "cotovelo_d",
+      "joelho_e"
+    ],
+    "normalizar_por": [
+      "ombro_e",
+      "quadril_e"
+    ]
+  },
+  "medidas": {
+    "joelho_e_cotovelo_d": {
+      "tipo": "distancia",
+      "pontos": [
+        "cotovelo_d",
+        "joelho_e"
+      ],
+      "normalizar_por": [
+        "ombro_e",
+        "quadril_e"
+      ]
+    },
+    "joelho_d_cotovelo_e": {
+      "tipo": "distancia",
+      "pontos": [
+        "cotovelo_e",
+        "joelho_d"
+      ],
+      "normalizar_por": [
+        "ombro_e",
+        "quadril_e"
+      ]
+    }
+  },
+  "histerese": 0.05,
+  "alternado": {
+    "e": "joelho_e_cotovelo_d < 0.4",
+    "d": "joelho_d_cotovelo_e < 0.4",
+    "quase_e": "joelho_e_cotovelo_d < 0.65",
+    "quase_d": "joelho_d_cotovelo_e < 0.65"
+  },
+  "duracao_minima_ms": 500,
+  "erros": [],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "cadencia",
+    "simetria"
+  ],
+  "instrucoes": [
+    "De frente para o celular, em pé, mãos atrás da cabeça.",
+    "Leve um joelho até o cotovelo do lado oposto, girando o tronco. Alterne.",
+    "Sem saltar."
+  ],
+  "catalogo": {
+    "nome": "Joelho ao cotovelo cruzado em pé",
+    "nomeOriginal": "ABS-59 joelho ao cotovelo cruzado em pé",
+    "familia": "flexao_rotacao_em_pe",
+    "degrau": 0,
+    "funcoes": [
+      "rotacao",
+      "flexao-coluna"
+    ],
+    "regioes": [
+      "core"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

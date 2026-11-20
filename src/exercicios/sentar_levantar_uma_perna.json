@@ -1,0 +1,112 @@
+{
+  "id": "sentar_levantar_uma_perna",
+  "nome": "Sentar e levantar numa perna",
+  "modalidade": "forca",
+  "camera": "lateral",
+  "formato": "repeticoes",
+  "seg_por_rep": 4,
+  "pontos_obrigatorios": [
+    "quadril",
+    "joelho",
+    "tornozelo"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "quadril",
+      "joelho",
+      "tornozelo"
+    ],
+    "lado": "min",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "pes": {
+      "tipo": "altura",
+      "pontos": [
+        "tornozelo_e",
+        "tornozelo_d"
+      ],
+      "normalizar_por": [
+        "quadril_e",
+        "joelho_e"
+      ]
+    }
+  },
+  "histerese": 5,
+  "fases": [
+    {
+      "nome": "em_pe",
+      "condicao": "medida > 160"
+    },
+    {
+      "nome": "sentado",
+      "condicao": "medida < 100"
+    }
+  ],
+  "repeticao": [
+    "em_pe",
+    "sentado",
+    "em_pe"
+  ],
+  "parcial_se": "min_medida < 130",
+  "parcial_feedback": "Desça até a cadeira",
+  "amplitude": {
+    "extremo": "min",
+    "minimo_aceito": 100,
+    "ideal": 85
+  },
+  "duracao_minima_ms": 1200,
+  "erros": [
+    {
+      "id": "pe_livre_no_chao",
+      "condicao": "abs(pes) < 0.1",
+      "fase": "sentado",
+      "feedback": "Pé livre no ar",
+      "pontos": [
+        "tornozelo_e",
+        "tornozelo_d"
+      ]
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "indice_tecnico"
+  ],
+  "instrucoes": [
+    "Cadeira firme, sem rodinha, encostada na parede. De lado para o celular.",
+    "Numa perna só, desça devagar até encostar na cadeira e suba.",
+    "A outra perna fica estendida à frente."
+  ],
+  "catalogo": {
+    "nome": "Sentar e levantar numa perna",
+    "nomeOriginal": "GLU-34 agachamento numa perna até a cadeira (box pistol)",
+    "familia": "agachamento",
+    "degrau": 3,
+    "funcoes": [
+      "agachar",
+      "equilibrio"
+    ],
+    "regioes": [
+      "pernas",
+      "gluteos"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E1",
+    "objetos": [
+      "cadeira_fixa"
+    ],
+    "substitutoE0Id": "agachamento_livre",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": false,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

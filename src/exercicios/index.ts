@@ -1,5 +1,16 @@
 import type { ExercicioMetodo } from "@/dominio/metodos";
 import type { DefinicaoExercicio } from "@/motor/tipos";
+import abducao_em_pe from "./abducao_em_pe.json";
+import aviao from "./aviao.json";
+import cadeira_parede from "./cadeira_parede.json";
+import inclinacao_lateral_em_pe from "./inclinacao_lateral_em_pe.json";
+import joelho_cotovelo_cruzado from "./joelho_cotovelo_cruzado.json";
+import joelhos_peito_cadeira from "./joelhos_peito_cadeira.json";
+import pallof_em_pe from "./pallof_em_pe.json";
+import prancha_mesa from "./prancha_mesa.json";
+import sentar_levantar_uma_perna from "./sentar_levantar_uma_perna.json";
+import stiff_kickstand from "./stiff_kickstand.json";
+import stiff_unilateral from "./stiff_unilateral.json";
 import afundo_alternado from "./afundo_alternado.json";
 import agachamento_bastao from "./agachamento_bastao.json";
 import agachamento_livre from "./agachamento_livre.json";
@@ -57,6 +68,18 @@ export const EXERCICIOS = [
   polichinelo_sem_salto,
   apoio_uma_perna_com_toque,
   bom_dia,
+  // Etapa 1C-A: biblioteca (ABS e GLU) para o Modo Escritório (docs/TRILHA_ESC_V2.md §6.2).
+  abducao_em_pe,
+  aviao,
+  cadeira_parede,
+  inclinacao_lateral_em_pe,
+  joelho_cotovelo_cruzado,
+  joelhos_peito_cadeira,
+  pallof_em_pe,
+  prancha_mesa,
+  sentar_levantar_uma_perna,
+  stiff_kickstand,
+  stiff_unilateral,
 ] as unknown as DefinicaoExercicio[];
 
 /** Exercícios do teste técnico da Fase 0. */

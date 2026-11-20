@@ -1,0 +1,95 @@
+{
+  "id": "aviao",
+  "nome": "Avião",
+  "modalidade": "equilibrio",
+  "camera": "lateral",
+  "formato": "equilibrio",
+  "pontos_obrigatorios": [
+    "ombro",
+    "quadril",
+    "joelho",
+    "tornozelo"
+  ],
+  "medida_principal": {
+    "tipo": "inclinacao",
+    "pontos": [
+      "quadril",
+      "ombro"
+    ],
+    "lado": "visivel"
+  },
+  "medidas": {
+    "linha": {
+      "tipo": "angulo",
+      "pontos": [
+        "ombro",
+        "quadril",
+        "tornozelo"
+      ],
+      "lado": "max",
+      "espaco": "2d"
+    },
+    "joelhos": {
+      "tipo": "angulo",
+      "pontos": [
+        "quadril",
+        "joelho",
+        "tornozelo"
+      ],
+      "lado": "min",
+      "espaco": "2d"
+    }
+  },
+  "histerese": 4,
+  "sustentacao": {
+    "condicao": "medida > 65 e linha > 160 e joelhos > 140",
+    "feedback_perda": "Corpo em linha, pé de trás no ar",
+    "histerese": 6,
+    "controle": {
+      "ponto": "quadril",
+      "normalizar_por": [
+        "ombro",
+        "quadril"
+      ],
+      "oscilacao_maxima": 0.08
+    }
+  },
+  "erros": [],
+  "kpis": [
+    "tempo_valido_s",
+    "estabilidade",
+    "pct_tempo_valido"
+  ],
+  "instrucoes": [
+    "De lado para o celular, a uns 2 m.",
+    "Numa perna, incline o tronco até quase a horizontal com a outra perna estendida atrás, formando uma linha.",
+    "Pode apoiar uma mão na mesa no começo."
+  ],
+  "catalogo": {
+    "nome": "Avião",
+    "nomeOriginal": "GLU-13 avião (isometria numa perna)",
+    "familia": "dobradura_quadril",
+    "degrau": 3,
+    "funcoes": [
+      "equilibrio",
+      "dobrar"
+    ],
+    "regioes": [
+      "gluteos",
+      "pernas",
+      "lombar"
+    ],
+    "posicaoCamera": "lado",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "variacaoDe": "stiff_unilateral",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}

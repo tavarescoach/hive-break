@@ -22,8 +22,12 @@ export interface Frame {
 }
 
 export type Lado = "e" | "d";
-/** "visivel" usa o lado que a câmera enxerga melhor (exercícios de lado para o celular). */
-export type CombinarLados = Lado | "media" | "min" | "max" | "visivel";
+/**
+ * "visivel" usa o lado que a câmera enxerga melhor (exercícios de lado para o celular).
+ * "centro" mede uma vez só, com cada nome sem sufixo virando o ponto médio entre
+ * esquerda e direita (ex.: ângulo tornozelo_e–quadril–tornozelo_d na abdução em pé).
+ */
+export type CombinarLados = Lado | "media" | "min" | "max" | "visivel" | "centro";
 export type Espaco = "2d" | "3d";
 
 interface MedidaBase {
@@ -60,6 +64,17 @@ export interface MedidaAltura extends MedidaBase {
   normalizar_por?: [string, string];
 }
 
+/**
+ * Deslocamento horizontal na imagem: b.x − a.x (positivo quando b está à direita
+ * de a na imagem), opcionalmente dividido por uma distância de referência. Use
+ * `abs()` na condição quando o lado não importa (ex.: mãos no centro do peito no Pallof).
+ */
+export interface MedidaHorizontal extends MedidaBase {
+  tipo: "horizontal";
+  pontos: [string, string];
+  normalizar_por?: [string, string];
+}
+
 /** Inclinação do segmento a→b em relação à vertical, na imagem: 0 = em pé, 90 = deitado. */
 export interface MedidaInclinacao extends MedidaBase {
   tipo: "inclinacao";
@@ -77,7 +92,7 @@ export interface MedidaMovimento {
   lado?: undefined;
 }
 
-export type DefinicaoMedida = MedidaAngulo | MedidaDistancia | MedidaAltura | MedidaInclinacao | MedidaMovimento;
+export type DefinicaoMedida = MedidaAngulo | MedidaDistancia | MedidaAltura | MedidaHorizontal | MedidaInclinacao | MedidaMovimento;
 
 export interface DefinicaoFase {
   nome: string;
@@ -170,6 +185,12 @@ export interface DefinicaoExercicio {
   seg_por_rep?: number;
   /** Pontos que precisam estar visíveis (> visibilidade mínima) para o frame valer. */
   pontos_obrigatorios: string[];
+  /**
+   * "meio_corpo": só da cintura para cima (sentado, celular no monitor). O aviso de
+   * posição não confere de frente/de lado pelo quadril quando o quadril não aparece.
+   * Padrão: "corpo_inteiro".
+   */
+  enquadramento?: "corpo_inteiro" | "meio_corpo";
   /** Medida principal: aparece nas condições como `medida`. */
   medida_principal: DefinicaoMedida;
   /** Medidas extras, usadas pelo nome nas condições. */

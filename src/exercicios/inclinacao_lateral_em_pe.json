@@ -1,0 +1,101 @@
+{
+  "id": "inclinacao_lateral_em_pe",
+  "nome": "Inclinação lateral em pé",
+  "modalidade": "core",
+  "camera": "frontal",
+  "formato": "repeticoes",
+  "seg_por_rep": 2.5,
+  "pontos_obrigatorios": [
+    "ombro_e",
+    "ombro_d",
+    "quadril_e",
+    "quadril_d"
+  ],
+  "medida_principal": {
+    "tipo": "inclinacao",
+    "pontos": [
+      "ombro_e",
+      "ombro_d"
+    ]
+  },
+  "medidas": {
+    "quadris": {
+      "tipo": "inclinacao",
+      "pontos": [
+        "quadril_e",
+        "quadril_d"
+      ]
+    }
+  },
+  "histerese": 3,
+  "fases": [
+    {
+      "nome": "centro",
+      "condicao": "medida > 85"
+    },
+    {
+      "nome": "lado",
+      "condicao": "medida < 70"
+    }
+  ],
+  "repeticao": [
+    "centro",
+    "lado",
+    "centro"
+  ],
+  "parcial_se": "min_medida < 80",
+  "parcial_feedback": "Incline um pouco mais",
+  "amplitude": {
+    "extremo": "min",
+    "minimo_aceito": 70,
+    "ideal": 60
+  },
+  "duracao_minima_ms": 1000,
+  "erros": [
+    {
+      "id": "quadril_mexe",
+      "condicao": "quadris < 84",
+      "feedback": "Quadril parado. Só o tronco inclina.",
+      "pontos": [
+        "quadril_e",
+        "quadril_d"
+      ]
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "De frente para o celular, em pé, pés na largura do quadril.",
+    "Incline o tronco para um lado, volte ao centro e incline para o outro.",
+    "O quadril fica parado."
+  ],
+  "catalogo": {
+    "nome": "Inclinação lateral em pé",
+    "nomeOriginal": "ABS-58 inclinação lateral em pé",
+    "familia": "lateral_em_pe",
+    "degrau": 0,
+    "funcoes": [
+      "anti-inclinacao",
+      "mobilidade"
+    ],
+    "regioes": [
+      "core",
+      "costas"
+    ],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": {
+      "semChao": true,
+      "semSalto": true,
+      "semSuor": true,
+      "silencioso": true
+    },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
+}
