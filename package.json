@@ -15,7 +15,10 @@
     "prebuild": "node scripts/preparar-mediapipe.mjs --obrigatorio",
     "sql": "node scripts/juntar-sql.mjs",
     "e2e": "bash e2e/rodar.sh",
-    "seed:trilha": "tsx scripts/gerar-seed-trilha.ts"
+    "seed:trilha": "tsx scripts/gerar-seed-trilha.ts",
+    "trilha:congelar": "tsx scripts/congelar-trilha.ts",
+    "seed:sql": "tsx scripts/gerar-sql-trilha.ts",
+    "validar-catalogo": "tsx scripts/validar-catalogo.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.2.3",
@@ -26,7 +29,8 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "server-only": "^0.0.1",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

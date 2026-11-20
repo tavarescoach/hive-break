@@ -69,5 +69,18 @@
   "instrucoes": [
     "Fique de frente para o celular, com o corpo inteiro na tela.",
     "Marche no lugar subindo bem os joelhos e balançando os braços."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Marcha estacionária com braços",
+    "familia": "corrida_no_lugar",
+    "degrau": 0,
+    "funcoes": ["cardio", "mobilidade"],
+    "regioes": ["pernas", "ombros"],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": false },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

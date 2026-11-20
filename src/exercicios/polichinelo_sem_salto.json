@@ -103,5 +103,19 @@
     "Fique de frente para o celular, com o corpo inteiro na tela, inclusive as mãos no alto.",
     "Comece com os pés juntos e os braços ao lado do corpo.",
     "Sem saltar: abra um pé de cada vez até passar da largura dos ombros, levando as mãos acima da cabeça, depois volte do mesmo jeito."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Polichinelo sem salto",
+    "familia": "polichinelo",
+    "variacaoDe": "polichinelo",
+    "degrau": 0,
+    "funcoes": ["cardio"],
+    "regioes": ["corpo_todo"],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": false, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

@@ -69,5 +69,18 @@
     "Fique de frente para o celular, pernas bem afastadas.",
     "Dobre um joelho a 90 graus e abra os braços na altura dos ombros.",
     "Segure. Troque o lado na metade do tempo."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Guerreiro II",
+    "familia": "yoga_posturas",
+    "degrau": 0,
+    "funcoes": ["equilibrio", "mobilidade"],
+    "regioes": ["pernas", "ombros", "quadril"],
+    "posicaoCamera": "frente",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

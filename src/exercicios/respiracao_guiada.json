@@ -34,5 +34,18 @@
     "Sente ou fique em pé, de frente para o celular.",
     "Inspire pelo nariz por 4 segundos e solte o ar por 6.",
     "A câmera só confere se você está parado."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Respiração guiada",
+    "familia": "respiracao",
+    "degrau": 0,
+    "funcoes": ["respiracao", "relaxamento"],
+    "regioes": ["corpo_todo"],
+    "posicaoCamera": "frente",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

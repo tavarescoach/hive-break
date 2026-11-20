@@ -91,5 +91,18 @@
     "Celular no chão, de lado para você, mostrando o corpo inteiro.",
     "Mãos no chão na linha dos ombros, corpo reto.",
     "Desça até o cotovelo dobrar 90 graus e suba."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Flexão de braço",
+    "familia": "flexao_braco",
+    "degrau": 1,
+    "funcoes": ["empurrar"],
+    "regioes": ["peito", "ombros", "bracos", "core"],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": false, "semSalto": true, "semSuor": false, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

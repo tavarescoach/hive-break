@@ -83,5 +83,18 @@
   "instrucoes": [
     "Celular no chão, de lado para você.",
     "Em posição de prancha alta, leve um joelho de cada vez em direção ao peito."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Mountain climber",
+    "familia": "mountain_climber",
+    "degrau": 0,
+    "funcoes": ["cardio", "anti-extensao"],
+    "regioes": ["core", "pernas", "ombros"],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": false, "semSalto": true, "semSuor": false, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

@@ -100,5 +100,18 @@
     "Fique de frente para o celular, com o corpo inteiro na tela.",
     "Pés na largura dos ombros.",
     "Desça até as coxas ficarem paralelas ao chão e suba até estender os joelhos."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Agachamento livre",
+    "familia": "agachamento",
+    "degrau": 1,
+    "funcoes": ["agachar"],
+    "regioes": ["pernas", "gluteos", "quadril"],
+    "posicaoCamera": "frente",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": false, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": true
+  }
 }

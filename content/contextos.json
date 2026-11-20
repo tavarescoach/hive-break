@@ -1,0 +1,32 @@
+[
+  {
+    "id": "mesa",
+    "nome": "Mesa",
+    "regras": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true, "interrompivel": true }
+  },
+  {
+    "id": "sala",
+    "nome": "Sala",
+    "regras": { "semChao": false, "semSalto": false, "semSuor": false, "silencioso": false, "interrompivel": false }
+  },
+  {
+    "id": "plantao",
+    "nome": "Plantão",
+    "regras": { "semChao": true, "semSalto": true, "semSuor": false, "silencioso": true, "interrompivel": true }
+  },
+  {
+    "id": "viagem",
+    "nome": "Viagem",
+    "regras": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true, "interrompivel": true }
+  },
+  {
+    "id": "casa",
+    "nome": "Casa",
+    "regras": { "semChao": false, "semSalto": false, "semSuor": false, "silencioso": false, "interrompivel": false }
+  },
+  {
+    "id": "ar-livre",
+    "nome": "Ar livre",
+    "regras": { "semChao": true, "semSalto": false, "semSuor": false, "silencioso": false, "interrompivel": false }
+  }
+]

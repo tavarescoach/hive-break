@@ -80,5 +80,20 @@
   "instrucoes": [
     "Fique de lado para o celular, com o bastão apoiado nas costas.",
     "Incline o tronco para a frente com os joelhos quase estendidos e volte."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Bom-dia com bastão",
+    "familia": "dobradura_quadril",
+    "degrau": 0,
+    "funcoes": ["dobrar"],
+    "regioes": ["gluteos", "lombar", "pernas"],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E1",
+    "objetos": ["cabo_vassoura"],
+    "substitutoE0Id": "ponte_gluteo",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

@@ -45,5 +45,18 @@
     "Fique de lado para o celular.",
     "Com os joelhos estendidos, incline o tronco para a frente e solte os braços.",
     "O tempo corre enquanto você mantém a posição."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Alongamento de posterior em pé",
+    "familia": "alongamento_posterior_coxa",
+    "degrau": 0,
+    "funcoes": ["alongamento"],
+    "regioes": ["pernas", "lombar"],
+    "posicaoCamera": "lado",
+    "validacao": "V2",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

@@ -71,5 +71,18 @@
     "Celular no chão, de lado para você.",
     "Deite de costas, joelhos dobrados e pés no chão.",
     "Suba o quadril até alinhar ombro, quadril e joelho, e desça."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Ponte de glúteo",
+    "familia": "ponte_quadril",
+    "degrau": 0,
+    "funcoes": ["dobrar"],
+    "regioes": ["gluteos", "lombar", "core"],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": false, "semSalto": true, "semSuor": true, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }

@@ -78,5 +78,18 @@
     "Fique de lado para o celular, com o corpo inteiro na tela.",
     "Dê um passo para trás e desça até o joelho de trás chegar perto do chão.",
     "Volte e troque a perna."
-  ]
+  ],
+  "catalogo": {
+    "nome": "Afundo alternado",
+    "familia": "afundo",
+    "degrau": 0,
+    "funcoes": ["avancar", "agachar"],
+    "regioes": ["pernas", "gluteos", "quadril"],
+    "posicaoCamera": "lado",
+    "validacao": "V1",
+    "equipamento": "E0",
+    "flags": { "semChao": true, "semSalto": true, "semSuor": false, "silencioso": true },
+    "pesoPorTrilha": {},
+    "calibrado": false
+  }
 }
