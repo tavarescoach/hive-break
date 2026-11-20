@@ -39,8 +39,8 @@ describe("textos do card", () => {
   it("formato pedido: método · séries × esforço · pausa · de frente ou de lado", () => {
     expect(descreverBloco(PERNAS_AMRAP.blocos[0], AGACHAMENTO)).toBe("AMRAP · 5 × 40 s · pausa 20 s · de frente para o celular");
     expect(descreverBloco(CORE.blocos[0], PRANCHA)).toBe("Isometria · 3 × 30 s · pausa 20 s · de lado para o celular");
-    expect(descreverScore(PERNAS_AMRAP.blocos[0])).toBe("Score: total de repetições");
-    expect(descreverScore(CORE.blocos[0])).toBe("Score: segundos em posição");
+    expect(descreverScore(PERNAS_AMRAP.blocos[0])).toBe("Conta como: total de repetições");
+    expect(descreverScore(CORE.blocos[0])).toBe("Conta como: segundos em posição");
   });
 
   it("repetições, escada, EMOM e contra o relógio", () => {

@@ -151,6 +151,13 @@ export interface DefinicaoSustentacao {
   lado?: { medida: string; positivo: Lado; negativo: Lado };
   /** Ponto de controle para medir oscilação (ex.: quadril). */
   controle?: { ponto: string; normalizar_por: [string, string]; oscilacao_maxima: number };
+  /**
+   * Quantas vezes a posição pode ser perdida e recuperada sem terminar a
+   * sustentação nem perder o tempo já creditado (ex.: apoio_uma_perna_com_toque:
+   * o pé livre pode tocar o chão até 2 vezes por série). O tempo não corre
+   * durante o toque; passado o limite, a próxima perda encerra a posição.
+   */
+  toques_tolerados?: number;
 }
 
 export interface DefinicaoExercicio {

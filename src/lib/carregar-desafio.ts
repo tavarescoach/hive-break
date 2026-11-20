@@ -77,7 +77,7 @@ export async function carregarDesafio(sessao: Sessao, id: string): Promise<Desaf
     lateral: nomes.get(b.exercise_id as string)?.camera === "lateral",
     segundos: Number((b.parametros_por_dificuldade as { padrao?: { segundos?: number } }).padrao?.segundos ?? 60),
   }));
-  const recordes = await lerRecordes(sessao, id, (blocos.data ?? []).map((b) => String(b.id)));
+  const recordes = await lerRecordes(sessao, id);
   const unidade = dados.unidades.find((u) => u.id === desafio.unit_id);
   const nivel = dados.niveis.find((n) => n.id === desafio.level_id);
 
@@ -111,9 +111,10 @@ export async function carregarDesafio(sessao: Sessao, id: string): Promise<Desaf
 /**
  * Melhor marca anterior do usuário em cada bloco deste desafio, só das
  * tentativas com câmera (as sem câmera não guardam séries). RLS: só o dono lê.
- * Erro de leitura vira null e o recorde some do card.
+ * Erro de leitura vira null e o recorde some do card. O índice do bloco é
+ * `ordem - 1` (fonte única: challenges.estrutura, docs/PLANO_ETAPAS_UX.md Etapa 1A).
  */
-async function lerRecordes(sessao: Sessao, desafioId: string, idsBlocos: string[]): Promise<RecordesAnteriores | null> {
+async function lerRecordes(sessao: Sessao, desafioId: string): Promise<RecordesAnteriores | null> {
   const tentativas = await sessao.supabase
     .from("challenge_attempts")
     .select("id")
@@ -126,11 +127,11 @@ async function lerRecordes(sessao: Sessao, desafioId: string, idsBlocos: string[
   if (tentativas.error) return null;
   const ids = (tentativas.data ?? []).map((t) => String(t.id));
   if (ids.length === 0) return {};
-  const marcas = await sessao.supabase.from("attempt_blocks").select("challenge_block_id,reps_validas,tempo_valido_s").in("attempt_id", ids);
+  const marcas = await sessao.supabase.from("attempt_blocks").select("ordem,reps_validas,tempo_valido_s").in("attempt_id", ids);
   if (marcas.error) return null;
   const recordes: RecordesAnteriores = {};
   for (const m of marcas.data ?? []) {
-    const i = idsBlocos.indexOf(String(m.challenge_block_id));
+    const i = Number(m.ordem) - 1;
     if (i < 0) continue;
     const atual = recordes[i] ?? { reps: 0, segundos: 0 };
     recordes[i] = {

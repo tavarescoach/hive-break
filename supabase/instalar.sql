@@ -7412,6 +7412,334 @@ $$;
 
 grant execute on function public.ler_trilhas_acessorias() to authenticated;
 
+-- >>> migrations/20261126000100_blocos_fonte_unica.sql
+-- Hive Break · Fonte única de blocos: challenges.estrutura (Etapa 1A do
+-- docs/PLANO_ETAPAS_UX.md)
+--
+-- Até aqui, um desafio tinha os blocos em DOIS lugares: a tabela
+-- challenge_blocks (ordem, exercise_id, parametros_por_dificuldade) e a
+-- coluna challenges.estrutura (migração 20261118000900_blocos.sql), gerados
+-- juntos pelo mesmo script (scripts/gerar-seed-trilha.ts) mas sem nada que
+-- impedisse os dois de ficarem fora de sincronia. A partir de agora,
+-- challenges.estrutura é a ÚNICA fonte: finalizar_desafio só lê dela.
+--
+-- challenge_blocks fica como está (sem apagar, sem novos usos) até poder ser
+-- removida; é só uma tabela congelada, útil enquanto algum código antigo
+-- (ex.: carregar-desafio.ts, que lê a lista de exercícios da tela) ainda não
+-- foi convertido — isso fica para uma etapa futura (a Etapa 3, com
+-- montarHive, substitui essa leitura por completo).
+comment on table public.challenge_blocks is
+  'Obsoleta: congelada desde a migração 20261126000100. finalizar_desafio lê os blocos de challenges.estrutura. Não recebe mais linhas novas fora do que o script de seed ainda gera em paralelo para a tela do desafio (carregar-desafio.ts). Remover quando essa leitura também migrar para estrutura.';
+
+-- attempt_blocks.challenge_block_id era not null com FK para challenge_blocks:
+-- um desafio só-com-estrutura (sem linha nenhuma em challenge_blocks) não
+-- conseguiria gravar a tentativa. A chave de verdade agora é `ordem` (a
+-- posição do bloco em estrutura.blocos, 1-indexada, igual à antiga
+-- challenge_blocks.ordem); challenge_block_id fica opcional, preenchido só
+-- quando ainda existir a linha correspondente (compatibilidade com leituras
+-- antigas, ex.: lerRecordes em carregar-desafio.ts, que passa a usar `ordem`).
+alter table public.attempt_blocks add column ordem smallint;
+update public.attempt_blocks ab set ordem = cb.ordem
+from public.challenge_blocks cb where cb.id = ab.challenge_block_id;
+alter table public.attempt_blocks alter column ordem set not null;
+alter table public.attempt_blocks alter column challenge_block_id drop not null;
+alter table public.attempt_blocks drop constraint attempt_blocks_attempt_id_challenge_block_id_serie_key;
+alter table public.attempt_blocks add constraint attempt_blocks_attempt_id_ordem_serie_key unique (attempt_id, ordem, serie);
+comment on column public.attempt_blocks.challenge_block_id is
+  'Obsoleta: use `ordem`. Fica nula quando o desafio não tem (mais) linha correspondente em challenge_blocks.';
+
+create or replace function public.finalizar_desafio(p_challenge_id text, p_modo text, p_blocos jsonb) returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := auth.uid();
+  p public.profiles;
+  c public.challenges;
+  v_estado text;
+  v_modo text := p_modo;
+  v_hoje date;
+  v_refeito boolean;
+  v_refazer_pago boolean;
+  v_primeiro boolean;
+  v_base integer;
+  v_xp_desafio integer;
+  v_xp_primeiro integer := 0;
+  v_xp integer;
+  v_attempt uuid;
+  v_blocos jsonb;
+  v_total_blocos integer;
+  v_blocos_ativos integer := 0;
+  v_sem_movimento boolean := false;
+  v_unidade_concluida boolean := false;
+  v_unidade_sessao boolean := false;
+  v_nivel_concluido boolean := false;
+  v_proximo smallint;
+  v_ofensiva integer;
+  b jsonb;
+  v_bloco jsonb;
+  v_ordem integer;
+  v_segundos integer;
+  v_reps integer;
+  v_tempo numeric;
+begin
+  if v_user is null then
+    raise exception 'nao_autenticado' using errcode = '28000';
+  end if;
+  if p_modo not in ('camera', 'manual') then
+    raise exception 'modo_invalido' using errcode = '22023';
+  end if;
+  select * into p from public.profiles where id = v_user;
+  -- Visitante (docs/VISITANTE.md) joga antes do cadastro, depois da declaração de saúde.
+  if p.onboarding_concluido_em is null and not (p.visitante and p.triagem_respondida_em is not null) then
+    raise exception 'cadastro_incompleto' using errcode = '22023';
+  end if;
+  select * into c from public.challenges where id = p_challenge_id;
+  if c.id is null then
+    raise exception 'desafio_inexistente' using errcode = '22023';
+  end if;
+  if c.estrutura is null then
+    raise exception 'desafio_sem_estrutura' using errcode = '22023';
+  end if;
+  select estado into v_estado from public.trilha_estados(v_user) where challenge_id = c.id;
+  -- Bloqueado na trilha, mas a pessoa está numa hive deste desafio: pode fazer.
+  -- Visitante: também pode o desafio do convite.
+  if v_estado = 'travado' or (v_estado = 'bloqueado' and not public.em_hive_do_desafio(v_user, c.id)
+                              and c.id is distinct from public.desafio_do_convite(v_user)) then
+    raise exception 'desafio_bloqueado' using errcode = '22023';
+  end if;
+  v_refeito := v_estado = 'concluido';
+
+  -- Confere os números enviados pelo aparelho e recusa valores impossíveis (seção 9.5).
+  -- Fonte única: challenges.estrutura, não challenge_blocks (ver comentário no topo do arquivo).
+  v_blocos := c.estrutura -> 'blocos';
+  v_total_blocos := jsonb_array_length(v_blocos);
+  if jsonb_typeof(coalesce(p_blocos, '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(p_blocos, '[]'::jsonb)) > v_total_blocos
+     or pg_column_size(p_blocos) > 20000 then
+    raise exception 'kpis_invalidos' using errcode = '22023';
+  end if;
+  if v_modo = 'camera' then
+    for b in select * from jsonb_array_elements(p_blocos) loop
+      v_ordem := (b ->> 'ordem')::int;
+      if v_ordem is null or v_ordem < 1 or v_ordem > v_total_blocos or jsonb_typeof(b -> 'kpis') is distinct from 'object' then
+        raise exception 'kpis_invalidos' using errcode = '22023';
+      end if;
+      v_bloco := v_blocos -> (v_ordem - 1);
+      v_segundos := coalesce((v_bloco ->> 'esforco_s')::int, c.duracao_s);
+      v_reps := coalesce((b ->> 'reps_validas')::int, 0);
+      v_tempo := coalesce((b ->> 'tempo_valido_s')::numeric, 0);
+      -- Limite humano: no máximo 4 repetições por segundo; tempo válido não passa do tempo do bloco.
+      if v_reps < 0 or v_reps > v_segundos * 4 or v_tempo < 0 or v_tempo > v_segundos + 5
+         or coalesce((b ->> 'reps_parciais')::int, 0) not between 0 and v_segundos * 4
+         or coalesce((b ->> 'fora_quadro_pct')::numeric, 0) not between 0 and 100 then
+        raise exception 'kpis_invalidos' using errcode = '22023';
+      end if;
+      if v_reps > 0 or v_tempo >= 3 then
+        v_blocos_ativos := v_blocos_ativos + 1;
+      end if;
+    end loop;
+    -- A câmera não viu movimento em pelo menos metade dos exercícios: vale como modo manual.
+    if v_blocos_ativos * 2 < v_total_blocos then
+      v_modo := 'manual';
+      v_sem_movimento := true;
+    end if;
+  end if;
+
+  v_hoje := (now() at time zone p.fuso_horario)::date;
+  select exists (
+    select 1 from public.challenge_attempts
+    where user_id = v_user and challenge_id = c.id and status = 'concluido' and refeito and xp > 0
+      and (concluido_em at time zone p.fuso_horario)::date = v_hoje
+  ) into v_refazer_pago;
+  select not exists (
+    select 1 from public.challenge_attempts
+    where user_id = v_user and status = 'concluido'
+      and (concluido_em at time zone p.fuso_horario)::date = v_hoje
+  ) into v_primeiro;
+
+  v_base := public.xp_do_desafio(c.tipo);
+  v_xp_desafio := case
+    when v_refeito and v_refazer_pago then 0
+    else greatest(1, round(v_base * (case when v_modo = 'manual' then 0.5 else 1 end) * (case when v_refeito then 1.0 / 3 else 1 end)))::int
+  end;
+  if v_primeiro then
+    v_xp_primeiro := case when v_modo = 'manual' then 3 else 5 end;
+  end if;
+  v_xp := v_xp_desafio + v_xp_primeiro;
+
+  insert into public.challenge_attempts
+    (user_id, challenge_id, dificuldade, modo, status, concluido_em, xp, valido_para_liga, refeito)
+  values (v_user, c.id, p.dificuldade_atual, v_modo, 'concluido', now(), v_xp_desafio, false, v_refeito)
+  returning id into v_attempt;
+
+  if p_modo = 'camera' then
+    insert into public.attempt_blocks
+      (attempt_id, ordem, challenge_block_id, exercise_id, serie, reps_validas, reps_parciais, tempo_valido_s, kpis, fora_quadro_pct)
+    select v_attempt, (e ->> 'ordem')::int,
+           (select cb.id from public.challenge_blocks cb where cb.challenge_id = c.id and cb.ordem = (e ->> 'ordem')::int),
+           v_blocos -> ((e ->> 'ordem')::int - 1) ->> 'exercicio_id', 1,
+           coalesce((e ->> 'reps_validas')::int, 0), coalesce((e ->> 'reps_parciais')::int, 0),
+           coalesce((e ->> 'tempo_valido_s')::numeric, 0), e -> 'kpis', coalesce((e ->> 'fora_quadro_pct')::numeric, 0)
+    from jsonb_array_elements(p_blocos) e
+    on conflict (attempt_id, ordem, serie) do nothing;
+  end if;
+
+  if v_xp_desafio > 0 then
+    insert into public.xp_events (user_id, tipo, valor, attempt_id)
+    values (v_user, case when v_refeito then 'refazer' else 'desafio' end, v_xp_desafio, v_attempt);
+  end if;
+  if v_xp_primeiro > 0 then
+    insert into public.xp_events (user_id, tipo, valor, attempt_id) values (v_user, 'primeiro_do_dia', v_xp_primeiro, v_attempt);
+  end if;
+
+  insert into public.user_challenge_progress (user_id, challenge_id, liberado, tentativas, concluido_em)
+  values (v_user, c.id, true, 1, now())
+  on conflict (user_id, challenge_id) do update
+    set tentativas = public.user_challenge_progress.tentativas + 1,
+        concluido_em = coalesce(public.user_challenge_progress.concluido_em, now());
+
+  -- Ofensiva: versão simples (dias seguidos). Protetor, recuperação, marcos e
+  -- a virada do dia por cron entram na Fase 4.
+  insert into public.streak_days (user_id, dia, tipo) values (v_user, v_hoje, 'feito')
+  on conflict (user_id, dia) do nothing;
+  update public.streaks
+  set atual = case
+        when ultimo_dia_ativo = v_hoje then atual
+        when ultimo_dia_ativo = v_hoje - 1 then atual + 1
+        else 1
+      end,
+      ultimo_dia_ativo = v_hoje
+  where user_id = v_user;
+  update public.streaks set recorde = greatest(recorde, atual) where user_id = v_user
+  returning atual into v_ofensiva;
+
+  if not v_refeito then
+    select not exists (
+      select 1 from public.trilha_estados(v_user) where unit_id = c.unit_id and estado in ('disponivel', 'bloqueado')
+    ) into v_unidade_concluida;
+    select not exists (
+      select 1 from public.trilha_estados(v_user) where level_id = c.level_id and estado in ('disponivel', 'bloqueado')
+    ) into v_nivel_concluido;
+  end if;
+
+  -- Unidade inteira numa única sessão: do primeiro ao último desafio em até 3 horas.
+  if v_unidade_concluida then
+    select max(ucp.concluido_em) - min(ucp.concluido_em) <= interval '3 hours' into v_unidade_sessao
+    from public.user_challenge_progress ucp
+    join public.challenges ch on ch.id = ucp.challenge_id
+    where ucp.user_id = v_user and ch.unit_id = c.unit_id and ucp.concluido_em is not null;
+    if v_unidade_sessao then
+      insert into public.xp_events (user_id, tipo, valor, attempt_id) values (v_user, 'unidade_sessao', 50, v_attempt);
+      v_xp := v_xp + 50;
+    end if;
+  end if;
+
+  if v_nivel_concluido then
+    update public.user_level_progress set concluido_em = now()
+    where user_id = v_user and level_id = c.level_id and concluido_em is null;
+    if found then
+      insert into public.xp_events (user_id, tipo, valor) values (v_user, 'nivel_concluido', 30);
+      v_xp := v_xp + 30;
+      select id into v_proximo from public.levels where ordem = (select ordem + 1 from public.levels where id = c.level_id);
+      if v_proximo is not null then
+        insert into public.user_level_progress (user_id, level_id, liberado) values (v_user, v_proximo, true)
+        on conflict (user_id, level_id) do update set liberado = true;
+        update public.profiles set nivel_atual = v_proximo where id = v_user and nivel_atual = c.level_id;
+      end if;
+    else
+      v_nivel_concluido := false;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'xp', v_xp, 'modo', v_modo, 'sem_movimento', v_sem_movimento,
+    'primeiro_do_dia', v_primeiro, 'refeito', v_refeito, 'refazer_sem_xp', v_refeito and v_refazer_pago,
+    'ofensiva', v_ofensiva, 'unidade_concluida', v_unidade_concluida, 'unidade_sessao', coalesce(v_unidade_sessao, false),
+    'nivel_concluido', v_nivel_concluido, 'proximo_nivel', v_proximo
+  );
+end;
+$$;
+
+-- >>> migrations/20261126000200_exercicios_etapa1a.sql
+-- Hive Break · Os 4 exercícios que faltavam no motor (Etapa 1A do
+-- docs/PLANO_ETAPAS_UX.md): as variações fáceis já referenciadas por
+-- `variacao_facil` em agachamento_livre, flexao_braco, polichinelo e
+-- apoio_uma_perna, mas que ainda não existiam.
+--
+-- Diferente de supabase/seed_trilha.sql (gerado por scripts/gerar-seed-trilha.ts
+-- a partir da lista que monta a trilha), estes 4 não entram em nenhuma unidade
+-- ou desafio nesta etapa — só no catálogo (tabela exercises), para servir de
+-- substituto. Por isso ficam numa migração à parte, escrita à mão.
+insert into public.exercises (id, nome, modalidade, camera, definicao, equipamento) values
+  ('agachamento_parcial_cadeira', 'Agachamento parcial na cadeira', 'forca', 'frontal',
+   '{"id":"agachamento_parcial_cadeira","nome":"Agachamento parcial na cadeira","modalidade":"forca","camera":"frontal","formato":"repeticoes","seg_por_rep":3,"pontos_obrigatorios":["quadril_e","quadril_d","joelho_e","joelho_d"],"medida_principal":{"tipo":"angulo","pontos":["quadril","joelho","tornozelo"],"lado":"media","espaco":"3d"},"medidas":{"joelhos_tornozelos":{"tipo":"distancia","pontos":["joelho_e","joelho_d"],"normalizar_por":["tornozelo_e","tornozelo_d"]}},"histerese":5,"fases":[{"nome":"topo","condicao":"medida > 155"},{"nome":"fundo","condicao":"medida < 140"}],"repeticao":["topo","fundo","topo"],"parcial_se":"min_medida < 150","parcial_feedback":"Desça até a cadeira","amplitude":{"extremo":"min","minimo_aceito":140,"ideal":110},"duracao_minima_ms":500,"fase_minima_ms":150,"erros":[{"id":"valgo","condicao":"vis(tornozelos) > 0.7 e dist(joelhos) < 0.7 * dist(tornozelos)","fase":"fundo","feedback":"Joelhos para fora"}],"kpis":["reps_validas","reps_parciais","amplitude_media","tempo_excentrico","tempo_concentrico","cadencia"],"instrucoes":["Fique de frente para o celular, com o corpo inteiro na tela.","Uma cadeira firme atrás de você, sem rodinha.","Desça até encostar levemente na cadeira (sem sentar o peso) e suba de novo."]}'::jsonb,
+   null),
+  ('flexao_joelhos', 'Flexão com joelhos apoiados', 'forca', 'lateral',
+   '{"id":"flexao_joelhos","nome":"Flexão com joelhos apoiados","modalidade":"forca","camera":"lateral","formato":"repeticoes","seg_por_rep":3,"pontos_obrigatorios":["ombro","cotovelo","punho","quadril"],"medida_principal":{"tipo":"angulo","pontos":["ombro","cotovelo","punho"],"lado":"visivel","espaco":"2d"},"medidas":{"tronco":{"tipo":"inclinacao","pontos":["quadril","ombro"],"lado":"visivel"}},"histerese":5,"fases":[{"nome":"topo","condicao":"medida > 145 e tronco > 20"},{"nome":"fundo","condicao":"medida < 115 e tronco > 20"}],"repeticao":["topo","fundo","topo"],"parcial_se":"min_medida < 135","parcial_feedback":"Desça mais o peito","amplitude":{"extremo":"min","minimo_aceito":115,"ideal":85},"duracao_minima_ms":600,"erros":[{"id":"amplitude_curta","quando":"fim_rep","condicao":"min_medida > 95","feedback":"Desça mais o peito"}],"kpis":["reps_validas","reps_parciais","amplitude_media","cadencia"],"instrucoes":["Celular no chão, de lado para você, mostrando o corpo inteiro.","Joelhos no chão, mãos no chão na linha dos ombros, do joelho ao ombro em linha reta.","Desça até o cotovelo dobrar e suba, sem deixar o quadril cair."]}'::jsonb,
+   null),
+  ('polichinelo_sem_salto', 'Polichinelo sem salto', 'cardio', 'frontal',
+   '{"id":"polichinelo_sem_salto","nome":"Polichinelo sem salto","modalidade":"cardio","camera":"frontal","formato":"repeticoes","seg_por_rep":2.5,"pontos_obrigatorios":["ombro_e","ombro_d","quadril_e","quadril_d","tornozelo_e","tornozelo_d"],"medida_principal":{"tipo":"distancia","pontos":["tornozelo_e","tornozelo_d"],"normalizar_por":["ombro_e","ombro_d"]},"medidas":{"maos_cabeca":{"tipo":"altura","pontos":["nariz","punho"],"lado":"min","normalizar_por":["ombro_e","ombro_d"]},"maos_ombro":{"tipo":"altura","pontos":["ombro","punho"],"lado":"max","normalizar_por":["ombro_e","ombro_d"]}},"histerese":0.1,"fases":[{"nome":"fechado","condicao":"medida < 1.1 e maos_ombro < 0"},{"nome":"aberto","condicao":"medida > 1.3"}],"repeticao":["fechado","aberto","fechado"],"parcial_se":"max_medida > 1.15","parcial_feedback":"Abra mais as pernas","amplitude":{"extremo":"max","minimo_aceito":1.3,"ideal":1.9},"duracao_minima_ms":700,"fase_minima_ms":150,"erros":[{"id":"bracos_baixos","quando":"fim_rep","condicao":"max_maos_ombro < 0","invalida":true,"feedback":"Suba os braços"},{"id":"bracos_meio","quando":"fim_rep","condicao":"max_maos_ombro >= 0 e max_maos_cabeca < 0","feedback":"Braços acima da cabeça"}],"kpis":["reps_validas","reps_parciais","cadencia","regularidade"],"alternativas":{"joelho":"marcha_estacionaria"},"instrucoes":["Fique de frente para o celular, com o corpo inteiro na tela, inclusive as mãos no alto.","Comece com os pés juntos e os braços ao lado do corpo.","Sem saltar: abra um pé de cada vez até passar da largura dos ombros, levando as mãos acima da cabeça, depois volte do mesmo jeito."]}'::jsonb,
+   null),
+  ('apoio_uma_perna_com_toque', 'Apoio em uma perna, com toque', 'equilibrio', 'frontal',
+   '{"id":"apoio_uma_perna_com_toque","nome":"Apoio em uma perna, com toque","modalidade":"equilibrio","camera":"frontal","formato":"equilibrio","pontos_obrigatorios":["ombro_e","ombro_d","quadril_e","quadril_d","tornozelo_e","tornozelo_d"],"medida_principal":{"tipo":"altura","pontos":["tornozelo_d","tornozelo_e"],"normalizar_por":["ombro","quadril"]},"histerese":0.04,"fase_minima_ms":150,"sustentacao":{"condicao":"abs(medida) > 0.12","feedback_perda":"Pé tocou o chão","toques_tolerados":2,"lado":{"medida":"medida","positivo":"e","negativo":"d"},"controle":{"ponto":"quadril","normalizar_por":["ombro","quadril"],"oscilacao_maxima":0.08}},"erros":[],"kpis":["tempo_valido_s","tempo_valido_e_s","tempo_valido_d_s","oscilacao","estabilidade","simetria","perdas_posicao"],"instrucoes":["Fique de frente para o celular, com o corpo inteiro na tela.","Tire um pé do chão e segure. Pode ser qualquer perna.","O tempo só corre enquanto o pé estiver no ar; tocar o chão de leve até 2 vezes na série não reinicia a contagem."]}'::jsonb,
+   null)
+on conflict (id) do update set nome = excluded.nome, modalidade = excluded.modalidade, camera = excluded.camera,
+  definicao = excluded.definicao, equipamento = excluded.equipamento;
+
+-- >>> migrations/20261126000300_score_obsoleto.sql
+-- Hive Break · Score 0-100 e estrelas abandonados (Etapa 1A do
+-- docs/PLANO_ETAPAS_UX.md; decisão registrada em docs/DECISOES.md).
+--
+-- Nunca foram implementados (decisão 65 em docs/DECISOES.md). O recorde já é,
+-- na prática, o melhor número cru por exercício e variante (reps válidas ou
+-- segundos válidos: ver lerRecordes em src/lib/carregar-desafio.ts). Estas
+-- colunas ficam só comentadas como obsoletas, sem apagar: convite_publico
+-- (migração 20261122000100_visitante.sql) e migrar_visitante ainda as leem.
+comment on column public.challenge_attempts.score is
+  'Obsoleta (nunca implementada): o score 0-100 foi abandonado. Recorde = melhor número cru (reps válidas ou segundos válidos), ver docs/DECISOES.md, seção "Etapa 1A".';
+comment on column public.challenge_attempts.estrelas is
+  'Obsoleta (nunca implementada): as estrelas foram abandonadas junto com o score 0-100, ver docs/DECISOES.md, seção "Etapa 1A".';
+comment on column public.attempt_blocks.score_bloco is
+  'Obsoleta (nunca implementada): ver docs/DECISOES.md, seção "Etapa 1A".';
+comment on column public.user_challenge_progress.melhor_score is
+  'Obsoleta (nunca implementada): ver docs/DECISOES.md, seção "Etapa 1A".';
+comment on column public.user_challenge_progress.melhores_estrelas is
+  'Obsoleta (nunca implementada): ver docs/DECISOES.md, seção "Etapa 1A".';
+
+-- >>> migrations/20261126000400_eventos.sql
+-- Hive Break · Eventos do primeiro acesso (Etapa 1A do docs/PLANO_ETAPAS_UX.md)
+--
+-- Tabela nova, separada de eventos_visitante (migração 20261122000100_visitante.sql):
+-- aquela tem uma lista fechada de tipos do funil de CONVERSÃO do visitante,
+-- gravados só pelo servidor, sempre com um perfil já existente. Os eventos
+-- daqui acontecem no navegador, antes de qualquer perfil existir (ftue_aberto
+-- é a landing, sem login nenhum), então a função fica aberta para anon e
+-- authenticated. Ver docs/DECISOES.md, seção "Etapa 1A".
+create table public.eventos (
+  id bigint generated always as identity primary key,
+  -- Sem chave estrangeira: vale tanto para quem ainda não tem perfil (anon) quanto para o dono.
+  usuario_id uuid,
+  nome text not null check (nome in (
+    'ftue_aberto', 'comecar_tocado', 'declaracao_aceita', 'camera_permitida', 'camera_negada',
+    'preparo_iniciado', 'primeira_rep', 'desafio_concluido'
+  )),
+  props jsonb not null default '{}',
+  criado_em timestamptz not null default now()
+);
+create index eventos_nome_idx on public.eventos (nome, criado_em desc);
+create index eventos_usuario_idx on public.eventos (usuario_id, criado_em desc);
+alter table public.eventos enable row level security;
+revoke all on public.eventos from anon, authenticated;
+grant all on public.eventos to service_role;
+
+create function public.registrar_evento(p_nome text, p_props jsonb default '{}') returns void
+language sql security definer
+set search_path = public, pg_temp
+as $$
+  insert into public.eventos (usuario_id, nome, props) values (auth.uid(), p_nome, coalesce(p_props, '{}'));
+$$;
+grant execute on function public.registrar_evento(text, jsonb) to anon, authenticated;
+
 -- >>> seed.sql
 -- Hive Break · Seed de conteúdo fixo.
 -- Fase 1: os 8 níveis (seção 6.1) e as 12 conquistas (seção 9.6).

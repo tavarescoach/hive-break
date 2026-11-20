@@ -3,6 +3,8 @@ import { Assinatura } from "@/componentes/Assinatura";
 import { botaoPrimario, sobrelinha } from "@/componentes/estilos";
 import { InstalarApp } from "@/componentes/InstalarApp";
 import { seguirSeLogado } from "@/lib/sessao";
+import { BotaoComecar } from "./BotaoComecar";
+import { RegistrarFtue } from "./RegistrarFtue";
 
 const BENEFICIOS = [
   { titulo: "5 minutos já contam", texto: "Faça um desafio por dia, ou o treino completo quando der." },
@@ -40,9 +42,7 @@ export default async function Landing() {
 
       <div className="mt-auto flex flex-col gap-4">
         <InstalarApp />
-        <Link href="/comecar" className={botaoPrimario}>
-          Começar
-        </Link>
+        <BotaoComecar className={botaoPrimario} />
         <Link href="/entrar" className="py-1 text-center text-[15px] font-semibold text-apagado underline underline-offset-4">
           Já tenho conta · Entrar
         </Link>
@@ -51,6 +51,7 @@ export default async function Landing() {
         </p>
         <Assinatura />
       </div>
+      <RegistrarFtue />
     </main>
   );
 }

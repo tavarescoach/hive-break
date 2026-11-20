@@ -129,6 +129,8 @@ export class Motor {
   private readonly sustHisterese: number;
   private sustAtiva = false;
   private sustDesde = 0;
+  private toquesRestantes: number;
+  private emToqueTolerado = false;
   private naPosicao = false;
   private inicioPosicao = 0;
   private tempoValidoMs = 0;
@@ -212,6 +214,7 @@ export class Motor {
     if (def.alvos) this.pontosAlvo.push(...def.alvos.pontos.flatMap(indicesDoPonto));
     this.sustCondicao = def.sustentacao ? analisar(def.sustentacao.condicao) : null;
     this.sustHisterese = def.sustentacao?.histerese ?? histerese;
+    this.toquesRestantes = def.sustentacao?.toques_tolerados ?? 0;
   }
 
   /** Processa um frame e devolve os eventos gerados por ele. */
@@ -536,9 +539,19 @@ export class Motor {
     this.sustAtiva = ativa;
 
     if (!ativa) {
-      if (this.naPosicao) this.encerrarPosicao(t, sust.feedback_perda, eventos);
+      if (this.naPosicao) {
+        // Toque tolerado (ex.: pé livre tocou o chão): não encerra nem credita
+        // tempo enquanto espera a posição voltar; só conta quando acontece de novo.
+        if (!this.emToqueTolerado && this.toquesRestantes > 0) {
+          this.toquesRestantes--;
+          this.emToqueTolerado = true;
+        } else if (!this.emToqueTolerado) {
+          this.encerrarPosicao(t, sust.feedback_perda, eventos);
+        }
+      }
       return;
     }
+    this.emToqueTolerado = false;
 
     if (sust.lado) {
       const valor = this.medidas[sust.lado.medida];

@@ -76,6 +76,23 @@ const imediato = async (id: string, gatilho: string, dados: object = {}) =>
 
 const gatilhos = (envios: Envio[]) => envios.map((e) => `${e.gatilho}:${e.canal}`).sort();
 
+/**
+ * `lembrete_imediato` sempre usa `now()` real (não recebe instante de teste);
+ * se o relógio do ambiente cair no silêncio de São Paulo (22h30–8h), o canal
+ * push é pulado (lembrete_silencio) e o teste vira dependente da hora real em
+ * que rodou. Fuso cujo horário local, agora, cai ao meio-dia — bem longe do
+ * silêncio dos dois lados — para o teste valer em qualquer hora real.
+ */
+function fusoLongeDoSilencio(): string {
+  const horaUtc = new Date().getUTCHours();
+  let deslocamento = (12 - horaUtc) % 24;
+  if (deslocamento > 12) deslocamento -= 24;
+  if (deslocamento < -12) deslocamento += 24;
+  if (deslocamento === 0) return "Etc/UTC";
+  // Convenção POSIX (invertida): Etc/GMT-N = UTC+N; Etc/GMT+N = UTC-N.
+  return deslocamento > 0 ? `Etc/GMT-${deslocamento}` : `Etc/GMT+${-deslocamento}`;
+}
+
 const config = (chave: string, valor: unknown) =>
   db.query("update public.lembretes_config set valor = $2 where chave = $1", [chave, JSON.stringify(valor)]);
 
@@ -332,6 +349,9 @@ describe("social e marcos", () => {
 
   it("R3: marco de ofensiva uma vez por marco", async () => {
     const wal = await pessoa({ push: true });
+    // Marco é imediato e não respeita o silêncio para o canal email, mas o push sim:
+    // sem isto, o teste dependeria da hora real em que roda (ver fusoLongeDoSilencio).
+    await db.query("update public.profiles set fuso_horario = $2 where id = $1", [wal, fusoLongeDoSilencio()]);
     await ofensiva(wal, 7, "2026-11-20");
     expect(gatilhos(await imediato(wal, "R3"))).toEqual(["R3:email", "R3:push"]);
     await db.query("delete from public.notification_log where user_id = $1 and dia_local is not null and gatilho = 'R3'", [wal]).then(() =>

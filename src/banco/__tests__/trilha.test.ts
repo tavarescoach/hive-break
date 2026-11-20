@@ -58,14 +58,14 @@ beforeAll(async () => {
 });
 
 describe("conteúdo da trilha (seed)", () => {
-  it("tem os 19 exercícios, 8 níveis e 3 unidades por nível", async () => {
+  it("tem os 23 exercícios (19 da trilha + 4 variações fáceis da Etapa 1A), 8 níveis e 3 unidades por nível", async () => {
     const { rows } = await db.query<{ e: number; u: number; por_nivel: number[] }>(
       `select (select count(*)::int from public.exercises) as e,
               (select count(*)::int from public.units u join public.levels l on l.id = u.level_id and l.categoria = 'principal') as u,
               (select array_agg(n order by level_id) from
                  (select u.level_id, count(*)::int as n from public.units u
                   join public.levels l on l.id = u.level_id and l.categoria = 'principal' group by 1) x) as por_nivel`);
-    expect(rows[0]).toEqual({ e: 19, u: 24, por_nivel: [3, 3, 3, 3, 3, 3, 3, 3] });
+    expect(rows[0]).toEqual({ e: 23, u: 24, por_nivel: [3, 3, 3, 3, 3, 3, 3, 3] });
   });
 
   it("cada unidade tem de 8 a 12 desafios (8, 8, 10, 10, 10, 12, 12, 12) mais o desafio da unidade no fim", async () => {
@@ -317,5 +317,50 @@ describe("ofensiva (versão simples da Fase 1)", () => {
     const { rows } = await db.query<{ recorde: number; dias: number }>(
       "select recorde, (select count(*)::int from public.streak_days where user_id = $1) as dias from public.streaks where user_id = $1", [caio]);
     expect(rows[0]).toEqual({ recorde: 5, dias: 1 });
+  });
+});
+
+describe("fonte única de blocos (challenges.estrutura, Etapa 1A)", () => {
+  it("um desafio sem nenhuma linha em challenge_blocks conclui, grava XP, progresso e o bloco (sem challenge_block_id)", async () => {
+    const ana = await pessoa("Ana estrutura 1");
+    await db.query("insert into public.units (id, level_id, ordem, titulo) values ('testeplano', 1, 0, 'Teste Etapa 1A')");
+    await db.query(
+      `insert into public.challenges (id, level_id, unit_id, ordem, titulo, modalidade, duracao_s, intensidade, tipo, estrutura)
+       values ('testeplano01', 1, 'testeplano', 1, 'Teste estrutura única', 'core', 60, 'baixa', 'desafio',
+         '{"versao":2,"organizacao":"sequencia","pausa_entre_blocos_s":20,
+           "blocos":[{"exercicio_id":"agachamento_livre","metodo":"amrap","series":1,"esforco_s":40,"pausa_s":0,"score":"total_reps"}]}'::jsonb)`,
+    );
+    expect((await db.query("select 1 from public.challenge_blocks where challenge_id = 'testeplano01'")).rows).toEqual([]);
+
+    const blocos = '\'[{"ordem": 1, "reps_validas": 12, "reps_parciais": 0, "tempo_valido_s": 0, "fora_quadro_pct": 0, "kpis": {}}]\'::jsonb';
+    const r = await rpc<Resultado>(ana, `public.finalizar_desafio('testeplano01', 'camera', ${blocos})`);
+    // A unidade de teste só tem este desafio: concluí-lo também fecha a unidade na mesma sessão (+50 XP).
+    expect(r).toMatchObject({ xp: 15 + 50, modo: "camera", sem_movimento: false, primeiro_do_dia: true, unidade_concluida: true, unidade_sessao: true });
+
+    const gravado = await db.query<{ ordem: number; reps_validas: number; challenge_block_id: string | null }>(
+      `select b.ordem, b.reps_validas, b.challenge_block_id from public.attempt_blocks b
+       join public.challenge_attempts a on a.id = b.attempt_id where a.user_id = $1`,
+      [ana],
+    );
+    expect(gravado.rows).toEqual([{ ordem: 1, reps_validas: 12, challenge_block_id: null }]);
+
+    const progresso = await db.query<{ liberado: boolean; tentativas: number }>(
+      "select liberado, tentativas from public.user_challenge_progress where user_id = $1 and challenge_id = 'testeplano01'",
+      [ana],
+    );
+    expect(progresso.rows).toEqual([{ liberado: true, tentativas: 1 }]);
+  });
+
+  it("recusa número impossível de reps mesmo sem challenge_blocks (limite vem de estrutura.esforco_s)", async () => {
+    const ana = await pessoa("Ana estrutura 2");
+    await expect(
+      rpc(
+        ana,
+        `public.finalizar_desafio('testeplano01', 'camera', '[{"ordem": 1, "reps_validas": 5000, "reps_parciais": 0, "tempo_valido_s": 0, "fora_quadro_pct": 0, "kpis": {}}]'::jsonb)`,
+      ),
+    ).rejects.toThrow(/kpis_invalidos/);
+    await expect(
+      rpc(ana, `public.finalizar_desafio('testeplano01', 'camera', '[{"ordem": 2, "reps_validas": 1, "kpis": {}}]'::jsonb)`),
+    ).rejects.toThrow(/kpis_invalidos/);
   });
 });

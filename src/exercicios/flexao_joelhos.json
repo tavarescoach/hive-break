@@ -1,0 +1,77 @@
+{
+  "id": "flexao_joelhos",
+  "nome": "Flexão com joelhos apoiados",
+  "modalidade": "forca",
+  "camera": "lateral",
+  "formato": "repeticoes",
+  "seg_por_rep": 3,
+  "pontos_obrigatorios": [
+    "ombro",
+    "cotovelo",
+    "punho",
+    "quadril"
+  ],
+  "medida_principal": {
+    "tipo": "angulo",
+    "pontos": [
+      "ombro",
+      "cotovelo",
+      "punho"
+    ],
+    "lado": "visivel",
+    "espaco": "2d"
+  },
+  "medidas": {
+    "tronco": {
+      "tipo": "inclinacao",
+      "pontos": [
+        "quadril",
+        "ombro"
+      ],
+      "lado": "visivel"
+    }
+  },
+  "histerese": 5,
+  "fases": [
+    {
+      "nome": "topo",
+      "condicao": "medida > 145 e tronco > 20"
+    },
+    {
+      "nome": "fundo",
+      "condicao": "medida < 115 e tronco > 20"
+    }
+  ],
+  "repeticao": [
+    "topo",
+    "fundo",
+    "topo"
+  ],
+  "parcial_se": "min_medida < 135",
+  "parcial_feedback": "Desça mais o peito",
+  "amplitude": {
+    "extremo": "min",
+    "minimo_aceito": 115,
+    "ideal": 85
+  },
+  "duracao_minima_ms": 600,
+  "erros": [
+    {
+      "id": "amplitude_curta",
+      "quando": "fim_rep",
+      "condicao": "min_medida > 95",
+      "feedback": "Desça mais o peito"
+    }
+  ],
+  "kpis": [
+    "reps_validas",
+    "reps_parciais",
+    "amplitude_media",
+    "cadencia"
+  ],
+  "instrucoes": [
+    "Celular no chão, de lado para você, mostrando o corpo inteiro.",
+    "Joelhos no chão, mãos no chão na linha dos ombros, do joelho ao ombro em linha reta.",
+    "Desça até o cotovelo dobrar e suba, sem deixar o quadril cair."
+  ]
+}
